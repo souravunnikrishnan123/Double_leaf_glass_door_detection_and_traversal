@@ -2,6 +2,10 @@
 import pyrealsense2 as rs   # RealSense SDK for Python
 import numpy as np          # For array and matrix operations
 import cv2                  # OpenCV for image processing
+from collections import deque, Counter
+
+from roi import process_filtered_lines
+
 
 # -------------------------------
 # Initialize RealSense Pipeline
@@ -10,9 +14,9 @@ pipeline = rs.pipeline()
 config = rs.config()
 
 # Enable depth stream (z16 = 16-bit grayscale)
-config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 15)
 # Enable color stream (bgr8 = standard OpenCV format)
-config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 15)
 
 # Start streaming
 pipeline.start(config)
@@ -283,7 +287,98 @@ def get_z_depth(depth_frame, x, y):
     _, _, z = rs.rs2_deproject_pixel_to_point(intr, [x, y], depth)
     return z
 
+# Parameters
+HISTORY_LENGTH = 30  # Frames to track
+MAX_LINES_TO_TRACK = 5  # Keep top N stable lines
+DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
 
+# History: store list of detected lines (each as a tuple: (avg_x, points))
+line_history = deque(maxlen=HISTORY_LENGTH)
+
+
+def update_line_history(filtered_lines):
+    """
+    Add detected lines from current frame to history.
+    Args:
+        filtered_lines: list of lines (each is a list of (x,y) tuples)
+    """
+    frame_lines = []
+    for pts in filtered_lines:
+        pts = np.array(pts)  # Convert list of tuples to Nx2 array
+        avg_x = int(np.mean(pts[:, 0]))
+        frame_lines.append((avg_x, pts))
+    line_history.append(frame_lines)
+
+
+def get_stable_lines():
+    """
+    Analyze history and return the most stable lines.
+    Returns:
+        List of tuples (avg_x, line_points, confidence)
+    """
+    if len(line_history) < 5:
+        return []  # Not enough history
+
+    # Flatten all historical lines into one list
+    all_lines = []
+    for frame_lines in line_history:
+        all_lines.extend(frame_lines)
+
+    # Group lines by proximity in X
+    clusters = []
+    for avg_x, pts in all_lines:
+        placed = False
+        for cluster in clusters:
+            if abs(cluster["center_x"] - avg_x) < DISTANCE_THRESHOLD:
+                cluster["lines"].append((avg_x, pts))
+                cluster["center_x"] = np.mean([l[0] for l in cluster["lines"]])
+                placed = True
+                break
+        if not placed:
+            clusters.append({"center_x": avg_x, "lines": [(avg_x, pts)]})
+
+    # Compute stability (frequency) for each cluster
+    stable_lines = []
+    for cluster in clusters:
+        # Count how many frames this cluster appeared in
+        frame_counts = set()
+        for avg_x, _ in cluster["lines"]:
+            frame_counts.add(avg_x)  # Rough frame-based uniqueness
+        confidence = len(cluster["lines"]) / (len(line_history))  # normalized
+        # Take the most recent line points from this cluster
+        recent_line = cluster["lines"][-1][1]
+        stable_lines.append((int(cluster["center_x"]), recent_line, confidence))
+
+    # Sort clusters by confidence (most stable first)
+    stable_lines.sort(key=lambda x: x[2], reverse=True)
+
+    # Keep top N stable lines
+    return stable_lines[:MAX_LINES_TO_TRACK]
+
+
+
+def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
+    """
+    Draws stable lines on the image.
+    stable_lines: list of (avg_x, pts_array, score)
+    """
+    for avg_x, pts, score in stable_lines:
+        pts = np.array(pts)
+
+        # Ensure pts has at least 2 points
+        if len(pts) < 2:
+            continue
+
+        # Take first and last point for drawing
+        x1, y1 = int(pts[0][0]), int(pts[0][1])
+        x2, y2 = int(pts[-1][0]), int(pts[-1][1])
+
+        # Draw the line
+        cv2.line(image, (x1, y1), (x2, y2), color, 2)
+
+        # Annotate avg_x and score
+        cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 # -------------------------------
@@ -422,6 +517,33 @@ try:
         
             filtered_lines = filter_vertical_lines_glass_contact(vertical_lines, depth_frame, fx, glass_width_cm=40,center_frame_width_cm = 20 )
         
+            # After filtering vertical lines:
+            update_line_history(filtered_lines)
+
+            # Get stable lines
+            stable_lines = get_stable_lines()
+            
+            print(stable_lines)
+
+
+            # Draw stable lines
+            draw_stable_lines(color_image, stable_lines)
+
+            # Example: Extract full coordinates of each stable line
+            for avg_x, line_pts, confidence in stable_lines:
+                print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, Points={line_pts.shape}")
+
+            
+            avg_z_left, avg_z_right = process_filtered_lines(stable_lines, depth_frame, color_image)
+
+            # Display results on the image
+            if avg_z_left is not None:
+                cv2.putText(color_image, f"Left ROI Z: {avg_z_left:.2f} m", (30, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+            if avg_z_right is not None:
+                cv2.putText(color_image, f"Right ROI Z: {avg_z_right:.2f} m", (30, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
         # Process if enough vertical lines detected
 
         # Draw depth-refined vertical line

@@ -58,41 +58,53 @@ def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_dep
 
 def process_filtered_lines(filtered_lines, depth_frame, color_image):
     """
-    Process leftmost and rightmost lines:
-    - Create ROIs on left of leftmost and right of rightmost lines
-    - Compute average Z depth inside each ROI
-    - Draw the ROIs on the color image
+    For each pair of lines, create ROIs:
+    - Left ROI: to the left of the left line in the pair
+    - Right ROI: to the right of the right line in the pair
+    Compute average Z depth inside each ROI and draw them.
 
     Args:
-        filtered_lines: list of arrays, each array is line points [(x, y), (x, y), ...]
+        filtered_lines: list of tuples [(left_line_points, right_line_points), ...]
         depth_frame: RealSense depth frame
         color_image: BGR image for visualization
 
     Returns:
-        (avg_z_left, avg_z_right)
+        (avg_z_left_list, avg_z_right_list)
     """
-    if len(filtered_lines) < 2:
-        return None, None  # Need at least 2 lines
+    print(f"Processing {len(filtered_lines)} pairs for ROIs.")
+    avg_z_left_list = []
+    avg_z_right_list = []
 
-    # Sort lines by their average x position
-    filtered_lines.sort(key=lambda line: np.mean([p[0] for p in line]))
+    for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
+        # Compute average Z for left ROI
+        avg_z_left, roi_polygon_left = get_strip_avg_z(
+            depth_frame, left_line_points, side="left", roi_width=60, min_depth=1.7
+        )
+        avg_z_left_list.append(avg_z_left)
 
-    left_line_points = filtered_lines[0]
-    right_line_points = filtered_lines[-1]
+        # Compute average Z for right ROI
+        avg_z_right, roi_polygon_right = get_strip_avg_z(
+            depth_frame, right_line_points, side="right", roi_width=60, min_depth=1.7
+        )
+        avg_z_right_list.append(avg_z_right)
 
-    # Compute average Z for left ROI
-    avg_z_left, roi_polygon_left = get_strip_avg_z(depth_frame, left_line_points, side="left", roi_width=60, min_depth=1.7)
-
-    # Compute average Z for right ROI
-    avg_z_right, roi_polygon_right = get_strip_avg_z(depth_frame, right_line_points, side="right", roi_width=60, min_depth=1.7)
-
-    # Draw ROIs if available
-    if roi_polygon_left is not None:
-        cv2.polylines(color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
-    if roi_polygon_right is not None:
-        cv2.polylines(color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
-
-    return avg_z_left, avg_z_right
+        
+        # Draw ROIs if available
+        if roi_polygon_left is not None:
+            cv2.polylines(color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
+        if roi_polygon_right is not None:
+            cv2.polylines(color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
+        
+        # Annotate average Z values
+        if avg_z_left is not None:
+            cv2.putText(color_image, f"Left ROI {i+1} Z: {avg_z_left:.2f} m", (30, 30 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+        if avg_z_right is not None:
+            cv2.putText(color_image, f"Right ROI {i+1} Z: {avg_z_right:.2f} m", (30, 50 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+            
+    return avg_z_left_list, avg_z_right_list
 
 
 if __name__ == "__main__":

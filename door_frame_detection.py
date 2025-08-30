@@ -221,6 +221,8 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
             # Handle empty lines
             mean_x_coords.append(None) # Or some other placeholder
 
+    paired_lines = []
+
     for i, line in enumerate(lines):
         depths = [point[2] for point in line]
         median_depth = np.median(depths) # for depth median is more reliable as the values are different from one to another. chances of repetition is less in the dataset
@@ -253,9 +255,6 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
             if ((dist_left >= required_pixel_gap and dist_right <= frame_pixel_gap) or
                 (dist_right >= required_pixel_gap and dist_left <= frame_pixel_gap)):
                 filtered.append(line)
-                pt1 = tuple(map(int, line[0][:2]))
-                pt2 = tuple(map(int, line[-1][:2]))
-                cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)  # red
                 
 
 
@@ -264,22 +263,62 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
             dist_left = abs(x0 - mean_x_coords[i - 1])
             if dist_left <= frame_pixel_gap:
                 filtered.append(line)
-                pt1 = tuple(map(int, line[0][:2]))
-                pt2 = tuple(map(int, line[-1][:2]))
-                cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)  # red
+                
 
 
         elif right_exists:
             dist_right = abs(x0 - mean_x_coords[i + 1])
             if dist_right <= frame_pixel_gap:
                 filtered.append(line)
-                pt1 = tuple(map(int, line[0][:2]))
-                pt2 = tuple(map(int, line[-1][:2]))
-                cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)  # red
-
+                
 
         
-    return filtered
+    paired_lines = get_paired_lines(filtered, frame_pixel_gap)
+
+    return paired_lines
+
+
+def get_paired_lines(filtered, frame_pixel_gap):
+    """
+    Given a sorted list of filtered lines, return a list of tuples (line, neighbor_line)
+    where each pair is within frame_pixel_gap.
+    """
+    paired_lines = []
+    mean_x_coords = [np.mean([pt[0] for pt in line]) for line in filtered]
+
+    for i, line in enumerate(filtered):
+        x0 = mean_x_coords[i]
+        left_exists = i > 0
+        right_exists = i < len(filtered) - 1
+
+        # Both neighbors exist
+        if left_exists and right_exists:
+            x_left = mean_x_coords[i - 1]
+            x_right = mean_x_coords[i + 1]
+            dist_left = abs(x0 - x_left)
+            dist_right = abs(x0 - x_right)
+            # Pair with the neighbor within frame_pixel_gap
+            if dist_left <= frame_pixel_gap and dist_right > frame_pixel_gap:
+                paired_lines.append((line, filtered[i - 1]))
+            elif dist_right <= frame_pixel_gap and dist_left > frame_pixel_gap:
+                paired_lines.append((line, filtered[i + 1]))
+            # If both are within gap, you can choose one or both (here, choose left)
+            elif dist_left <= frame_pixel_gap and dist_right <= frame_pixel_gap:
+                paired_lines.append((line, filtered[i - 1]))
+        # Only left neighbor
+        elif left_exists:
+            x_left = mean_x_coords[i - 1]
+            dist_left = abs(x0 - x_left)
+            if dist_left <= frame_pixel_gap:
+                paired_lines.append((line, filtered[i - 1]))
+        # Only right neighbor
+        elif right_exists:
+            x_right = mean_x_coords[i + 1]
+            dist_right = abs(x0 - x_right)
+            if dist_right <= frame_pixel_gap:
+                paired_lines.append((line, filtered[i + 1]))
+    return paired_lines
+
 
 def get_z_depth(depth_frame, x, y):
     depth = depth_frame.get_distance(x, y)
@@ -371,9 +410,9 @@ def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
             continue
         x1, y1 = int(pts[0][0]), int(pts[0][1])
         x2, y2 = int(pts[-1][0]), int(pts[-1][1])
-        cv2.line(image, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        #cv2.line(image, (x1, y1), (x2, y2), color, 2)
+        #cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
+                    #cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 # -------------------------------
@@ -509,36 +548,56 @@ try:
             intr = depth_frame.profile.as_video_stream_profile().intrinsics
             fx = intr.fx  # in pixels
             
-        
-            filtered_lines = filter_vertical_lines_glass_contact(vertical_lines, depth_frame, fx, glass_width_cm=40,center_frame_width_cm = 20 )
-        
-            # After filtering vertical lines:
-            update_line_history(filtered_lines)
 
-            # Get stable lines
+            update_line_history(vertical_lines)
             stable_lines = get_stable_lines()
+            draw_stable_lines(color_image, stable_lines)
+
+            # Pass only line points to filter function
+            stable_line_points = [line_pts for avg_x, line_pts, confidence in stable_lines]
             
-            print(stable_lines)
+            # Visualize stable_line_points (lines passed to filter_vertical_lines_glass_contact)
+            for line_pts in stable_line_points:
+                if len(line_pts) >= 2:
+                    pt1 = tuple(map(int, line_pts[0][:2]))
+                    pt2 = tuple(map(int, line_pts[-1][:2]))
+                    cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
+                    
+
+            paired_lines = filter_vertical_lines_glass_contact(
+                stable_line_points, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
+            )
+            
+            
+            # Visualize paired lines (glass frame candidates)
+            for left_line, right_line in paired_lines:
+                # Draw left line in red
+                if len(left_line) >= 2:
+                    pt1 = tuple(map(int, left_line[0][:2]))
+                    pt2 = tuple(map(int, left_line[-1][:2]))
+                    cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
+                # Draw right line in cyan
+                if len(right_line) >= 2:
+                    pt1 = tuple(map(int, right_line[0][:2]))
+                    pt2 = tuple(map(int, right_line[-1][:2]))
+                    cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+            
+            
+
+            
+            #print(stable_lines)
 
 
             # Draw stable lines
             draw_stable_lines(color_image, stable_lines)
 
             # Example: Extract full coordinates of each stable line
-            for avg_x, line_pts, confidence in stable_lines:
+            #for avg_x, line_pts, confidence in stable_lines:
                 # Print the number of points instead of shape
-                print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
+                #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
             
-            avg_z_left, avg_z_right = process_filtered_lines([line_pts for avg_x, line_pts, confidence in stable_lines], depth_frame, color_image)
-
-            # Display results on the image
-            if avg_z_left is not None:
-                cv2.putText(color_image, f"Left ROI Z: {avg_z_left:.2f} m", (30, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-            if avg_z_right is not None:
-                cv2.putText(color_image, f"Right ROI Z: {avg_z_right:.2f} m", (30, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            avg_z_left, avg_z_right = process_filtered_lines(paired_lines, depth_frame, color_image)
 
         # Process if enough vertical lines detected
 

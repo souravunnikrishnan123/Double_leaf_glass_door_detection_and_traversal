@@ -363,20 +363,15 @@ def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
     stable_lines: list of (avg_x, pts_array, score)
     """
     for avg_x, pts, score in stable_lines:
+        # Ensure pts is a numpy array of points
         pts = np.array(pts)
-
-        # Ensure pts has at least 2 points
+        if pts.ndim != 2 or pts.shape[1] < 2:
+            continue
         if len(pts) < 2:
             continue
-
-        # Take first and last point for drawing
         x1, y1 = int(pts[0][0]), int(pts[0][1])
         x2, y2 = int(pts[-1][0]), int(pts[-1][1])
-
-        # Draw the line
         cv2.line(image, (x1, y1), (x2, y2), color, 2)
-
-        # Annotate avg_x and score
         cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
@@ -531,10 +526,11 @@ try:
 
             # Example: Extract full coordinates of each stable line
             for avg_x, line_pts, confidence in stable_lines:
-                print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, Points={line_pts.shape}")
+                # Print the number of points instead of shape
+                print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
             
-            avg_z_left, avg_z_right = process_filtered_lines(stable_lines, depth_frame, color_image)
+            avg_z_left, avg_z_right = process_filtered_lines([line_pts for avg_x, line_pts, confidence in stable_lines], depth_frame, color_image)
 
             # Display results on the image
             if avg_z_left is not None:

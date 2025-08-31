@@ -275,6 +275,9 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
         
     paired_lines = get_paired_lines(filtered, frame_pixel_gap)
 
+    #print("Filtered lines:", filtered)
+    #print("Paired lines:", paired_lines)
+
     return paired_lines
 
 
@@ -317,7 +320,18 @@ def get_paired_lines(filtered, frame_pixel_gap):
             dist_right = abs(x0 - x_right)
             if dist_right <= frame_pixel_gap:
                 paired_lines.append((line, filtered[i + 1]))
-    return paired_lines
+
+
+    # Remove duplicate pairs (order-insensitive)
+    unique_pairs = []
+    seen = set()
+    for l1, l2 in paired_lines:
+        # Use tuple of sorted ids to avoid (A,B) and (B,A) duplicates
+        key = tuple(sorted([id(l1), id(l2)]))
+        if key not in seen:
+            unique_pairs.append((l1, l2))
+            seen.add(key)
+    return unique_pairs
 
 
 def get_z_depth(depth_frame, x, y):
@@ -581,15 +595,8 @@ try:
                     pt1 = tuple(map(int, right_line[0][:2]))
                     pt2 = tuple(map(int, right_line[-1][:2]))
                     cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
-            
-            
-
-            
-            #print(stable_lines)
 
 
-            # Draw stable lines
-            draw_stable_lines(color_image, stable_lines)
 
             # Example: Extract full coordinates of each stable line
             #for avg_x, line_pts, confidence in stable_lines:
@@ -597,7 +604,7 @@ try:
                 #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
             
-            avg_z_left, avg_z_right = process_filtered_lines(paired_lines, depth_frame, color_image)
+            avg_z_left, avg_z_right, filtered_pairs = process_filtered_lines(paired_lines, depth_frame, color_image)
 
         # Process if enough vertical lines detected
 

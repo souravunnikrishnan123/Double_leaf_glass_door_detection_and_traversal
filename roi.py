@@ -52,7 +52,7 @@ def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_dep
             if z >= min_depth and z != 0 and not np.isnan(z):
                 z_values.append(z)
 
-    avg_z = float(np.mean(z_values)) if len(z_values) > 0 else None
+    avg_z = float(np.mean(z_values)) if len(z_values) > 10 else None
     return avg_z, roi_polygon
 
 
@@ -71,40 +71,63 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
     Returns:
         (avg_z_left_list, avg_z_right_list)
     """
+
+    correction_factor=1.1
+
     print(f"Processing {len(filtered_lines)} pairs for ROIs.")
     avg_z_left_list = []
     avg_z_right_list = []
+    filtered_pairs = []
 
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
         # Compute average Z for left ROI
         avg_z_left, roi_polygon_left = get_strip_avg_z(
-            depth_frame, left_line_points, side="left", roi_width=60, min_depth=1.7
+            depth_frame, left_line_points, side="left", roi_width=120, min_depth=1.7
         )
-        avg_z_left_list.append(avg_z_left)
+        
 
         # Compute average Z for right ROI
         avg_z_right, roi_polygon_right = get_strip_avg_z(
-            depth_frame, right_line_points, side="right", roi_width=60, min_depth=1.7
+            depth_frame, right_line_points, side="right", roi_width=120, min_depth=1.7
         )
-        avg_z_right_list.append(avg_z_right)
+        
+
+        # Calculate mean Z along the left line
+        z_left_line = [pt[2] for pt in left_line_points if pt[2] > 0 and not np.isnan(pt[2])]
+        mean_z_left_line = float(np.mean(z_left_line)) if z_left_line else None
+
+        # Calculate mean Z along the right line
+        z_right_line = [pt[2] for pt in right_line_points if pt[2] > 0 and not np.isnan(pt[2])]
+        mean_z_right_line = float(np.mean(z_right_line)) if z_right_line else None
 
         
-        # Draw ROIs if available
-        if roi_polygon_left is not None:
-            cv2.polylines(color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
-        if roi_polygon_right is not None:
-            cv2.polylines(color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
-        
-        # Annotate average Z values
-        if avg_z_left is not None:
+                # Filter pairs based on your criteria
+        if (mean_z_left_line is not None and avg_z_left is not None and mean_z_left_line*correction_factor < avg_z_left) and (mean_z_right_line is not None and avg_z_right is not None and mean_z_right_line*correction_factor < avg_z_right):
+            avg_z_left_list.append(avg_z_left)
+            avg_z_right_list.append(avg_z_right)
+            filtered_pairs.append((left_line_points, right_line_points))
+
+
+            # Draw ROIs if available
+            if roi_polygon_left is not None:
+                cv2.polylines(color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
+            if roi_polygon_right is not None:
+                cv2.polylines(color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
+            
+            # Annotate average Z values
             cv2.putText(color_image, f"Left ROI {i+1} Z: {avg_z_left:.2f} m", (30, 30 + i*40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-        if avg_z_right is not None:
             cv2.putText(color_image, f"Right ROI {i+1} Z: {avg_z_right:.2f} m", (30, 50 + i*40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(color_image, f"Left Line {i+1} Z: {mean_z_left_line:.2f} m", (300, 30 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+            cv2.putText(color_image, f"Right Line {i+1} Z: {mean_z_right_line:.2f} m", (300, 50 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+
         
             
-    return avg_z_left_list, avg_z_right_list
+    return avg_z_left_list, avg_z_right_list, filtered_pairs
 
 
 if __name__ == "__main__":

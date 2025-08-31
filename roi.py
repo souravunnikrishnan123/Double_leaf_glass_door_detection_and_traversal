@@ -27,7 +27,7 @@ def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_dep
     dx /= length
     dy /= length
 
-    if side == "right":
+    if side == "left":
         offset_vec = np.array([-dy, dx])
     else:
         offset_vec = np.array([dy, -dx])
@@ -82,13 +82,13 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
         # Compute average Z for left ROI
         avg_z_left, roi_polygon_left = get_strip_avg_z(
-            depth_frame, left_line_points, side="left", roi_width=120, min_depth=1.7
+            depth_frame, left_line_points, side="left", roi_width=240, min_depth=1.7
         )
         
 
         # Compute average Z for right ROI
         avg_z_right, roi_polygon_right = get_strip_avg_z(
-            depth_frame, right_line_points, side="right", roi_width=120, min_depth=1.7
+            depth_frame, right_line_points, side="right", roi_width=240, min_depth=1.7
         )
         
 

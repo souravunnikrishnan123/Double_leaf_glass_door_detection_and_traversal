@@ -275,8 +275,8 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
         
     paired_lines = get_paired_lines(filtered, frame_pixel_gap)
 
-    #print("Filtered lines:", filtered)
-    #print("Paired lines:", paired_lines)
+    print("Filtered lines:", filtered)
+    print("Paired lines:", paired_lines)
 
     return paired_lines
 
@@ -287,6 +287,9 @@ def get_paired_lines(filtered, frame_pixel_gap):
     where each pair is within frame_pixel_gap.
     """
     paired_lines = []
+
+    filtered = sorted(filtered, key=lambda line: sum(point[0] for point in line) / len(line))
+
     mean_x_coords = [np.mean([pt[0] for pt in line]) for line in filtered]
 
     for i, line in enumerate(filtered):
@@ -302,18 +305,18 @@ def get_paired_lines(filtered, frame_pixel_gap):
             dist_right = abs(x0 - x_right)
             # Pair with the neighbor within frame_pixel_gap
             if dist_left <= frame_pixel_gap and dist_right > frame_pixel_gap:
-                paired_lines.append((line, filtered[i - 1]))
+                paired_lines.append(( filtered[i - 1], line))
             elif dist_right <= frame_pixel_gap and dist_left > frame_pixel_gap:
                 paired_lines.append((line, filtered[i + 1]))
             # If both are within gap, you can choose one or both (here, choose left)
             elif dist_left <= frame_pixel_gap and dist_right <= frame_pixel_gap:
-                paired_lines.append((line, filtered[i - 1]))
+                paired_lines.append(( filtered[i - 1], line))
         # Only left neighbor
         elif left_exists:
             x_left = mean_x_coords[i - 1]
             dist_left = abs(x0 - x_left)
             if dist_left <= frame_pixel_gap:
-                paired_lines.append((line, filtered[i - 1]))
+                paired_lines.append((filtered[i - 1], line))
         # Only right neighbor
         elif right_exists:
             x_right = mean_x_coords[i + 1]
@@ -331,6 +334,7 @@ def get_paired_lines(filtered, frame_pixel_gap):
         if key not in seen:
             unique_pairs.append((l1, l2))
             seen.add(key)
+    print("Unique pairs found:", unique_pairs)
     return unique_pairs
 
 
@@ -427,7 +431,9 @@ def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
         #cv2.line(image, (x1, y1), (x2, y2), color, 2)
         #cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
                     #cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-
+def sort_line_by_y(line_points):
+    # Sort points by y-coordinate (ascending)
+    return sorted(line_points, key=lambda pt: pt[1])
 
 # -------------------------------
 # Main loop for live streaming
@@ -582,9 +588,14 @@ try:
                 stable_line_points, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
             )
             
+            # Adjust all pairs so each line's points are sorted by y
+            paired_lines_sorted = [
+                (sort_line_by_y(left_line), sort_line_by_y(right_line))
+                for left_line, right_line in paired_lines]
+            
             
             # Visualize paired lines (glass frame candidates)
-            for left_line, right_line in paired_lines:
+            for left_line, right_line in paired_lines_sorted:
                 # Draw left line in red
                 if len(left_line) >= 2:
                     pt1 = tuple(map(int, left_line[0][:2]))
@@ -604,7 +615,7 @@ try:
                 #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
             
-            avg_z_left, avg_z_right, filtered_pairs = process_filtered_lines(paired_lines, depth_frame, color_image)
+            avg_z_left, avg_z_right, filtered_pairs = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
 
         # Process if enough vertical lines detected
 

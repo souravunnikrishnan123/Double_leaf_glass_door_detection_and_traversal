@@ -74,7 +74,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
 
     correction_factor=1.1
 
-    print(f"Processing {len(filtered_lines)} pairs for ROIs.")
+    #print(f"Processing {len(filtered_lines)} pairs for ROIs.")
     avg_z_left_list = []
     avg_z_right_list = []
     filtered_pairs = []

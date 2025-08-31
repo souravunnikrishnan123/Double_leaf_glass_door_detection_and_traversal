@@ -275,8 +275,8 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
         
     paired_lines = get_paired_lines(filtered, frame_pixel_gap)
 
-    print("Filtered lines:", filtered)
-    print("Paired lines:", paired_lines)
+    #print("Filtered lines:", filtered)
+    #print("Paired lines:", paired_lines)
 
     return paired_lines
 
@@ -334,7 +334,7 @@ def get_paired_lines(filtered, frame_pixel_gap):
         if key not in seen:
             unique_pairs.append((l1, l2))
             seen.add(key)
-    print("Unique pairs found:", unique_pairs)
+    #print("Unique pairs found:", unique_pairs)
     return unique_pairs
 
 
@@ -593,7 +593,7 @@ try:
                 (sort_line_by_y(left_line), sort_line_by_y(right_line))
                 for left_line, right_line in paired_lines]
             
-            
+
             # Visualize paired lines (glass frame candidates)
             for left_line, right_line in paired_lines_sorted:
                 # Draw left line in red

@@ -5,6 +5,7 @@ import cv2                  # OpenCV for image processing
 from collections import deque, Counter
 
 from roi import process_filtered_lines
+from door_status import detect_door_state
 
 
 # -------------------------------
@@ -615,7 +616,17 @@ try:
                 #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
             
-            avg_z_left, avg_z_right, filtered_pairs = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
+            avg_z_left, avg_z_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
+
+            if len(filtered_pairs) == 1:  # need to change this logic to check if the detected line is left or right frame
+                final_left_frame_line = filtered_pairs[0][0] if filtered_pairs else None
+                final_right_frame_line = filtered_pairs[0][1] if filtered_pairs else None
+
+                door_state = detect_door_state(depth_frame, color_image, final_left_frame_line, final_right_frame_line,
+                      roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
+
+
+                print(f"Door is {door_state}")
 
         # Process if enough vertical lines detected
 

@@ -78,6 +78,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
     avg_z_left_list = []
     avg_z_right_list = []
     filtered_pairs = []
+    mean_z_depth_along_frame_lines = None
 
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
         # Compute average Z for left ROI
@@ -100,7 +101,11 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
         z_right_line = [pt[2] for pt in right_line_points if pt[2] > 0 and not np.isnan(pt[2])]
         mean_z_right_line = float(np.mean(z_right_line)) if z_right_line else None
 
-        
+        if mean_z_left_line is not None and mean_z_right_line is not None:
+            mean_z_depth_along_frame_lines = 0.5 * (mean_z_left_line + mean_z_right_line)
+        else:
+            mean_z_depth_along_frame_lines = None
+
                 # Filter pairs based on your criteria
         if (mean_z_left_line is not None and avg_z_left is not None and mean_z_left_line*correction_factor < avg_z_left) and (mean_z_right_line is not None and avg_z_right is not None and mean_z_right_line*correction_factor < avg_z_right):
             avg_z_left_list.append(avg_z_left)
@@ -127,7 +132,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
 
         
             
-    return avg_z_left_list, avg_z_right_list, filtered_pairs
+    return avg_z_left_list, avg_z_right_list, filtered_pairs, mean_z_depth_along_frame_lines
 
 
 if __name__ == "__main__":

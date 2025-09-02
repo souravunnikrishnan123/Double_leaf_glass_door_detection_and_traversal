@@ -19,7 +19,8 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
     xs = [p[0] for p in line_points]
     ys = [p[1] for p in line_points]
     x_min, x_max = int(min(xs)), int(max(xs))
-    y_min = int(min(ys))
+    #y_min = int(min(ys))
+    y_min = 0  # start from top of image
     # Use image_height if provided, else use max y from line
     y_max = image_height - 1 if image_height is not None else int(max(ys))
 
@@ -48,41 +49,36 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
     mask = np.zeros((depth_height, depth_width), dtype=np.uint8)
     cv2.fillPoly(mask, [roi_polygon.astype(np.int32)], 255)
 
-    z_values = []
+    valid_points = []
     ys, xs = np.where(mask == 255)
     for (x, y) in zip(xs, ys):
         z = get_z_depth(depth_frame, x, y)
         if z > 0:
-            z_values.append(z)
+            valid_points.append((x, y, z))
 
-    if len(z_values) == 0:
+    if len(valid_points) == 0:
         return 0.0
 
-    z_values = np.array(z_values)
 
     # Filter: only consider values within [-20%, +50%] of door_depth
     lower = door_depth * 0.8
-    upper = door_depth * 1.5
-    valid_mask = (z_values >= lower) & (z_values <= upper)
-    z_values = z_values[valid_mask]
-    if len(z_values) == 0:
+    upper = door_depth * 1.2
+    filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
+    if len(filtered_points) == 0:
         return 0.0
 
-    # Count only those within ±5% of door_depth
-    close_mask = (np.abs(z_values - door_depth) <= door_depth * 0.05)
-    fraction_close = np.sum(close_mask) / len(z_values)
+    # Count only those within ±10% of door_depth
+    close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.1]
+    fraction_close = len(close_points) / len(filtered_points)
 
-     # Visualization
+    # Visualization
     if color_image is not None:
         cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=color, thickness=2)
-        # Highlight valid + close pixels in ROI
-        for (x, y, z) in zip(xs, ys, z_values):
-            if lower <= z <= upper:
-                if abs(z - door_depth) <= door_depth * 0.05:
-                    color_image = cv2.circle(color_image, (x, y), 1, (0, 0, 255), -1)  # red = matches door depth
-                else:
-                    color_image = cv2.circle(color_image, (x, y), 1, (255, 0, 0), -1)  # blue = valid but not close
-
+        for (x, y, z) in filtered_points:
+            if abs(z - door_depth) <= door_depth * 0.1:
+                color_image = cv2.circle(color_image, (x, y), 1, (0, 0, 255), -1)  # red = matches door depth
+            else:
+                color_image = cv2.circle(color_image, (x, y), 1, (255, 0, 0), -1)  # blue = valid but not close
 
     return fraction_close
 
@@ -101,6 +97,8 @@ def detect_door_state(depth_frame,color_image, left_line_points, right_line_poin
     # Step 3: check depth consistency
     left_match = check_side_roi_against_door(depth_frame, color_image, roi_left, z_door_depth, color=(255, 0, 255))
     right_match = check_side_roi_against_door(depth_frame, color_image, roi_right, z_door_depth, color=(0, 255, 255))
+
+    print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
 
     # Step 4: decision
     left_consistent = left_match > threshold

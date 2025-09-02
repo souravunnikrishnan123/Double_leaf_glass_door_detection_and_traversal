@@ -4,6 +4,7 @@ import numpy as np          # For array and matrix operations
 import cv2                  # OpenCV for image processing
 from collections import deque, Counter
 
+from depth_based_detection import depth_based_edge_detection
 from roi import process_filtered_lines
 from door_status import detect_door_state
 
@@ -618,15 +619,20 @@ try:
             
             avg_z_left, avg_z_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
 
-            if len(filtered_pairs) == 1:  # need to change this logic to check if the detected line is left or right frame
-                final_left_frame_line = filtered_pairs[0][0] if filtered_pairs else None
-                final_right_frame_line = filtered_pairs[0][1] if filtered_pairs else None
+            #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
+            if filtered_pairs:
+                leftmost_idx = np.argmin([np.mean([pt[0] for pt in pair[0]]) for pair in filtered_pairs])
+                final_left_frame_line = filtered_pairs[leftmost_idx][0]
+                final_right_frame_line = filtered_pairs[leftmost_idx][1]
+
 
                 door_state = detect_door_state(depth_frame, color_image, final_left_frame_line, final_right_frame_line,
                       roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
 
 
                 print(f"Door is {door_state}")
+
+        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE)
 
         # Process if enough vertical lines detected
 

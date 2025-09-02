@@ -30,7 +30,11 @@ align = rs.align(rs.stream.color)
 # Constants for Depth Display
 # -------------------------------
 MIN_DEPTH = 0.3  # Minimum depth (in meters)
-MAX_DEPTH = 6.0  # Maximum depth (in meters)
+MAX_DEPTH = 6  # Maximum depth (in meters)
+
+MIN_DEPTH_DEPTH_EDGE_DETECTION = 0.3  # Minimum depth for edge detection (in meters)
+MAX_DEPTH_DEPTH_EDGE_DETECTION = 3.0  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
+
 DEPTH_RANGE = (1.9, 2.1)  # in meters
 ROI_WIDTH = 60            # width of ROI in pixels
 
@@ -494,13 +498,13 @@ try:
         # Draw detected vertical lines on image
                 # If any lines are detected
         vertical_lines = []
-
+        """
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
                 angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
                 #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
-                if 70 < abs(angle) < 110:  # near-vertical
+                if 80 < abs(angle) < 100:  # near-vertical
                     #cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
                     image_height = depth_image.shape[0]
                     y_top = 0
@@ -631,8 +635,8 @@ try:
 
 
                 print(f"Door is {door_state}")
-
-        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE)
+        """
+        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
 
         # Process if enough vertical lines detected
 

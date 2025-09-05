@@ -498,7 +498,7 @@ try:
         # Draw detected vertical lines on image
                 # If any lines are detected
         vertical_lines = []
-        """
+        '''
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
@@ -553,7 +553,7 @@ try:
                     # Combine all
                     full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
                     
-                    '''
+                    
                     if len(filtered_segment) >= 2:
                         pt1 = tuple(map(int, filtered_segment[0][:2]))
                         pt2 = tuple(map(int, filtered_segment[-1][:2]))
@@ -563,7 +563,7 @@ try:
                         pt1 = tuple(map(int, full_line_segment[0][:2]))
                         pt2 = tuple(map(int, full_line_segment[-1][:2]))
                         cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
-                    '''
+                    
 
                     # Append clipped vertical line
                     vertical_lines.append(full_line_segment)
@@ -635,7 +635,7 @@ try:
 
 
                 print(f"Door is {door_state}")
-        """
+        '''
         depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
 
         # Process if enough vertical lines detected

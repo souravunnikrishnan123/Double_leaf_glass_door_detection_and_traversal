@@ -4,11 +4,11 @@ import numpy as np          # For array and matrix operations
 import cv2                  # OpenCV for image processing
 from collections import deque, Counter
 
-from depth_based_detection import depth_based_edge_detection
+from depth_based_detection import depth_based_edge_detection, depth_based_edge_detection_within_rgb_based_frame_lines_roi
 from roi import process_filtered_lines
 from door_status import detect_door_state
 from get_z_depth import get_z_depth
-
+from get_roi_bounding_box_for_depth_line_detection import get_roi_bounding_box_from_frame_lines_for_depth_lines_detection
 
 # -------------------------------
 # Initialize RealSense Pipeline
@@ -495,7 +495,7 @@ try:
         # Draw detected vertical lines on image
                 # If any lines are detected
         vertical_lines = []
-        """
+        
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
@@ -554,12 +554,12 @@ try:
                     if len(filtered_segment) >= 2:
                         pt1 = tuple(map(int, filtered_segment[0][:2]))
                         pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                        cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
+                        #cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
 
                     if len(full_line_segment) >= 2:
                         pt1 = tuple(map(int, full_line_segment[0][:2]))
                         pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                        cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
+                        #cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
                     
 
                     # Append clipped vertical line
@@ -584,7 +584,7 @@ try:
                 if len(line_pts) >= 2:
                     pt1 = tuple(map(int, line_pts[0][:2]))
                     pt2 = tuple(map(int, line_pts[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
+                    #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
                     
 
             paired_lines = filter_vertical_lines_glass_contact(
@@ -603,12 +603,12 @@ try:
                 if len(left_line) >= 2:
                     pt1 = tuple(map(int, left_line[0][:2]))
                     pt2 = tuple(map(int, left_line[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
+                    #cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
                 # Draw right line in cyan
                 if len(right_line) >= 2:
                     pt1 = tuple(map(int, right_line[0][:2]))
                     pt2 = tuple(map(int, right_line[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+                    #cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
 
 
 
@@ -627,13 +627,25 @@ try:
                 final_right_frame_line = filtered_pairs[leftmost_idx][1]
 
 
-                door_state = detect_door_state(depth_frame, color_image, final_left_frame_line, final_right_frame_line,
-                      roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
+                #door_state = detect_door_state(depth_frame, color_image, final_left_frame_line, final_right_frame_line,
+                      #roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
 
 
-                print(f"Door is {door_state}")
-        """
-        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
+                #print(f"Door is {door_state}")
+
+
+                # Compute ROI bounding box
+                min_x, max_x, min_y, max_y = get_roi_bounding_box_from_frame_lines_for_depth_lines_detection(final_left_frame_line, final_right_frame_line, margin=40, img_shape=color_image.shape)
+                # Crop color and depth images
+                roi_color = color_image[min_y:max_y, min_x:max_x]
+                roi_depth_np = np.asanyarray(depth_frame.get_data())[min_y:max_y, min_x:max_x]
+
+                # need to adapt depth_based_edge_detection to accept numpy arrays for depth
+                depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
+                
+
+        
+        #depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
 
         # Process if enough vertical lines detected
 

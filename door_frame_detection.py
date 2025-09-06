@@ -7,6 +7,7 @@ from collections import deque, Counter
 from depth_based_detection import depth_based_edge_detection
 from roi import process_filtered_lines
 from door_status import detect_door_state
+from get_z_depth import get_z_depth
 
 
 # -------------------------------
@@ -35,7 +36,8 @@ MAX_DEPTH = 6  # Maximum depth (in meters)
 MIN_DEPTH_DEPTH_EDGE_DETECTION = 0.3  # Minimum depth for edge detection (in meters)
 MAX_DEPTH_DEPTH_EDGE_DETECTION = 3.0  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
 
-DEPTH_RANGE = (1.9, 2.1)  # in meters
+DEPTH_RANGE = (1.7, 2.2)  # in meters
+
 ROI_WIDTH = 60            # width of ROI in pixels
 
 MAX_CLIP_DEPTH = 0.1
@@ -344,11 +346,6 @@ def get_paired_lines(filtered, frame_pixel_gap):
     return unique_pairs
 
 
-def get_z_depth(depth_frame, x, y):
-    depth = depth_frame.get_distance(x, y)
-    intr = depth_frame.profile.as_video_stream_profile().intrinsics
-    _, _, z = rs.rs2_deproject_pixel_to_point(intr, [x, y], depth)
-    return z
 
 # Parameters
 HISTORY_LENGTH = 30  # Frames to track
@@ -498,7 +495,7 @@ try:
         # Draw detected vertical lines on image
                 # If any lines are detected
         vertical_lines = []
-        '''
+        """
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
@@ -635,7 +632,7 @@ try:
 
 
                 print(f"Door is {door_state}")
-        '''
+        """
         depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
 
         # Process if enough vertical lines detected

@@ -3,12 +3,7 @@ import numpy as np
 import pyrealsense2 as rs 
 
 
-def get_z_depth(depth_frame, x, y):
-    depth = depth_frame.get_distance(x, y)
-    intr = depth_frame.profile.as_video_stream_profile().intrinsics
-    _, _, z = rs.rs2_deproject_pixel_to_point(intr, [x, y], depth)
-    return z
-
+from get_z_depth import get_z_depth
 
 def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image_height=None):
     """

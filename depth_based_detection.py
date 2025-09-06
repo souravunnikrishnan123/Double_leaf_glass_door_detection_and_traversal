@@ -6,62 +6,59 @@ import pyrealsense2 as rs
 
 from confidence_score_calculation import calculate_confidence_scores 
 from cluster_and_merge_depth_based_lines import cluster_and_merge_lines
+from get_z_depth import get_z_depth
 
 
 confidence_history = deque()
 
-def get_z_depth(depth_frame, x, y):
-    depth = depth_frame.get_distance(x, y)
-    intr = depth_frame.profile.as_video_stream_profile().intrinsics
-    _, _, z = rs.rs2_deproject_pixel_to_point(intr, [x, y], depth)
-    return z
 
 
-def robust_line_z(depth_frame, x1, y1, x2, y2,
-                  num_steps=5, step_size=2):
+def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
     """
-    Estimate Z-depth of a detected line by sampling pixels perpendicular to it.
-    Always pick the side with *smaller* median Z (the nearer frame).
+    Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
+    using get_z_depth for accurate Z-axis depth.
     """
-    # Line vector
-    dx, dy = x2 - x1, y2 - y1
-    length = np.hypot(dx, dy)
-    if length < 1e-3:
+    if abs(x1 - x2) > abs(y1 - y2):
+        print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
         return None
 
-    # Unit normal (perpendicular to the line)
-    nx, ny = -dy / length, dx / length
+    y_start = min(y1, y2)
+    y_end = max(y1, y2)
+    x_center = int((x1 + x2) / 2)
 
-    zs_neg, zs_pos = [], []
 
-    for i in range(num_steps):
-        offset = (i + 1) * step_size
+    # List to store valid Z-depths for each ROI
+    z_depths1, z_depths2 = [], []
 
-        # sample on negative normal side
-        px_neg = int((x1 + x2) / 2 - nx * offset)
-        py_neg = int((y1 + y2) / 2 - ny * offset)
-        z_neg = get_z_depth(depth_frame, px_neg, py_neg)
-        if z_neg is not None:
-            zs_neg.append(z_neg)
+    # Iterate through the height of the line to sample points for ROI 1
+    for y in range(y_start, y_end):
+        for x_offset in range(-roi_width, 0):
+            x_pixel = x_center + x_offset
+            z = get_z_depth(depth_frame, x_pixel, y)
+            if z is not None:
+                z_depths1.append(z)
 
-        # sample on positive normal side
-        px_pos = int((x1 + x2) / 2 + nx * offset)
-        py_pos = int((y1 + y2) / 2 + ny * offset)
-        z_pos = get_z_depth(depth_frame, px_pos, py_pos)
-        if z_pos is not None:
-            zs_pos.append(z_pos)
+    # Iterate through the height of the line to sample points for ROI 2
+    for y in range(y_start, y_end):
+        for x_offset in range(1, roi_width + 1):
+            x_pixel = x_center + x_offset
+            z = get_z_depth(depth_frame, x_pixel, y)
+            if z is not None:
+                z_depths2.append(z)
 
-    # compute medians safely
-    med_neg = np.median(zs_neg) if len(zs_neg) > 0 else np.inf
-    med_pos = np.median(zs_pos) if len(zs_pos) > 0 else np.inf
+    # Compute medians
+    med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
+    med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
 
-    # choose nearer side (smaller Z)
-    if med_neg < med_pos and med_neg < np.inf:
-        return med_neg
-    elif med_pos < np.inf:
-        return med_pos
+    # Apply your filtering logic
+    if med_z_depth1 == 0 and med_z_depth2 == 0:
+        return None
+    elif med_z_depth1 == 0:
+        return med_z_depth2
+    elif med_z_depth2 == 0:
+        return med_z_depth1
     else:
-        return None
+        return min(med_z_depth1, med_z_depth2)
     
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
@@ -125,15 +122,15 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
             # Keep only near-vertical lines
             if 80 < abs(angle) < 100:
                 # Estimate Z-depth of the line robustly
-                #d = robust_line_z(depth_frame, x1, y1, x2, y2,num_steps=5, step_size=2)
-
+                d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
+                #cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
                 x_m = int((x1 + x2) / 2)
                 y_m = int((y1 + y2) / 2)
-                d = get_z_depth(depth_frame, x_m, y_m)
+                #d = get_z_depth(depth_frame, x_m, y_m)
 
                 # Draw only if within specified depth range
                 if d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]:
-                    #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
+                    cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
                     valid_lines.append((x1, y1, x2, y2))
                     # show the midpoint used for normals
 
@@ -146,7 +143,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
         scored_lines = []
         for line in merged_lines:
             x1, y1, x2, y2 = line
-            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)
+            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)#orange for merged lines
             num_samples = 10
             scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, color_image, num_samples))
 
@@ -166,7 +163,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
                 # Compute average of scores in last 10 seconds
                 if confidence_history:
                     avg_conf = np.mean([score for _, score in confidence_history])
-                    print(f"[DEBUG] Avg confidence score (last 10s): {avg_conf:.3f}")
+                    #print(f"[DEBUG] Avg confidence score (last 10s): {avg_conf:.3f}")
                 else:
                     print("[DEBUG] No confidence scores in last 10 seconds.")
                 cv2.line(color_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red for highest score line

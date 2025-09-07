@@ -124,7 +124,7 @@ def robust_line_z_roi_new(z_depth_map, x1, y1, x2, y2, roi_width=20, min_valid=0
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE):
+def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25, final_left_frame_line=None, final_right_frame_line=None):
 
     depth_height, depth_width = depth_frame.height, depth_frame.width
 
@@ -132,8 +132,16 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
     # Build Z-depth map
     z_depth_map = np.asanyarray(depth_frame.get_data()).astype(np.float32) / 1000.0
 
-    # Valid mask (ignore too near/far or invalid points)
+
+    # Global validity check
+    # Filter out sensor invalid values (too close, too far, nan/0)
     valid_mask = (z_depth_map > MIN_DEPTH) & (z_depth_map < MAX_DEPTH)
+
+    # Detect strong edges between ~door distance (1.8–2.2 m) and background (0 or >2.5 m)
+    roi_mask = ((z_depth_map > 1.8) & (z_depth_map < 2.2)) | (z_depth_map == 0) | (z_depth_map > 2.5)
+
+    # Combine masks
+    final_mask = valid_mask & roi_mask
 
     # Smooth Z-depth (bilateral preserves edges better than Gaussian)
     z_depth_filtered = cv2.bilateralFilter(z_depth_map, d=7, sigmaColor=50, sigmaSpace=75)
@@ -141,7 +149,144 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
     # Gradient along X (detect vertical edges in depth)
     depth_grad_x = cv2.Sobel(z_depth_filtered, cv2.CV_32F, 1, 0, ksize=5)
     depth_grad_x = np.abs(depth_grad_x)
-    depth_grad_x[~valid_mask] = 0  #Only gradients at valid depth pixels are used to compute the threshold
+    # Apply mask (keep only valid + relevant regions)
+    depth_grad_x[~final_mask] = 0 
+
+    # Normalize for visualization (convert to 8-bit image)
+    sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+
+    # Convert Sobel visualization to color (BGR)
+    sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
+
+
+    # Adaptive threshold: mean + k*std of valid gradients
+    valid_grad_vals = depth_grad_x[final_mask]  #Only gradients at valid depth pixels are used to compute the threshold
+    if len(valid_grad_vals) > 0:
+        mean_val = np.mean(valid_grad_vals)
+        std_val = np.std(valid_grad_vals)
+        k = 2.0  # tune sensitivity
+        thresh_val = mean_val + k * std_val
+    else:
+        thresh_val = 0.1  # fallback threshold
+
+    _, depth_edges = cv2.threshold(depth_grad_x, thresh_val, 255, cv2.THRESH_BINARY)
+    depth_edges = depth_edges.astype(np.uint8)
+
+    #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
+    physical_mask = (depth_grad_x > PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
+    depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
+
+    # Overlay depth edges in red
+    sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
+    cv2.imshow("Sobel + Depth Edges", sobel_vis_color)
+
+    # Hough Transform on depth-based vertical edges
+    depth_lines = cv2.HoughLinesP(depth_edges, 1, np.pi / 180, threshold=100,
+                                minLineLength=100, maxLineGap=30)
+
+    # Compute average x for frame lines
+    left_x = np.mean([pt[0] for pt in final_left_frame_line])
+    right_x = np.mean([pt[0] for pt in final_right_frame_line])
+    margin_to_the_frame_side = 5  # pixels
+    margin_to_the_glass_side = 20  # pixels
+
+    valid_lines = []
+    if depth_lines is not None:
+        for line in depth_lines:
+            x1, y1, x2, y2 = line[0]
+
+            x_avg = (x1 + x2) / 2
+
+            # Compute line angle
+            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+
+            # Keep only near-vertical lines
+            if 80 < abs(angle) < 100:
+                # Estimate Z-depth of the line robustly
+                d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
+                #cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
+                x_m = int((x1 + x2) / 2)
+                y_m = int((y1 + y2) / 2)
+                
+                # Limit area for left and right
+                left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
+                right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
+
+
+                # Draw only if within specified depth range
+                if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
+                    #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
+                    valid_lines.append((x1, y1, x2, y2))
+                    # show the midpoint used for normals
+
+                    cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
+                    # optional annotate depth
+                    #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+    
+    merged_lines = cluster_and_merge_lines(valid_lines)  # only merging lines that are vertical, valid, and within depth range
+    if merged_lines is not None and len(merged_lines) > 0:
+        scored_lines = []
+        for line in merged_lines:
+            x1, y1, x2, y2 = line
+            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)#orange for merged lines
+            num_samples = 10
+            scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, color_image, num_samples))
+
+            top_lines = []
+            if len(scored_lines) > 0:
+                # Sort lines by confidence score (descending)
+                top_lines = sorted(scored_lines, key=lambda x: x[1], reverse=True)[:2]
+                for line_info in top_lines:
+                    x1, y1, x2, y2 = line_info[0]
+                    cv2.line(color_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red for top 2 lines
+
+                # (Optional) Update confidence history with the highest score
+                now = time.time()
+                confidence_history.append((now, top_lines[0][1]))
+                while confidence_history and now - confidence_history[0][0] > 10:
+                    confidence_history.popleft()
+                if confidence_history:
+                    avg_conf = np.mean([score for _, score in confidence_history])
+                    #print(f"[DEBUG] Avg confidence score (last 10s): {avg_conf:.3f}")
+                else:
+                    print("[DEBUG] No confidence scores in last 10 seconds.")
+    else:
+        print("[DEBUG] No depth-based Hough lines found.")
+    
+    cv2.imshow("Main Output", color_image)
+
+
+
+
+
+
+def depth_based_edge_detection_within_rgb_based_frame_lines_roi(depth_np_array, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD=0.25):
+
+    depth_height, depth_width = depth_np_array.shape[:2]
+
+
+    # Build Z-depth map
+    z_depth_map = depth_np_array.astype(np.float32) / 1000.0
+    
+
+    # Global validity check
+    # Filter out sensor invalid values (too close, too far, nan/0)
+    valid_mask = (z_depth_map > MIN_DEPTH) & (z_depth_map < MAX_DEPTH)
+
+    # Detect strong edges between ~door distance (1.8–2.2 m) and background (0 or >2.5 m)
+    roi_mask = ((z_depth_map > 1.8) & (z_depth_map < 2.2)) | (z_depth_map == 0) | (z_depth_map > 2.5)
+
+    # Combine masks
+    final_mask = valid_mask & roi_mask
+
+    # Smooth Z-depth (bilateral preserves edges better than Gaussian)
+    z_depth_filtered = cv2.bilateralFilter(z_depth_map, d=7, sigmaColor=50, sigmaSpace=75)
+
+    # Gradient along X (detect vertical edges in depth)
+    depth_grad_x = cv2.Sobel(z_depth_filtered, cv2.CV_32F, 1, 0, ksize=5)
+    depth_grad_x = np.abs(depth_grad_x)
+    depth_grad_x[~final_mask] = 0  #Only gradients at valid depth pixels are used to compute the threshold
 
     # Normalize for visualization (convert to 8-bit image)
     sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX)
@@ -152,18 +297,22 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
 
 
     # Adaptive threshold: mean + k*std of valid gradients
-    valid_grad_vals = depth_grad_x[valid_mask]  #Only gradients at valid depth pixels are used to compute the threshold
+    valid_grad_vals = depth_grad_x[final_mask]  #Only gradients at valid depth pixels are used to compute the threshold
     if len(valid_grad_vals) > 0:
         mean_val = np.mean(valid_grad_vals)
         std_val = np.std(valid_grad_vals)
-        k = 2.0  # tune sensitivity
+        k = 1.0  # tune sensitivity
         thresh_val = mean_val + k * std_val
     else:
-        thresh_val = 0.05  # fallback threshold
+        thresh_val = 0.1  # fallback threshold
 
     _, depth_edges = cv2.threshold(depth_grad_x, thresh_val, 255, cv2.THRESH_BINARY)
     depth_edges = depth_edges.astype(np.uint8)
     
+    #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
+    physical_mask = (depth_grad_x > PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
+    depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
+
     # Overlay depth edges in red
     sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
     cv2.imshow("Sobel + Depth Edges", sobel_vis_color)
@@ -184,7 +333,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
             # Keep only near-vertical lines
             if 80 < abs(angle) < 100:
                 # Estimate Z-depth of the line robustly
-                d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
+                d = robust_line_z_roi_new(z_depth_map, x1, y1, x2, y2, roi_width=20)
                 #cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
                 x_m = int((x1 + x2) / 2)
                 y_m = int((y1 + y2) / 2)
@@ -209,142 +358,24 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
             num_samples = 10
             scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, color_image, num_samples))
 
+            top_lines = []
             if len(scored_lines) > 0:
-            # Find the line with the highest confidence score
-                max_line = max(scored_lines, key=lambda x: x[1])
-                x1, y1, x2, y2 = max_line[0]
+                # Sort lines by confidence score (descending)
+                top_lines = sorted(scored_lines, key=lambda x: x[1], reverse=True)[:2]
+                for line_info in top_lines:
+                    x1, y1, x2, y2 = line_info[0]
+                    cv2.line(color_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red for top 2 lines
 
-                
+                # (Optional) Update confidence history with the highest score
                 now = time.time()
-                confidence_history.append((now, max_line[1]))
-
-                # Remove entries older than 10 seconds
+                confidence_history.append((now, top_lines[0][1]))
                 while confidence_history and now - confidence_history[0][0] > 10:
                     confidence_history.popleft()
-
-                # Compute average of scores in last 10 seconds
                 if confidence_history:
                     avg_conf = np.mean([score for _, score in confidence_history])
                     #print(f"[DEBUG] Avg confidence score (last 10s): {avg_conf:.3f}")
                 else:
                     print("[DEBUG] No confidence scores in last 10 seconds.")
-                cv2.line(color_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red for highest score line
-    else:
-        print("[DEBUG] No depth-based Hough lines found.")
-    
-    cv2.imshow("Main Output", color_image)
-
-
-
-
-
-
-def depth_based_edge_detection_within_rgb_based_frame_lines_roi(depth_np_array, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE):
-
-    depth_height, depth_width = depth_np_array.shape[:2]
-
-
-    # Build Z-depth map
-    z_depth_map = depth_np_array.astype(np.float32) / 1000.0
-    
-
-    # Valid mask (ignore too near/far or invalid points)
-    valid_mask = (z_depth_map > MIN_DEPTH) & (z_depth_map < MAX_DEPTH)
-
-    # Smooth Z-depth (bilateral preserves edges better than Gaussian)
-    z_depth_filtered = cv2.bilateralFilter(z_depth_map, d=7, sigmaColor=50, sigmaSpace=75)
-
-    # Gradient along X (detect vertical edges in depth)
-    depth_grad_x = cv2.Sobel(z_depth_filtered, cv2.CV_32F, 1, 0, ksize=5)
-    depth_grad_x = np.abs(depth_grad_x)
-    depth_grad_x[~valid_mask] = 0  #Only gradients at valid depth pixels are used to compute the threshold
-
-    # Normalize for visualization (convert to 8-bit image)
-    sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX)
-    sobel_vis = sobel_vis.astype(np.uint8)
-
-    # Convert Sobel visualization to color (BGR)
-    sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
-
-
-    # Adaptive threshold: mean + k*std of valid gradients
-    valid_grad_vals = depth_grad_x[valid_mask]  #Only gradients at valid depth pixels are used to compute the threshold
-    if len(valid_grad_vals) > 0:
-        mean_val = np.mean(valid_grad_vals)
-        std_val = np.std(valid_grad_vals)
-        k = 2.0  # tune sensitivity
-        thresh_val = mean_val + k * std_val
-    else:
-        thresh_val = 0.05  # fallback threshold
-
-    _, depth_edges = cv2.threshold(depth_grad_x, thresh_val, 255, cv2.THRESH_BINARY)
-    depth_edges = depth_edges.astype(np.uint8)
-    
-    # Overlay depth edges in red
-    sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
-    cv2.imshow("Sobel + Depth Edges", sobel_vis_color)
-
-    # Hough Transform on depth-based vertical edges
-    depth_lines = cv2.HoughLinesP(depth_edges, 1, np.pi / 180, threshold=50,
-                                minLineLength=50, maxLineGap=20)
-
-
-    valid_lines = []
-    if depth_lines is not None:
-        for line in depth_lines:
-            x1, y1, x2, y2 = line[0]
-
-            # Compute line angle
-            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-
-            # Keep only near-vertical lines
-            if 80 < abs(angle) < 100:
-                # Estimate Z-depth of the line robustly
-                d = robust_line_z_roi_new(z_depth_map, x1, y1, x2, y2, roi_width=20)
-                #cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
-                x_m = int((x1 + x2) / 2)
-                y_m = int((y1 + y2) / 2)
-                
-
-                # Draw only if within specified depth range
-                #if d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]:
-                cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
-                valid_lines.append((x1, y1, x2, y2))
-                    # show the midpoint used for normals
-
-                cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
-                    # optional annotate depth
-                    #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
-    
-    merged_lines = cluster_and_merge_lines(valid_lines)  # only merging lines that are vertical, valid, and within depth range
-    if merged_lines is not None and len(merged_lines) > 0:
-        scored_lines = []
-        for line in merged_lines:
-            x1, y1, x2, y2 = line
-            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)#orange for merged lines
-            num_samples = 10
-            scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, color_image, num_samples))
-
-            if len(scored_lines) > 0:
-            # Find the line with the highest confidence score
-                max_line = max(scored_lines, key=lambda x: x[1])
-                x1, y1, x2, y2 = max_line[0]
-
-                
-                now = time.time()
-                confidence_history.append((now, max_line[1]))
-
-                # Remove entries older than 10 seconds
-                while confidence_history and now - confidence_history[0][0] > 10:
-                    confidence_history.popleft()
-
-                # Compute average of scores in last 10 seconds
-                if confidence_history:
-                    avg_conf = np.mean([score for _, score in confidence_history])
-                    #print(f"[DEBUG] Avg confidence score (last 10s): {avg_conf:.3f}")
-                else:
-                    print("[DEBUG] No confidence scores in last 10 seconds.")
-                cv2.line(color_image, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red for highest score line
     else:
         print("[DEBUG] No depth-based Hough lines found.")
     

@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def cluster_and_merge_lines(lines, x_thresh=5):
+def cluster_and_merge_lines(lines, x_thresh=10):
     """
     Cluster vertical lines by proximity in x-coordinate and merge into one line per cluster.
     Args:

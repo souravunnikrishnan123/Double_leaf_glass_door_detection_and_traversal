@@ -36,7 +36,7 @@ MAX_DEPTH = 6  # Maximum depth (in meters)
 MIN_DEPTH_DEPTH_EDGE_DETECTION = 0.3  # Minimum depth for edge detection (in meters)
 MAX_DEPTH_DEPTH_EDGE_DETECTION = 3.0  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
 
-DEPTH_RANGE = (1.7, 2.2)  # in meters
+DEPTH_RANGE = (1.8, 2.2)  # in meters
 
 ROI_WIDTH = 60            # width of ROI in pixels
 
@@ -87,7 +87,9 @@ def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gra
     """
     Traverse the line from (x1, y1) to (x2, y2) and extract the longest segment
     with smoothed depth gradient below a threshold.
-    Returns: [(x, y, depth)] filtered segment or empty list
+    Returns: [(x, y, depth)] filtered segment or empty list.
+    a line in RGB can be a composite of lines with different depths. this can cause inaccuracy. 
+    hence we need to take majority part of line which has a constant depth and take that depth as the depth of complete line
     """
     points = []
     for i in range(num_samples + 1):
@@ -121,21 +123,19 @@ def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gra
             current_segment.append((x, y, d))
         else:
             depths_from_current_segment = [d for _, _, d in current_segment]
-            center_depth_of_current_segment = np.median(depths_from_current_segment)
-            if center_depth_of_current_segment and (DEPTH_RANGE[0] <= center_depth_of_current_segment <= DEPTH_RANGE[1]):  
-                if len(current_segment) > len(max_segment):
-                    max_segment = current_segment
-                    center_depth = center_depth_of_current_segment
-                current_segment = []  # Reset when gradient too high
-                depth_window = []     # Also reset smoothing window
+            center_depth_of_current_segment = np.median(depths_from_current_segment) 
+            if len(current_segment) > len(max_segment):
+                max_segment = current_segment
+                center_depth = center_depth_of_current_segment
+            current_segment = []  # Reset when gradient too high
+            depth_window = []     # Also reset smoothing window
 
     # Final check
-    if len(current_segment) > len(max_segment): # to vover the case where,there is no depth variation in the entire line detected by houglines and canny. that is if abs(smoothed - d) < gradient_threshold: never became false
+    if len(current_segment) > len(max_segment): # to cover the case where,there is no depth variation in the entire line detected by houglines and canny. that is if abs(smoothed - d) < gradient_threshold: never became false
         depths_from_current_segment = [d for _, _, d in current_segment]
         center_depth_of_current_segment = np.median(depths_from_current_segment)
-        if center_depth_of_current_segment and (DEPTH_RANGE[0] <= center_depth_of_current_segment <= DEPTH_RANGE[1]):
-            max_segment = current_segment
-            center_depth = center_depth_of_current_segment
+        max_segment = current_segment
+        center_depth = center_depth_of_current_segment
 
     return max_segment, center_depth
 
@@ -490,7 +490,7 @@ try:
         #  - minLineLength=100: minimum length of line in pixels to be considered
         #  - maxLineGap=10: maximum allowed gap between line segments to link them
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100,
-                                minLineLength=100, maxLineGap=30)  #maxlingap of 30px is needed to detect door handle
+                                minLineLength=100, maxLineGap=20)  #maxlingap of 30px is needed to detect door handle
         
         # Draw detected vertical lines on image
                 # If any lines are detected
@@ -554,7 +554,7 @@ try:
                     if len(filtered_segment) >= 2:
                         pt1 = tuple(map(int, filtered_segment[0][:2]))
                         pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                        #cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
+                        cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
 
                     if len(full_line_segment) >= 2:
                         pt1 = tuple(map(int, full_line_segment[0][:2]))
@@ -565,30 +565,31 @@ try:
                     # Append clipped vertical line
                     vertical_lines.append(full_line_segment)
                     
-                    #cv2.line(color_image, (x1, y1), (x2, y2), (0, 255, 255), 1)  # Yellow, thin
-                    #cv2.line(color_image, (x_center, y_top), (x_center, y_bottom), (0, 255, 0), 2)  # Green, thicker
+                   
+                    
             
             intr = depth_frame.profile.as_video_stream_profile().intrinsics
             fx = intr.fx  # in pixels
             
-
-            update_line_history(vertical_lines)
-            stable_lines = get_stable_lines()
-            draw_stable_lines(color_image, stable_lines)
+            # there were some problem with stable_lines calculation. it was not working properly. so commenting it out for now
+            # Instead, we will just use vertical_lines directly for pairing
+            #update_line_history(vertical_lines)
+            #stable_lines = get_stable_lines()
+            #draw_stable_lines(color_image, stable_lines)
 
             # Pass only line points to filter function
-            stable_line_points = [line_pts for avg_x, line_pts, confidence in stable_lines]
+            #stable_line_points = [line_pts for avg_x, line_pts, confidence in stable_lines]
             
             # Visualize stable_line_points (lines passed to filter_vertical_lines_glass_contact)
-            for line_pts in stable_line_points:
-                if len(line_pts) >= 2:
-                    pt1 = tuple(map(int, line_pts[0][:2]))
-                    pt2 = tuple(map(int, line_pts[-1][:2]))
+            #for line_pts in stable_line_points:
+                #if len(line_pts) >= 2:
+                    #pt1 = tuple(map(int, line_pts[0][:2]))
+                    #pt2 = tuple(map(int, line_pts[-1][:2]))
                     #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
-                    
 
+            #print(len(vertical_lines))
             paired_lines = filter_vertical_lines_glass_contact(
-                stable_line_points, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
+                vertical_lines, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
             )
             
             # Adjust all pairs so each line's points are sorted by y
@@ -603,12 +604,12 @@ try:
                 if len(left_line) >= 2:
                     pt1 = tuple(map(int, left_line[0][:2]))
                     pt2 = tuple(map(int, left_line[-1][:2]))
-                    #cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
+                    cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
                 # Draw right line in cyan
                 if len(right_line) >= 2:
                     pt1 = tuple(map(int, right_line[0][:2]))
                     pt2 = tuple(map(int, right_line[-1][:2]))
-                    #cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+                    cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
 
 
 
@@ -640,12 +641,13 @@ try:
                 roi_color = color_image[min_y:max_y, min_x:max_x]
                 roi_depth_np = np.asanyarray(depth_frame.get_data())[min_y:max_y, min_x:max_x]
 
+                PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
                 # need to adapt depth_based_edge_detection to accept numpy arrays for depth
-                depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
-                
+                #depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
+                depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
 
         
-        #depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
+        
 
         # Process if enough vertical lines detected
 

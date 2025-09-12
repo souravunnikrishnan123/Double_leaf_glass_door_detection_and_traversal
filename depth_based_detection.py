@@ -208,7 +208,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
                 #cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
                 x_m = int((x1 + x2) / 2)
                 y_m = int((y1 + y2) / 2)
-                
+                cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
                 # Limit area for left and right
                 left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
                 right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
@@ -216,10 +216,10 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
 
                 # Draw only if within specified depth range
                 if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
-                    #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # magenta
+                    
                     valid_lines.append((x1, y1, x2, y2))
                     # show the midpoint used for normals
-
+                    cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # magenta
                     cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                     # optional annotate depth
                     #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)

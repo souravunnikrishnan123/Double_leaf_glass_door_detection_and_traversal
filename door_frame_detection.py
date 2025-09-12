@@ -17,9 +17,11 @@ pipeline = rs.pipeline()
 config = rs.config()
 
 # Enable depth stream (z16 = 16-bit grayscale)
-config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 15)
+#config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 15)
 # Enable color stream (bgr8 = standard OpenCV format)
-config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 15)
+#config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 15)
+
+config.enable_device_from_file("/app/realsense_camera_feed/20250907_225845.bag")
 
 # Start streaming
 pipeline.start(config)
@@ -470,11 +472,11 @@ try:
         contrast = clahe.apply(gray)
 
         #filtered = cv2.bilateralFilter(contrast, d=9, sigmaColor=150, sigmaSpace=100)
-        filtered = cv2.GaussianBlur(contrast, (3, 3), 0.5)
+        filtered = cv2.GaussianBlur(contrast, (5, 5), 1.0)
 
         median_val = np.median(filtered)
-        lower = int(max(0, 0.5 * median_val))
-        upper = int(min(255, 1.5 * median_val))
+        lower = int(max(0, 0.7 * median_val))
+        upper = int(min(255, 2.0 * median_val))
 
         edges = cv2.Canny(filtered, lower, upper)
 
@@ -490,7 +492,7 @@ try:
         #  - minLineLength=100: minimum length of line in pixels to be considered
         #  - maxLineGap=10: maximum allowed gap between line segments to link them
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100,
-                                minLineLength=100, maxLineGap=20)  #maxlingap of 30px is needed to detect door handle
+                                minLineLength=200, maxLineGap=20)  #maxlingap of 30px is needed to detect door handle
         
         # Draw detected vertical lines on image
                 # If any lines are detected

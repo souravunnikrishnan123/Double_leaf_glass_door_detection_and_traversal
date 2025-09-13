@@ -26,6 +26,11 @@ config.enable_device_from_file("/app/realsense_camera_feed/20250907_225845.bag")
 # Start streaming
 pipeline.start(config)
 
+# Create RealSense post-processing filters
+#spatial = rs.spatial_filter()
+#temporal = rs.temporal_filter()
+#hole_filling = rs.hole_filling_filter()
+
 # Align depth to color stream so depth and color pixels correspond
 align = rs.align(rs.stream.color)
 
@@ -73,6 +78,8 @@ def click_event(event, x, y, flags, param):
 
 def get_median_depth_window(depth_frame, x, y, window=10):
     """Get the median depth in a square window around (x, y)."""
+
+    
     half = window // 2
     depths = []
     for dx in range(-half, half + 1):
@@ -93,6 +100,8 @@ def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gra
     a line in RGB can be a composite of lines with different depths. this can cause inaccuracy. 
     hence we need to take majority part of line which has a constant depth and take that depth as the depth of complete line
     """
+    
+
     points = []
     for i in range(num_samples + 1):
         t = i / num_samples
@@ -146,6 +155,8 @@ def extrapolate_along_line_segment(depth_frame, start_point, direction_vector, c
     Extrapolate along a direction (unit vector) from a starting point until depth gradient exceeds threshold.
     Returns a list of (x, y, depth) tuples.
     """
+
+
     x, y = start_point
     dx, dy = direction_vector
     extrapolated = []
@@ -178,13 +189,14 @@ def extrapolate_along_line_segment(depth_frame, start_point, direction_vector, c
 
 def get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_samples=20):
     """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
+
     depths = []
 
     for i in range(num_samples):
         x = int(round(x1 + (x2 - x1) * i / (num_samples - 1)))
         y = int(round(y1 + (y2 - y1) * i / (num_samples - 1)))
 
-        if 0 <= x < depth_frame.width and 0 <= y < depth_frame.height:
+        if 0 <= x < depth_frame.width and 0 <= y < depth_frame.height: 
             d = get_z_depth(depth_frame, x, y)
             if DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]:
                 depths.append(d)
@@ -459,6 +471,11 @@ try:
         if not depth_frame or not color_frame:
             continue
 
+        # --- Apply RealSense filters ---
+        #depth_frame = spatial.process(depth_frame)
+        #depth_frame = temporal.process(depth_frame)
+        #depth_frame = hole_filling.process(depth_frame)
+
         # Convert to numpy arrays for OpenCV
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
@@ -492,10 +509,11 @@ try:
         #  - minLineLength=100: minimum length of line in pixels to be considered
         #  - maxLineGap=10: maximum allowed gap between line segments to link them
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100,
-                                minLineLength=200, maxLineGap=20)  #maxlingap of 30px is needed to detect door handle
-        
+                                minLineLength=100, maxLineGap=20)  #maxlingap of 30px is needed to detect door handle
+        # minLineLength of 100px is needed to detect brown doors where the frame is segmented horizontally
         # Draw detected vertical lines on image
                 # If any lines are detected
+        
         vertical_lines = []
         
         if lines is not None:
@@ -556,19 +574,25 @@ try:
                     if len(filtered_segment) >= 2:
                         pt1 = tuple(map(int, filtered_segment[0][:2]))
                         pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                        cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
+                        #cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
 
                     if len(full_line_segment) >= 2:
                         pt1 = tuple(map(int, full_line_segment[0][:2]))
                         pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                        #cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
+                        cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
                     
 
                     # Append clipped vertical line
-                    vertical_lines.append(full_line_segment)
-                    
-                   
-                    
+                    MIN_LINE_LENGTH = 50  # Minimum number of points required. because otherwise a small line segment
+                    #on the frame ( which is clipped by the previous logic) will be still considered as valid line and cause issue with detection
+
+                    if len(full_line_segment) >= MIN_LINE_LENGTH:
+                        vertical_lines.append(full_line_segment)
+                        # Draw vertical_lines in green
+                        pt1 = tuple(map(int, full_line_segment[0][:2]))
+                        pt2 = tuple(map(int, full_line_segment[-1][:2]))
+                        cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
+
             
             intr = depth_frame.profile.as_video_stream_profile().intrinsics
             fx = intr.fx  # in pixels
@@ -594,7 +618,7 @@ try:
                 vertical_lines, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
             )
             
-            # Adjust all pairs so each line's points are sorted by y
+            # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
             paired_lines_sorted = [
                 (sort_line_by_y(left_line), sort_line_by_y(right_line))
                 for left_line, right_line in paired_lines]
@@ -620,24 +644,25 @@ try:
                 # Print the number of points instead of shape
                 #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
-            
-            avg_z_left, avg_z_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
+
+            roi_polygon_left, roi_polygon_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
 
             #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
-            if filtered_pairs:
-                leftmost_idx = np.argmin([np.mean([pt[0] for pt in pair[0]]) for pair in filtered_pairs])
-                final_left_frame_line = filtered_pairs[leftmost_idx][0]
-                final_right_frame_line = filtered_pairs[leftmost_idx][1]
+            if filtered_pairs and len(filtered_pairs) < 2:
+                
+                final_left_frame_line = filtered_pairs[0][0]
+                final_right_frame_line = filtered_pairs[0][1]
+                
 
 
-                #door_state = detect_door_state(depth_frame, color_image, final_left_frame_line, final_right_frame_line,
-                      #roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
+                door_state = detect_door_state(depth_frame, color_image, roi_polygon_left, roi_polygon_right,
+                      roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
 
 
                 #print(f"Door is {door_state}")
 
 
-                # Compute ROI bounding box
+                # Compute ROI bounding box for depth based line detection
                 min_x, max_x, min_y, max_y = get_roi_bounding_box_from_frame_lines_for_depth_lines_detection(final_left_frame_line, final_right_frame_line, margin=40, img_shape=color_image.shape)
                 # Crop color and depth images
                 roi_color = color_image[min_y:max_y, min_x:max_x]
@@ -646,7 +671,7 @@ try:
                 PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
                 # need to adapt depth_based_edge_detection to accept numpy arrays for depth
                 #depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
-                depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
+                #depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
 
         
         

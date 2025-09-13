@@ -33,21 +33,44 @@ def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_dep
     roi_polygon = np.vstack((pts, pts_offset[::-1]))
 
     # Create mask for ROI
-    depth_height, depth_width = depth_frame.height, depth_frame.width
-    mask = np.zeros((depth_height, depth_width), dtype=np.uint8)
+    mask = np.zeros((depth_frame.height, depth_frame.width), dtype=np.uint8)
     cv2.fillPoly(mask, [roi_polygon.astype(np.int32)], 255)
 
     # Collect Z values
     z_values = []
     ys, xs = np.where(mask == 255)
     for (x, y) in zip(xs, ys):
-        if 0 <= x < depth_width and 0 <= y < depth_height:
+        if 0 <= x < depth_frame.width and 0 <= y < depth_frame.height:
             z = get_z_depth(depth_frame, x, y)
             if z >= min_depth and z != 0 and not np.isnan(z):
                 z_values.append(z)
 
     avg_z = float(np.mean(z_values)) if len(z_values) > 10 else None
     return avg_z, roi_polygon
+
+
+import numpy as np
+
+def extrapolate_line_to_y_range(line_points, y_start, y_end, step=1):
+    """
+    Fit a line to line_points and sample all (x, y) points along the extrapolated line
+    from y_start to y_end (inclusive), with given step.
+    Returns a list of (x, y) points.
+    """
+    pts = np.array([(p[0], p[1]) for p in line_points])
+    # Fit line: y = m*x + c, but we want x as a function of y for vertical lines
+    # Use np.polyfit with degree 1
+    if len(pts) < 2:
+        return  []  # Not enough points
+
+    # Fit x = a*y + b (since vertical lines)
+    fit = np.polyfit(pts[:,1], pts[:,0], 1)
+    #fitting a straight line (least squares regression) to all points in line_points.
+    a, b = fit
+
+    ys = np.arange(y_start, y_end + 1, step)
+    sampled_points = [(int(a * y + b), int(y)) for y in ys]
+    return sampled_points
 
 
 def process_filtered_lines(filtered_lines, depth_frame, color_image):
@@ -63,35 +86,49 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
         color_image: BGR image for visualization
 
     Returns:
-        (avg_z_left_list, avg_z_right_list)
+        (avg_z_left_roi_list, avg_z_right_roi_list)
     """
 
     correction_factor=1.1
 
+
     #print(f"Processing {len(filtered_lines)} pairs for ROIs.")
-    avg_z_left_list = []
-    avg_z_right_list = []
+    avg_z_left_roi_list = []
+    avg_z_right_roi_list = []
     filtered_pairs = []
     mean_z_depth_along_frame_lines = None
+    valid_roi_polygon_left = None
+    valid_roi_polygon_right = None
 
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
+        
+        y_bottom = max(np.max([pt[1] for pt in left_line_points]), np.max([pt[1] for pt in right_line_points]))
+        y_top = 0
+
+        extrapolated_left_line_points = extrapolate_line_to_y_range(left_line_points, y_top, y_bottom)
+        extrapolated_right_line_points = extrapolate_line_to_y_range(right_line_points, y_top, y_bottom)
+
+
         # Compute average Z for left ROI
-        avg_z_left, roi_polygon_left = get_strip_avg_z(
-            depth_frame, left_line_points, side="left", roi_width=240, min_depth=1.7
+        avg_z_left_roi, roi_polygon_left = get_strip_avg_z(
+            depth_frame, extrapolated_left_line_points, side="left", roi_width=240, min_depth=1.7
         )
         
 
         # Compute average Z for right ROI
-        avg_z_right, roi_polygon_right = get_strip_avg_z(
-            depth_frame, right_line_points, side="right", roi_width=240, min_depth=1.7
-        )
+        avg_z_right_roi, roi_polygon_right = get_strip_avg_z(
+            depth_frame, extrapolated_right_line_points, side="right", roi_width=240, min_depth=1.7
+        ) # minimum depth used to ignore the depth info from human who is between the door and robodog
         
 
-        # Calculate mean Z along the left line
+        # Calculate mean Z along the left line. we are not using extrapolated_left_line_points because 
+        # more reliable depth info comes from the original line points. extrapolated points shall be used only for defining the ROIs
+        # to get the maximum area where we expect lot of zero and non zero depth values
         z_left_line = [pt[2] for pt in left_line_points if pt[2] > 0 and not np.isnan(pt[2])]
         mean_z_left_line = float(np.mean(z_left_line)) if z_left_line else None
+        
 
-        # Calculate mean Z along the right line
+        # Calculate mean Z along the original right line points
         z_right_line = [pt[2] for pt in right_line_points if pt[2] > 0 and not np.isnan(pt[2])]
         mean_z_right_line = float(np.mean(z_right_line)) if z_right_line else None
 
@@ -101,11 +138,13 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
             mean_z_depth_along_frame_lines = None
 
                 # Filter pairs based on your criteria
-        if (mean_z_left_line is not None and avg_z_left is not None and mean_z_left_line*correction_factor < avg_z_left) and (mean_z_right_line is not None and avg_z_right is not None and mean_z_right_line*correction_factor < avg_z_right):
-            avg_z_left_list.append(avg_z_left)
-            avg_z_right_list.append(avg_z_right)
-            filtered_pairs.append((left_line_points, right_line_points))
-
+        if (mean_z_left_line is not None and avg_z_left_roi is not None and mean_z_left_line*correction_factor < avg_z_left_roi) and (mean_z_right_line is not None and avg_z_right_roi is not None and mean_z_right_line*correction_factor < avg_z_right_roi):
+            avg_z_left_roi_list.append(avg_z_left_roi)
+            avg_z_right_roi_list.append(avg_z_right_roi)
+            filtered_pairs.append((extrapolated_left_line_points, extrapolated_right_line_points))
+            valid_roi_polygon_left = roi_polygon_left
+            valid_roi_polygon_right = roi_polygon_right
+            #this is very imp. because we only want to return the  valid roi polygon which passed the filtering criteria. there can be multiple pairs but only one pair can pass the filtering criteria
 
             # Draw ROIs if available
             if roi_polygon_left is not None:
@@ -114,9 +153,9 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
                 cv2.polylines(color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
             
             # Annotate average Z values
-            cv2.putText(color_image, f"Left ROI {i+1} Z: {avg_z_left:.2f} m", (30, 30 + i*40),
+            cv2.putText(color_image, f"Left ROI {i+1} Z: {avg_z_left_roi:.2f} m", (30, 30 + i*40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-            cv2.putText(color_image, f"Right ROI {i+1} Z: {avg_z_right:.2f} m", (30, 50 + i*40),
+            cv2.putText(color_image, f"Right ROI {i+1} Z: {avg_z_right_roi:.2f} m", (30, 50 + i*40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             cv2.putText(color_image, f"Left Line {i+1} Z: {mean_z_left_line:.2f} m", (300, 30 + i*40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
@@ -126,7 +165,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
 
         
             
-    return avg_z_left_list, avg_z_right_list, filtered_pairs, mean_z_depth_along_frame_lines
+    return valid_roi_polygon_left, valid_roi_polygon_right, filtered_pairs, mean_z_depth_along_frame_lines
 
 
 if __name__ == "__main__":

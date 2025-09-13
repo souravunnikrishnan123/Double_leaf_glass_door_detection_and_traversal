@@ -5,6 +5,20 @@ import pyrealsense2 as rs
 
 from get_z_depth import get_z_depth
 
+
+
+def offset_roi_polygon(roi_polygon, side="left", margin=10):
+    """
+    Offset the ROI polygon horizontally by margin.
+    For left ROI, shift left; for right ROI, shift right.
+    """
+    offset = -margin if side == "left" else margin
+    roi_polygon_offset = roi_polygon.copy()
+    roi_polygon_offset[:, 0] += offset  # Shift x-coordinates
+    return roi_polygon_offset
+
+
+
 def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image_height=None):
     """
     Build rectangular ROI offset from a vertical line.
@@ -15,9 +29,10 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
     ys = [p[1] for p in line_points]
     x_min, x_max = int(min(xs)), int(max(xs))
     #y_min = int(min(ys))
-    y_min = 0  # start from top of image
+    #y_min = 0  # start from top of image
     # Use image_height if provided, else use max y from line
-    y_max = image_height - 1 if image_height is not None else int(max(ys))
+    #y_max = image_height - 1 if image_height is not None else int(max(ys))
+    y_min, y_max = int(min(ys)), int(max(ys))
 
 
     if side == "left":
@@ -40,8 +55,9 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
     """
     Check how much of ROI depth matches door reference depth.
     """
-    depth_height, depth_width = depth_frame.height, depth_frame.width
-    mask = np.zeros((depth_height, depth_width), dtype=np.uint8)
+
+
+    mask = np.zeros((depth_frame.height, depth_frame.width), dtype=np.uint8)
     cv2.fillPoly(mask, [roi_polygon.astype(np.int32)], 255)
 
     valid_points = []
@@ -55,15 +71,18 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
         return 0.0
 
 
-    # Filter: only consider values within [-20%, +50%] of door_depth
+    # Filter: only consider values within [-20%, +20%] of door_depth
     lower = door_depth * 0.8
-    upper = door_depth * 1.2
+    upper = door_depth * 2.5
     filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
     if len(filtered_points) == 0:
         return 0.0
 
+
+
     # Count only those within ±10% of door_depth
     close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.1]
+
     fraction_close = len(close_points) / len(filtered_points)
 
     # Visualization
@@ -77,7 +96,7 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
 
     return fraction_close
 
-def detect_door_state(depth_frame,color_image, left_line_points, right_line_points,
+def detect_door_state(depth_frame,color_image, roi_polygon_left, roi_polygon_right,
                       roi_width=40, margin=10, threshold=0.3, z_door_depth=None):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
@@ -85,13 +104,18 @@ def detect_door_state(depth_frame,color_image, left_line_points, right_line_poin
 
 
     # Step 2: build ROIs
-    roi_left = build_side_rect_roi(left_line_points, side="left", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
-    roi_right = build_side_rect_roi(right_line_points, side="right", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
+    #roi_left = build_side_rect_roi(left_line_points, side="left", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
+    #roi_right = build_side_rect_roi(right_line_points, side="right", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
+
+    #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to
+    #include the vertical door frame line pixels in the ROI for depth checking to know the status of door( especially when the detected RGB houghline are not at the frame end but slightly inward)
+    roi_left_offset = offset_roi_polygon(roi_polygon_left, side="left", margin=10)
+    roi_right_offset = offset_roi_polygon(roi_polygon_right, side="right", margin=10)
 
 
     # Step 3: check depth consistency
-    left_match = check_side_roi_against_door(depth_frame, color_image, roi_left, z_door_depth, color=(255, 0, 255))
-    right_match = check_side_roi_against_door(depth_frame, color_image, roi_right, z_door_depth, color=(0, 255, 255))
+    left_match = check_side_roi_against_door(depth_frame, color_image, roi_left_offset, z_door_depth, color=(255, 0, 255))
+    right_match = check_side_roi_against_door(depth_frame, color_image, roi_right_offset, z_door_depth, color=(0, 255, 255))
 
     print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
 
@@ -102,9 +126,9 @@ def detect_door_state(depth_frame,color_image, left_line_points, right_line_poin
     if left_consistent and right_consistent:
         door_state = "Closed"
     elif left_consistent and not right_consistent:
-        door_state = "Open (hinged on left)"
+        door_state = "Open (on left side)"
     elif not left_consistent and right_consistent:
-        door_state = "Open (hinged on right)"
+        door_state = "Open (on right side)"
     else:
         door_state = "Open or Unknown"
 

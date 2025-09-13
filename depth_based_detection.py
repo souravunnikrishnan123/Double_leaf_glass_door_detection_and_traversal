@@ -126,7 +126,7 @@ def robust_line_z_roi_new(z_depth_map, x1, y1, x2, y2, roi_width=20, min_valid=0
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
 def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25, final_left_frame_line=None, final_right_frame_line=None):
 
-    depth_height, depth_width = depth_frame.height, depth_frame.width
+
 
 
     # Build Z-depth map
@@ -231,7 +231,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
             x1, y1, x2, y2 = line
             cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)#orange for merged lines
             num_samples = 10
-            scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, color_image, num_samples))
+            scored_lines.append(calculate_confidence_scores(line,depth_grad_x, depth_frame.height, depth_frame.width, color_image, num_samples))
 
             top_lines = []
             if len(scored_lines) > 0:

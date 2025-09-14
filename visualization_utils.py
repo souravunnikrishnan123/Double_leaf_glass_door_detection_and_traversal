@@ -36,7 +36,7 @@ def show_stacked_visualization(color_image, depth_image, MIN_DEPTH, MAX_DEPTH, e
 # -------------------------------
 def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
     # Clip depth image to desired range
-    depth_scaled = np.clip(depth_image, MIN_DEPTH * 1000, MAX_DEPTH * 1000)
+    depth_scaled = np.clip(depth_image, MIN_DEPTH*1000, MAX_DEPTH*1000)
     # Convert depth to 8-bit for color mapping
     depth_scaled = cv2.convertScaleAbs(depth_scaled, alpha=0.03)
     # Apply colormap (Jet: Blue → Red gradient)

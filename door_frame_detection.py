@@ -44,7 +44,7 @@ DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/20250907_230144.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/door_open_brown_door_day.bag")
 
 
 

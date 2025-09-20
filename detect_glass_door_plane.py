@@ -9,7 +9,7 @@ from plots import debug_visualize
 # ---------------------------------------------------------
 # Main detector: find glass-door plane (if present) and compute distance
 # ---------------------------------------------------------
-def detect_glass_door_plane(depth_m,
+def detect_glass_door_plane(depth_image_in_meters,
                             fx, fy, cx, cy,
                             roi=None,
                             # RANSAC / geometric params
@@ -39,10 +39,10 @@ def detect_glass_door_plane(depth_m,
         'stats' -> dictionary returned from evaluate_plane_candidate
     """
 
-    H, W = depth_m.shape
+    H, W = depth_image_in_meters.shape
 
     # Step 1: Backproject depth -> points, uv coords (only non-zero points get returned)
-    points, uv, valid_mask = backproject_depth_to_points(depth_m,
+    points, uv, valid_mask = backproject_depth_to_points(depth_image_in_meters,
                                                          fx, fy, cx, cy,
                                                          max_depth = max_depth_consider,
                                                          roi = roi,
@@ -92,7 +92,7 @@ def detect_glass_door_plane(depth_m,
     uv_inliers = uv[inlier_indices, :]
 
     # Evaluate image-space heuristics (hole fraction, bbox extents, connectedness)
-    stats = evaluate_plane_candidate(depth_m, uv, uv_inliers, points_inliers, roi, H, W)
+    stats = evaluate_plane_candidate(depth_image_in_meters, uv, uv_inliers, points_inliers, roi, H, W)
 
     # compute inlier density = inliers / nonzero pixels inside ROI
     # number of non-zero depth pixels in ROI:
@@ -100,7 +100,7 @@ def detect_glass_door_plane(depth_m,
         roi_y0, roi_y1, roi_x0, roi_x1 = 0, H, 0, W
     else:
         roi_y0, roi_y1, roi_x0, roi_x1 = roi
-    roi_nonzero = np.count_nonzero((depth_m[roi_y0:roi_y1, roi_x0:roi_x1] > 0.0) & np.isfinite(depth_m[roi_y0:roi_y1, roi_x0:roi_x1]))
+    roi_nonzero = np.count_nonzero((depth_image_in_meters[roi_y0:roi_y1, roi_x0:roi_x1] > 0.0) & np.isfinite(depth_image_in_meters[roi_y0:roi_y1, roi_x0:roi_x1]))
     if roi_nonzero == 0:
         inlier_density = 0.0
     else:

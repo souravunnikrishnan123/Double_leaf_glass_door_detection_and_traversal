@@ -44,7 +44,7 @@ DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/door_open_brown_door_day.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/brown_door_always_open_night.bag")
 
 
 
@@ -99,6 +99,18 @@ try:
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
         result = detect_glass_door_plane(depth_image_in_meters, fx, fy, cx, cy)
+        print(result)
+
+        # Highlight detected plane in color image (always, if valid)
+        stats = result.get("stats")
+        if stats and stats.get("valid"):
+            uv_inliers = stats.get("uv_inliers")
+            if uv_inliers is not None:
+                for u, v in uv_inliers:
+                    u, v = int(u), int(v)
+                    if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
+                        color_image[v, u] = [255, 0, 255]  # Magenta
+
         
         
 

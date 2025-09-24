@@ -84,6 +84,7 @@ def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H
         "largest_comp_fraction": float(largest_comp_fraction),
         "physical_width_m": physical_width,
         "physical_height_m": physical_height,
-        "inlier_pixel_count": int(len(u_in))
+        "inlier_pixel_count": int(len(u_in)),
+        "uv_inliers": uv_inliers.copy()
     }
     return stats

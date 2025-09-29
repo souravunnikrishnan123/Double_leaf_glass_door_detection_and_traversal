@@ -73,7 +73,7 @@ def extrapolate_line_to_y_range(line_points, y_start, y_end, step=1):
     return sampled_points
 
 
-def process_filtered_lines(filtered_lines, depth_frame, color_image):
+def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_plane):
     """
     For each pair of lines, create ROIs:
     - Left ROI: to the left of the left line in the pair
@@ -102,7 +102,10 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image):
 
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
         
-        y_bottom = max(np.max([pt[1] for pt in left_line_points]), np.max([pt[1] for pt in right_line_points]))
+        y_bottom = max(np.max([pt[1] for pt in left_line_points]), 
+                       np.max([pt[1] for pt in right_line_points]),
+                       np.max([pt[1] for pt in detected_plane]) if detected_plane is not None else depth_frame.height - 1
+                        )
         y_top = 0
 
         extrapolated_left_line_points = extrapolate_line_to_y_range(left_line_points, y_top, y_bottom)

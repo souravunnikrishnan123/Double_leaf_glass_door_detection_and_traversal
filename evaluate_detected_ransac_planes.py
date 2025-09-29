@@ -45,6 +45,7 @@ def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H
 
     # hole fraction: fraction of pixels in bbox that are invalid (zeros/nans)
     hole_fraction = 1.0 - (bbox_nonzero / float(bbox_area + 1e-6))
+    #print(hole_fraction)
 
     # make an image mask of the inliers for connected component analysis
     inlier_mask = np.zeros((H, W), dtype=np.uint8)

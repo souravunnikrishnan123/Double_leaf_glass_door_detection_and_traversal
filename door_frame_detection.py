@@ -44,7 +44,7 @@ DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/brown_door_always_open_night.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/workspaces/implementation/realsense_camera_feed/grey_door_always_open_night_with_flat_wall_on_both_sides.bag")
 
 
 
@@ -98,9 +98,10 @@ try:
 
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
-        result = detect_glass_door_plane(depth_image_in_meters, fx, fy, cx, cy)
-        print(result)
+        result , detected_plane = detect_glass_door_plane(color_image, depth_image_in_meters, fx, fy, cx, cy)
+        #print(result)
 
+        """
         # Highlight detected plane in color image (always, if valid)
         stats = result.get("stats")
         if stats and stats.get("valid"):
@@ -110,13 +111,14 @@ try:
                     u, v = int(u), int(v)
                     if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
                         color_image[v, u] = [255, 0, 255]  # Magenta
+        """
 
         
         
 
         if result["is_door_candidate"]:
             distance = result["distance_m"]
-            print(distance)
+            #print(distance)
 
             # Only proceed if around 2 m (add ± tolerance)
             if abs(distance - 2.0) < 0.3:
@@ -254,7 +256,7 @@ try:
                         #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
 
-                    roi_polygon_left, roi_polygon_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image)
+                    roi_polygon_left, roi_polygon_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
 
                     #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
                     if filtered_pairs and len(filtered_pairs) < 2:

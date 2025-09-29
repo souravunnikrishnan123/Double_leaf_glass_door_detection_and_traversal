@@ -77,7 +77,7 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
     filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
     if len(filtered_points) == 0:
         return 0.0
-
+    
 
 
     # Count only those within ±10% of door_depth
@@ -126,9 +126,9 @@ def detect_door_state(depth_frame,color_image, roi_polygon_left, roi_polygon_rig
     if left_consistent and right_consistent:
         door_state = "Closed"
     elif left_consistent and not right_consistent:
-        door_state = "Open (on left side)"
-    elif not left_consistent and right_consistent:
         door_state = "Open (on right side)"
+    elif not left_consistent and right_consistent:
+        door_state = "Open (on left side)"
     else:
         door_state = "Open or Unknown"
 

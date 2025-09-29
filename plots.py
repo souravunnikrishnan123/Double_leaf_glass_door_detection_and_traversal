@@ -14,6 +14,7 @@ def debug_visualize(points=None, uv=None, plane_model=None, inlier_indices=None)
     global fig_inliers, ax_inliers
     global fig_plane, ax_plane
 
+    """
     # --- 1. Pixel positions (uv) ---
     if uv is not None and uv.shape[0] > 0:
         if fig_uv is None:
@@ -25,7 +26,7 @@ def debug_visualize(points=None, uv=None, plane_model=None, inlier_indices=None)
             ax_uv.set_ylabel("v (rows)")
         else:
             sc_uv.set_offsets(uv)
-
+    """
     # --- 2. Top-down view (X vs Z) ---
     if points is not None and points.shape[0] > 0:
         if fig_topdown is None:
@@ -60,7 +61,7 @@ def debug_visualize(points=None, uv=None, plane_model=None, inlier_indices=None)
         ax_inliers.scatter(outlier_pts[:, 0], outlier_pts[:, 1], outlier_pts[:, 2], s=1, c="gray", label="Outliers")
         ax_inliers.scatter(inlier_pts[:, 0], inlier_pts[:, 1], inlier_pts[:, 2], s=3, c="red", label="Inliers")
         ax_inliers.legend()
-
+    """
     # --- 4. Plane Surface + Inliers ---
     if (
         points is not None and points.shape[0] > 0 and
@@ -88,6 +89,7 @@ def debug_visualize(points=None, uv=None, plane_model=None, inlier_indices=None)
         )
         zz = (-a * xx - b * yy - d) / c
         ax_plane.plot_surface(xx, yy, zz, alpha=0.3, color="cyan")
+    """
 
     # Refresh all plots
     plt.pause(0.001)

@@ -3,6 +3,7 @@ import numpy as np
 import pyrealsense2 as rs 
 
 
+from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, ransac_plane_from_points
 from get_z_depth import get_z_depth
 
 
@@ -51,21 +52,12 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
 
     return roi_polygon
 
-def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_depth, color = (0, 255, 0)):
+def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, color = (0, 255, 0)):
     """
     Check how much of ROI depth matches door reference depth.
     """
 
-
-    mask = np.zeros((depth_frame.height, depth_frame.width), dtype=np.uint8)
-    cv2.fillPoly(mask, [roi_polygon.astype(np.int32)], 255)
-
-    valid_points = []
-    ys, xs = np.where(mask == 255)
-    for (x, y) in zip(xs, ys):
-        z = get_z_depth(depth_frame, x, y)
-        if z > 0:
-            valid_points.append((x, y, z))
+    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=5.0, subsample=1,roi_polygon = roi_polygon)
 
     if len(valid_points) == 0:
         return 0.0
@@ -75,6 +67,7 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
     lower = door_depth * 0.8
     upper = door_depth * 2.5
     filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
+    filtered_indices = [i for i, (x, y, z) in enumerate(valid_points) if lower <= z <= upper]
     if len(filtered_points) == 0:
         return 0.0
     
@@ -82,21 +75,54 @@ def check_side_roi_against_door(depth_frame, color_image, roi_polygon, door_dept
 
     # Count only those within ±10% of door_depth
     close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.1]
+    
+    # Convert close_points to numpy array
+    close_points_np = np.array(close_points) # shape (N, 3)
+    plane_model, inlier_indices = ransac_plane_from_points(
+    close_points_np,
+    distance_threshold=0.05,  # 5cm, adjust as needed
+    ransac_n=3,
+    num_iterations=1000
+    )
 
+    coplanar_points = close_points_np[inlier_indices]
+    non_coplanar_indices = list(set(range(len(close_points_np))) - set(inlier_indices))
+    non_coplanar_points = close_points_np[non_coplanar_indices]
+
+    H, W = color_image.shape[:2]
+
+    for idx in inlier_indices:
+        u, v = uv[filtered_indices[idx]]
+        if 0 <= u < W and 0 <= v < H:
+            cv2.circle(color_image, (int(u), int(v)), 2, (0, 255, 0), -1)  # green for coplanar
+    for idx in non_coplanar_indices:
+        u, v = uv[filtered_indices[idx]]
+        if 0 <= u < W and 0 <= v < H:
+            cv2.circle(color_image, (int(u), int(v)), 2, (0, 255, 255), -1)  # cyan for non-coplanar
+
+    print(len(close_points))
     fraction_close = len(close_points) / len(filtered_points)
 
+    
     # Visualization
     if color_image is not None:
         cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=color, thickness=2)
-        for (x, y, z) in filtered_points:
-            if abs(z - door_depth) <= door_depth * 0.1:
-                color_image = cv2.circle(color_image, (x, y), 1, (0, 0, 255), -1)  # red = matches door depth
-            else:
-                color_image = cv2.circle(color_image, (x, y), 1, (255, 0, 0), -1)  # blue = valid but not close
-
+        for i in filtered_indices:
+            u, v = uv[i]
+            z = valid_points[i][2]
+            x, y = int(u), int(v)
+            """
+            if 0 <= x < W and 0 <= y < H:
+                if abs(z - door_depth) <= door_depth * 0.1:
+                    cv2.circle(color_image, (x, y), 1, (0, 0, 255), -1)  # red = matches door depth
+                else:
+                    cv2.circle(color_image, (x, y), 1, (255, 0, 0), -1)  # blue = valid but not close
+            """
     return fraction_close
 
-def detect_door_state(depth_frame,color_image, roi_polygon_left, roi_polygon_right,
+
+
+def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_polygon_left, roi_polygon_right,
                       roi_width=40, margin=10, threshold=0.3, z_door_depth=None):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
@@ -104,8 +130,6 @@ def detect_door_state(depth_frame,color_image, roi_polygon_left, roi_polygon_rig
 
 
     # Step 2: build ROIs
-    #roi_left = build_side_rect_roi(left_line_points, side="left", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
-    #roi_right = build_side_rect_roi(right_line_points, side="right", roi_width=roi_width, margin=margin, image_height=depth_frame.height)
 
     #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to
     #include the vertical door frame line pixels in the ROI for depth checking to know the status of door( especially when the detected RGB houghline are not at the frame end but slightly inward)
@@ -114,8 +138,8 @@ def detect_door_state(depth_frame,color_image, roi_polygon_left, roi_polygon_rig
 
 
     # Step 3: check depth consistency
-    left_match = check_side_roi_against_door(depth_frame, color_image, roi_left_offset, z_door_depth, color=(255, 0, 255))
-    right_match = check_side_roi_against_door(depth_frame, color_image, roi_right_offset, z_door_depth, color=(0, 255, 255))
+    left_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_left_offset, z_door_depth, color=(255, 0, 255))
+    right_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_right_offset, z_door_depth, color=(0, 255, 255))
 
     print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
 

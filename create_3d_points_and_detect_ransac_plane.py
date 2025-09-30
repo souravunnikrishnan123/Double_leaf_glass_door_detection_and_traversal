@@ -5,69 +5,52 @@ import cv2
 # ---------------------------------------------------------
 # Utility: backproject depth image to 3D points and uv coords
 # ---------------------------------------------------------
-def backproject_depth_to_points(depth_image_in_meters,
-                                fx, fy, cx, cy,
-                                max_depth=5.0,
-                                subsample=1):
+def backproject_depth_to_points(
+    depth_image_in_meters,
+    fx, fy, cx, cy,
+    max_depth=5.0,
+    subsample=1,
+    roi_polygon=None
+):
     """
-    Convert a single-channel depth image (in meters) to an (N,3) point array
-    and corresponding (N,2) pixel coordinates (u,v).
-    - depth_image_in_meters: 2D numpy array (H,W) with depths in meters; invalid = 0 or np.nan
-    - fx,fy,cx,cy: camera intrinsics (focal lengths, principal point)
-    - max_depth: ignore points with depth > max_depth
-    - roi: optional tuple (y0,y1,x0,x1) to crop image before projection
-    - subsample: integer stride to reduce point count (1 = full or no subsampling)
+    Convert a depth image to 3D points and pixel coordinates, optionally within a polygonal ROI.
+    If roi_polygon is None, uses the whole image.
+    roi_polygon should be a Nx2 array/list of (x, y) pixel coordinates.
     Returns:
-      points: (N,3) numpy array (X,Y,Z) in camera frame (meters)
-      uv: (N,2) integer pixel coordinates (u=x, v=y)
-      mask_full: boolean 2D mask of valid depth used for additional image-space stats
+        points: (N, 3) array of 3D coordinates
+        uv: (N, 2) array of image pixel coordinates
+        mask: boolean 2D mask of valid pixels inside ROI
     """
-    # image shape
     H, W = depth_image_in_meters.shape
+    mask = np.ones((H, W), dtype=np.uint8) * 255
 
-    # apply ROI cropping if provided (y0,y1,x0,x1) in pixel coords
+    if roi_polygon is not None:
+        mask[:] = 0
+        cv2.fillPoly(mask, [np.array(roi_polygon, dtype=np.int32)], 255)
 
-    y0, y1, x0, x1 = 0, H, 0, W
+    # Find valid pixels inside ROI and with valid depth
+    valid_mask = (
+        (mask == 255)
+        & (depth_image_in_meters > 0)
+        & np.isfinite(depth_image_in_meters)
+        & (depth_image_in_meters < max_depth)
+    )
 
-    # create pixel grid for the ROI (v = rows, u = cols)
-    u = np.arange(x0, x1, subsample)
-    v = np.arange(y0, y1, subsample)
-    uu, vv = np.meshgrid(u, v) # with subsampling value of 1, this is full grid.
-    #but if the subsampling value is 2, then it will be every second pixel in both directions.
+    ys, xs = np.where(valid_mask)
+    if subsample > 1:
+        ys = ys[::subsample]
+        xs = xs[::subsample]
 
-    #The function samples the depth image at the grid points defined by uu, vv.
-    # esults in a 2D array of the same shape as uu and vv.
-    depth_sample = depth_image_in_meters[vv, uu]  # shape (h_roi, w_roi)
+    zs = depth_image_in_meters[ys, xs]
+    xs_f = xs.astype(np.float32)
+    ys_f = ys.astype(np.float32)
 
-
-    # invalid depth mask: zeros or NaNs or depth > max_depth
-    valid_mask = (depth_sample > 0.0) & np.isfinite(depth_sample) & (depth_sample <= max_depth)
-
-    # extract Z values of valid pixels
-    Z = depth_sample[valid_mask].astype(np.float64)  # (N,)
-    if Z.size == 0:
-        # no valid depth in ROI, return empty arrays for points and uv
-        return np.zeros((0,3), dtype=np.float64), np.zeros((0,2), dtype=np.int32), valid_mask
-
-    # corresponding pixel coordinates for valid points with depth
-    uu_valid = uu[valid_mask].astype(np.float64)
-    vv_valid = vv[valid_mask].astype(np.float64)
-
-    # for each valid point, backproject to 3D camera coordinates (standard pinhole model)
-    # X = (u - cx) * Z / fx
-    # Y = (v - cy) * Z / fy
-    X = (uu_valid - cx) * Z / fx
-    Y = (vv_valid - cy) * Z / fy
-    # Z remains the same
-
-    points = np.stack((X, Y, Z), axis=1)  # (N,3). N is the number of valid points
-
-    # uv pixel integer coords used later for masks/contours
-    uv = np.stack((uu_valid.astype(np.int32), vv_valid.astype(np.int32)), axis=1)  # (N,2)
+    Xs = (xs_f - cx) * zs / fx
+    Ys = (ys_f - cy) * zs / fy
+    points = np.stack([Xs, Ys, zs], axis=-1)
+    uv = np.stack([xs, ys], axis=-1)
 
     return points, uv, valid_mask
-
-
 
 # ---------------------------------------------------------
 # Utility: run Open3D RANSAC plane segmentation on point cloud
@@ -76,7 +59,7 @@ def backproject_depth_to_points(depth_image_in_meters,
 
 # ---------------------------------------------------------
 def ransac_plane_from_points(points,
-                             distance_threshold=0.02,
+                             distance_threshold=0.05,
                              ransac_n=3,
                              num_iterations=1000):
     """
@@ -90,6 +73,8 @@ def ransac_plane_from_points(points,
       inlier_indices: list of indices into the input points that are inliers
     """
     # convert numpy points to Open3D point cloud
+    if points is None or len(points) == 0 or points.shape[1] != 3:
+        return None, []
     pc = o3d.geometry.PointCloud()
     pc.points = o3d.utility.Vector3dVector(points)
 
@@ -106,6 +91,7 @@ def find_vertical_planes(points,
                          ransac_n=3,
                          num_iterations=1000,
                          vertical_tol=0.3,
+                         horizontal_tol = 0.3,
                          min_inliers=10000,
                          max_planes=5):
   """
@@ -115,7 +101,8 @@ def find_vertical_planes(points,
 
   remaining_points = points.copy()
   remaining_indices = np.arange(points.shape[0])  # Track original indices
-  found_planes = []
+  found_vertical_planes = []
+  found_horizontal_planes = []
 
   for _ in range(max_planes):
     if len(remaining_points) < ransac_n:
@@ -154,23 +141,31 @@ def find_vertical_planes(points,
         # Map inliers to original indices
         orig_inlier_indices = remaining_indices[inliers]  
         # Save vertical plane
-        found_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
+        found_vertical_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
         print(f"Found vertical plane with {len(inliers)} inliers.")
+    """
+    elif abs(abs(normal[1]) - 1.0) < horizontal_tol:
+        # Map inliers to original indices
+        orig_inlier_indices = remaining_indices[inliers]  
+        found_horizontal_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
+        print(f"Found horizontal plane with {len(inliers)} inliers.")
+    """
+
     # Remove inliers from remaining_points for next iteration
     mask = np.ones(len(remaining_points), dtype=bool)
     mask[core_inlier_indices] = False
     remaining_points = remaining_points[mask]
     remaining_indices = remaining_indices[mask]
 
-  return found_planes
+  return found_vertical_planes, found_horizontal_planes
 
 
-def highlight_planes_on_image(color_image, uv, found_planes):
+def highlight_planes_on_image(color_image, uv, found_vertical_planes):
   """
   Overlays each detected plane's inlier pixels on the color_image in a unique color.
   - color_image: (H, W, 3) numpy array (will be modified in-place)
   - uv: (N, 2) array of pixel coordinates corresponding to the original points
-  - found_planes: list of (plane_model, inlier_indices, inlier_points)
+  - found_vertical_planes: list of (plane_model, inlier_indices, inlier_points)
   """
   # Define a list of distinct colors (BGR for OpenCV)
   plane_colors = [
@@ -183,7 +178,7 @@ def highlight_planes_on_image(color_image, uv, found_planes):
       (128, 128, 255),# Pinkish
       (0, 128, 255),  # Orange
   ]
-  for i, (_, inlier_indices, _) in enumerate(found_planes):
+  for i, (_, inlier_indices, _) in enumerate(found_vertical_planes):
       color = plane_colors[i % len(plane_colors)]
       for idx in inlier_indices:
           u, v = uv[idx]

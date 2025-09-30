@@ -266,7 +266,7 @@ try:
                         
 
 
-                        door_state = detect_door_state(depth_frame, color_image, roi_polygon_left, roi_polygon_right,
+                        door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,
                             roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
 
 

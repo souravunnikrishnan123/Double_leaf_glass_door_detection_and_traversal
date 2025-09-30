@@ -48,17 +48,19 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                                                            num_iterations=num_iterations)
     """
 
-    found_planes = find_vertical_planes(points,
+    found_vertical_planes , found_horizontal_planes = find_vertical_planes(points,
                          distance_threshold=0.05,
                          ransac_n=3,
                          num_iterations=1000,
                          vertical_tol=0.1,
+                         horizontal_tol = 0.2,
                          min_inliers=10000,
                          max_planes=5)
+    #print(f"Found {len(found_vertical_planes)} vertical planes and {len(found_horizontal_planes)} horizontal planes")
     
-    highlight_planes_on_image(color_image, uv, found_planes)
+    highlight_planes_on_image(color_image, uv, found_vertical_planes)
 
-    for i, (plane_model, inlier_indices, inlier_points) in enumerate(found_planes):
+    for i, (plane_model, inlier_indices, inlier_points) in enumerate(found_vertical_planes):
         detected_plane = draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2)
         mask = np.zeros(color_image.shape[:2], dtype=np.uint8)
         if detected_plane:
@@ -77,8 +79,8 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
             debug_visualize(points, uv, plane_model, inlier_indices)
 
 
-    #print(found_planes)
-    plane_model, inlier_indices = found_planes[0][:2]
+    #print(found_vertical_planes)
+    plane_model, inlier_indices = found_vertical_planes[0][:2] # get the dominant plane
 
 
     # If RANSAC found no plane (rare if points exist), return

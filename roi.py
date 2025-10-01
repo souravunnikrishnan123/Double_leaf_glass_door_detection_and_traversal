@@ -96,9 +96,9 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
     avg_z_left_roi_list = []
     avg_z_right_roi_list = []
     filtered_pairs = []
-    mean_z_depth_along_frame_lines = None
-    valid_roi_polygon_left = None
-    valid_roi_polygon_right = None
+    mean_z_depth_along_frame_lines_list = []
+    valid_roi_polygon_left_list = []
+    valid_roi_polygon_right_list = []
 
     for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
         
@@ -145,9 +145,10 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
             avg_z_left_roi_list.append(avg_z_left_roi)
             avg_z_right_roi_list.append(avg_z_right_roi)
             filtered_pairs.append((extrapolated_left_line_points, extrapolated_right_line_points))
-            valid_roi_polygon_left = roi_polygon_left
-            valid_roi_polygon_right = roi_polygon_right
-            #this is very imp. because we only want to return the  valid roi polygon which passed the filtering criteria. there can be multiple pairs but only one pair can pass the filtering criteria
+            valid_roi_polygon_left_list.append(roi_polygon_left)
+            valid_roi_polygon_right_list.append(roi_polygon_right)
+            mean_z_depth_along_frame_lines_list.append(mean_z_depth_along_frame_lines)
+
 
             # Draw ROIs if available
             if roi_polygon_left is not None:
@@ -166,9 +167,9 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
 
-        
-            
-    return valid_roi_polygon_left, valid_roi_polygon_right, filtered_pairs, mean_z_depth_along_frame_lines
+
+
+    return valid_roi_polygon_left_list, valid_roi_polygon_right_list, filtered_pairs, mean_z_depth_along_frame_lines_list
 
 
 if __name__ == "__main__":

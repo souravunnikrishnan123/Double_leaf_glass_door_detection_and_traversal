@@ -98,7 +98,7 @@ try:
 
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
-        result , detected_plane = detect_glass_door_plane(color_image, depth_image_in_meters, fx, fy, cx, cy)
+        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image, depth_image_in_meters, fx, fy, cx, cy)
         #print(result)
 
         """
@@ -256,18 +256,46 @@ try:
                         #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
 
-                    roi_polygon_left, roi_polygon_right, filtered_pairs , mean_z_depth_along_frame_lines = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
+                    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
 
                     #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
-                    if filtered_pairs and len(filtered_pairs) < 2:
+                    
+                    if filtered_pairs: 
+                        if len(filtered_pairs) > 1:# more than one pair detected as glass frame. 
+                            #in this case we need to filter out the correct frame line at the center. if we are getting more than one glass -frame candidate means, mostly it is due to the glass area in the  inward opening door 
+                            #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
+                            #correct frame line pair will be close to the center of detected ransac door plane
+                            # 1. Compute the center x of the detected plane (average of its 4 corners)
+                            plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
                         
-                        final_left_frame_line = filtered_pairs[0][0]
-                        final_right_frame_line = filtered_pairs[0][1]
-                        
+                            # 2. Find the pair whose center is closest to the plane center
+                            min_dist = float('inf')
+                            best_pair = None
+                            for left_line, right_line in filtered_pairs:
+                                # Compute mean x of left and right line
+                                left_x = np.mean([pt[0] for pt in left_line])
+                                right_x = np.mean([pt[0] for pt in right_line])
+                                pair_center_x = (left_x + right_x) / 2
+                                dist = abs(pair_center_x - plane_center_x)
+                                if dist < min_dist:
+                                    min_dist = dist
+                                    best_pair = (left_line, right_line)
+                            
+                            idx = filtered_pairs.index(best_pair)
+
+                        else:# filtered pairs has only one pair.
+                            best_pair = filtered_pairs[0]
+                            idx = 0
 
 
-                        door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,
-                            roi_width=240, margin=10, threshold=0.3, z_door_depth = mean_z_depth_along_frame_lines)
+                        final_left_frame_line = best_pair[0]
+                        final_right_frame_line = best_pair[1]
+                        roi_polygon_left = roi_polygon_left_list[idx]
+                        roi_polygon_right = roi_polygon_right_list[idx]
+                        mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
+
+                        door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
+                            roi_width=240, margin=10, threshold=0.1, z_door_depth = mean_z_depth_along_frame_lines)
 
 
                         #print(f"Door is {door_state}")
@@ -282,7 +310,7 @@ try:
                         PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
                         # need to adapt depth_based_edge_detection to accept numpy arrays for depth
                         #depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
-                        #depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
+                        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
         else:
             cv2.putText(color_image, "No door-like plane detected", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             edges = np.zeros_like(color_image[:,:,0])  # Empty edges

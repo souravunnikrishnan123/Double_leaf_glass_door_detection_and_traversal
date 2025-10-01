@@ -47,7 +47,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                                                            ransac_n=ransac_n,
                                                            num_iterations=num_iterations)
     """
-
+    horizontal_plane_model = None
     found_vertical_planes , found_horizontal_planes = find_vertical_planes(points,
                          distance_threshold=0.05,
                          ransac_n=3,
@@ -55,7 +55,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                          vertical_tol=0.1,
                          horizontal_tol = 0.2,
                          min_inliers=10000,
-                         max_planes=5)
+                         max_planes=4)
     #print(f"Found {len(found_vertical_planes)} vertical planes and {len(found_horizontal_planes)} horizontal planes")
     
     highlight_planes_on_image(color_image, uv, found_vertical_planes)
@@ -113,5 +113,14 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
         "is_door_candidate": is_door,
     }
 
-    return result, detected_plane
+    #processing of detected horizontal planes. our intention is to detect the floor and use it for door state detection
+    #if len(found_horizontal_planes) == 1:
+        #because we only interested in the floor plane, we only process the first detected horizontal plane
+        #because the horizontal planes are sorted based on the number of inliers, the first one should be the floor
+        #horizontal_plane_model, horizontal_inlier_indices, horizontal_inlier_points = found_horizontal_planes[0]
+        #because of holes in the floor which heavily depends on the texture and lighting, we cant be sure of the inlier density and the area of the plane. 
+        
+
+        
+    return result, detected_plane, found_vertical_planes
 

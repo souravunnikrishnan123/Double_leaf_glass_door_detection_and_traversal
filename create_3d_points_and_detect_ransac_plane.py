@@ -93,7 +93,7 @@ def find_vertical_planes(points,
                          vertical_tol=0.3,
                          horizontal_tol = 0.3,
                          min_inliers=10000,
-                         max_planes=5):
+                         max_planes=4):
   """
   Iteratively find up to max_planes vertical planes in the point cloud.
   Returns a list of (plane_model, inlier_indices) for vertical planes.
@@ -123,7 +123,7 @@ def find_vertical_planes(points,
     a, b, c, d = plane_model
     distances = np.abs(a*inlier_points[:,0] + b*inlier_points[:,1] + c*inlier_points[:,2] + d) / np.linalg.norm([a,b,c])
     #  a tighter threshold is defined for "core" inliers. this is to get edge points for the next iteration of RANSAC plane detection
-    core_threshold = 0.02  # 2cm
+    core_threshold = 0.02     # 2cm
 
     # Indices of core inliers (to remove)
     core_inlier_mask = distances < core_threshold
@@ -143,15 +143,16 @@ def find_vertical_planes(points,
         # Save vertical plane
         found_vertical_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
         print(f"Found vertical plane with {len(inliers)} inliers.")
-    """
+    
     elif abs(abs(normal[1]) - 1.0) < horizontal_tol:
         # Map inliers to original indices
         orig_inlier_indices = remaining_indices[inliers]  
-        found_horizontal_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
+        found_horizontal_planes.append((plane_model, core_inlier_indices, remaining_points[inliers]))
         print(f"Found horizontal plane with {len(inliers)} inliers.")
-    """
+    
 
-    # Remove inliers from remaining_points for next iteration
+    # Remove inliers from remaining_points for next iteration. we are only removig the core inliers to get edge points for the next iteration of RANSAC plane detection.
+    #because, for slim door planes, floor is taking lot of points near the door boundary
     mask = np.ones(len(remaining_points), dtype=bool)
     mask[core_inlier_indices] = False
     remaining_points = remaining_points[mask]
@@ -186,10 +187,10 @@ def highlight_planes_on_image(color_image, uv, found_vertical_planes):
           """
           if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
               cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
-        """
+            """
 
 
-def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2, lower_pct=5, upper_pct=95, min_width_m=0.8, min_height_m=0.5):
+def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2, lower_pct=2, upper_pct=98, min_width_m=0.8, min_height_m=0.5):
     """
     Draws a robust outline of the detected plane as a quadrilateral on the color image.
     Uses percentiles to avoid outlier influence.

@@ -6,11 +6,20 @@ import pyrealsense2 as rs
 
 from confidence_score_calculation import calculate_confidence_scores 
 from cluster_and_merge_depth_based_lines import cluster_and_merge_lines
+from find_frame_line_pair import filter_vertical_lines_glass_contact
 from get_z_depth import get_z_depth
+from roi import process_filtered_lines
 from visualization_utils import show_stacked_visualization
+from door_status import detect_door_state
 
 
 confidence_history = deque()
+
+
+
+def sort_line_by_y(line_points):
+    # Sort points by y-coordinate (ascending)
+    return sorted(line_points, key=lambda pt: pt[1])
 
 
 def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
@@ -125,8 +134,12 @@ def robust_line_z_roi_new(z_depth_map, x1, y1, x2, y2, roi_width=20, min_valid=0
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25, final_left_frame_line=None, final_right_frame_line=None, depth_image_raw=None):
+def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, found_vertical_planes, PHYSICAL_GRADIENT_THRESHOLD=0.25, final_left_frame_line=None, final_right_frame_line=None, depth_image_raw=None):
 
+
+    intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+    fx, fy = intrinsics.fx, intrinsics.fy
+    cx, cy = intrinsics.ppx, intrinsics.ppy
 
     # Build Z-depth map
     z_depth_map = np.asanyarray(depth_frame.get_data()).astype(np.float32) / 1000.0
@@ -197,6 +210,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
     margin_to_the_glass_side = 20  # pixels
 
     valid_lines = []
+    depth_of_valid_lines = []
     if depth_lines is not None:
         for line in depth_lines:
             x1, y1, x2, y2 = line[0]
@@ -221,16 +235,95 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
 
                 # Draw only if within specified depth range
                 #if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
-                if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] ):
+                if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]):
                     
                     valid_lines.append((x1, y1, x2, y2))
+                    depth_of_valid_lines.append(d)
                     # show the midpoint used for normals
                     cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
                     cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                     # optional annotate depth
                     #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+
+    merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
+
+    MIN_LINE_LENGTH = 50
+    filtered_merged_lines = []
+    filtered_merged_lines_depths = []
+
+    for line, depth in zip(merged_lines, merged_lines_depths):
+        x1, y1, x2, y2 = line
+        if abs(y2 - y1) >= MIN_LINE_LENGTH:
+            filtered_merged_lines.append(((x1, y1), (x2, y2)))
+            filtered_merged_lines_depths.append(depth)
+
+    paired_lines = filter_vertical_lines_glass_contact(
+                        filtered_merged_lines, filtered_merged_lines_depths, depth_frame, glass_width_cm=40, center_frame_width_cm=30
+                    )
+
+    # Adjust all pairs so each line's points are sorted by y. so that gradient can be calculated correctly
+    paired_lines_sorted = [
+        (sort_line_by_y(left_line), sort_line_by_y(right_line), left_depth, right_depth)
+        for left_line, right_line, left_depth, right_depth in paired_lines]
     
-    merged_lines = cluster_and_merge_lines(valid_lines)  # only merging lines that are vertical, valid, and within depth range
+
+    # Visualize paired lines (glass frame candidates)
+    for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
+        # Draw left line in red
+        if len(left_line) >= 2:
+            pt1 = tuple(map(int, left_line[0][:2]))
+            pt2 = tuple(map(int, left_line[-1][:2]))
+            cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
+        # Draw right line in cyan
+        if len(right_line) >= 2:
+            pt1 = tuple(map(int, right_line[0][:2]))
+            pt2 = tuple(map(int, right_line[-1][:2]))
+            cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+
+    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
+
+
+    if filtered_pairs: 
+        if len(filtered_pairs) > 1:# more than one pair detected as glass frame. 
+            #in this case we need to filter out the correct frame line at the center. if we are getting more than one glass -frame candidate means, mostly it is due to the glass area in the  inward opening door 
+            #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
+            #correct frame line pair will be close to the center of detected ransac door plane
+            # 1. Compute the center x of the detected plane (average of its 4 corners)
+            plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
+        
+            # 2. Find the pair whose center is closest to the plane center
+            min_dist = float('inf')
+            best_pair = None
+            for left_line, right_line in filtered_pairs:
+                # Compute mean x of left and right line
+                left_x = np.mean([pt[0] for pt in left_line])
+                right_x = np.mean([pt[0] for pt in right_line])
+                pair_center_x = (left_x + right_x) / 2
+                dist = abs(pair_center_x - plane_center_x)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_pair = (left_line, right_line)
+            
+            idx = filtered_pairs.index(best_pair)
+
+        else:# filtered pairs has only one pair.
+            best_pair = filtered_pairs[0]
+            idx = 0
+
+
+        final_left_frame_line = best_pair[0]
+        final_right_frame_line = best_pair[1]
+        roi_polygon_left = roi_polygon_left_list[idx]
+        roi_polygon_right = roi_polygon_right_list[idx]
+        mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
+
+        door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
+            roi_width=240, margin=10, threshold=0.1, z_door_depth = mean_z_depth_along_frame_lines)
+
+
+
+    """
+    
     if merged_lines is not None and len(merged_lines) > 0:
         scored_lines = []
         for line in merged_lines:
@@ -269,6 +362,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
                 print("[DEBUG] No confidence scores in last 10 seconds.")
     else:
         print("[DEBUG] No depth-based Hough lines found.")
+        """
     
     cv2.imshow("Main Output", color_image)
 

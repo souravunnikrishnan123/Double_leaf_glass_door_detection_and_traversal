@@ -2,7 +2,7 @@ import numpy as np
 
 
 
-def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,center_frame_width_cm ):
+def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame, glass_width_cm,center_frame_width_cm ):
     """
     Filters vertical lines that are likely in contact with a glass pane.
 
@@ -19,13 +19,22 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
     Returns:
         filtered: list of lines that likely represent frame-glass boundary
     """
+    intr = depth_frame.profile.as_video_stream_profile().intrinsics
+    fx = intr.fx  # in pixels
 
     if not lines:
         return []
     
     
     # Sort lines left to right based on x coordinate avg. as there can be a a lot of same coordinate for a line, it can cause bias. hence it is better to take mean to sort the line
-    lines = sorted(lines, key=lambda line: sum(point[0] for point in line) / len(line))
+    # Sort lines and keep track of the original indices
+    sorted_indices = sorted(range(len(lines)), key=lambda i: sum(point[0] for point in lines[i]) / len(lines[i]))
+    lines = [lines[i] for i in sorted_indices]
+    depth_of_each_lines = [depth_of_each_lines[i] for i in sorted_indices]
+
+    # After sorting lines and depths
+    line_to_depth = {id(line): depth for line, depth in zip(lines, depth_of_each_lines)}
+
     filtered = []
     # find the mean x-coordinate for each sorted line
     # and store it in a new list.
@@ -44,13 +53,9 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
     paired_lines = []
 
     for i, line in enumerate(lines):
-        depths = [point[2] for point in line]
-        median_depth = np.median(depths) # for depth median is more reliable as the values are different from one to another. chances of repetition is less in the dataset
-        # Get depth at the center of this vertical line in meters
-        
 
         # Convert depth to centimeters
-        depth_cm = median_depth * 100
+        depth_cm = depth_of_each_lines[i] * 100
 
         # Compute how many pixels `glass_width_cm` maps to at this depth using focal length
         required_pixel_gap = (glass_width_cm / depth_cm) * fx
@@ -93,7 +98,7 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
                 
 
         
-    paired_lines = get_paired_lines(filtered, frame_pixel_gap)
+    paired_lines = get_paired_lines(filtered, frame_pixel_gap, line_to_depth)
 
     #print("Filtered lines:", filtered)
     #print("Paired lines:", paired_lines)
@@ -101,7 +106,7 @@ def filter_vertical_lines_glass_contact(lines, depth_frame, fx, glass_width_cm,c
     return paired_lines
 
 
-def get_paired_lines(filtered, frame_pixel_gap):
+def get_paired_lines(filtered, frame_pixel_gap, line_to_depth):
     """
     Given a sorted list of filtered lines, return a list of tuples (line, neighbor_line)
     where each pair is within frame_pixel_gap.
@@ -125,34 +130,34 @@ def get_paired_lines(filtered, frame_pixel_gap):
             dist_right = abs(x0 - x_right)
             # Pair with the neighbor within frame_pixel_gap
             if dist_left <= frame_pixel_gap and dist_right > frame_pixel_gap:
-                paired_lines.append(( filtered[i - 1], line))
+                paired_lines.append(( filtered[i - 1], line, line_to_depth[id(filtered[i - 1])], line_to_depth[id(line)]))
             elif dist_right <= frame_pixel_gap and dist_left > frame_pixel_gap:
-                paired_lines.append((line, filtered[i + 1]))
+                paired_lines.append((line, filtered[i + 1], line_to_depth[id(line)], line_to_depth[id(filtered[i + 1])]))
             # If both are within gap, you can choose one or both (here, choose left)
             elif dist_left <= frame_pixel_gap and dist_right <= frame_pixel_gap:
-                paired_lines.append(( filtered[i - 1], line))
+                paired_lines.append(( filtered[i - 1], line, line_to_depth[id(filtered[i - 1])], line_to_depth[id(line)]))
         # Only left neighbor
         elif left_exists:
             x_left = mean_x_coords[i - 1]
             dist_left = abs(x0 - x_left)
             if dist_left <= frame_pixel_gap:
-                paired_lines.append((filtered[i - 1], line))
+                paired_lines.append((filtered[i - 1], line, line_to_depth[id(filtered[i - 1])], line_to_depth[id(line)]))
         # Only right neighbor
         elif right_exists:
             x_right = mean_x_coords[i + 1]
             dist_right = abs(x0 - x_right)
             if dist_right <= frame_pixel_gap:
-                paired_lines.append((line, filtered[i + 1]))
+                paired_lines.append((line, filtered[i + 1], line_to_depth[id(line)], line_to_depth[id(filtered[i + 1])]))
 
 
     # Remove duplicate pairs (order-insensitive)
     unique_pairs = []
     seen = set()
-    for l1, l2 in paired_lines:
+    for l1, l2, d1, d2 in paired_lines:
         # Use tuple of sorted ids to avoid (A,B) and (B,A) duplicates
         key = tuple(sorted([id(l1), id(l2)]))
         if key not in seen:
-            unique_pairs.append((l1, l2))
+            unique_pairs.append((l1, l2, d1, d2))
             seen.add(key)
     #print("Unique pairs found:", unique_pairs)
     return unique_pairs

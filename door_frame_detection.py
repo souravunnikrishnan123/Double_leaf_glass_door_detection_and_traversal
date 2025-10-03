@@ -130,7 +130,8 @@ try:
                 lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image)
 
                 vertical_lines = []
-                depth_based_edge_detection(depth_frame, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, None, None, depth_image_raw)
+                depth_of_each_vertical_lines = []
+                depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE,detected_plane, found_vertical_planes, PHYSICAL_GRADIENT_THRESHOLD, None, None, depth_image_raw)
                 if lines is not None:
                     for line in lines:
                         x1, y1, x2, y2 = line[0]
@@ -159,7 +160,7 @@ try:
                                 continue  # Skip line if no valid depth
                             if not (DEPTH_RANGE[0] <= center_depth <= DEPTH_RANGE[1]):
                                 continue  # Still skip if out of expected depth range
-
+                            
 
                             # Use first and last points of filtered segment
                             start_fwd = filtered_segment[-1][:2] # take only x and y coordinate. donot take depth
@@ -184,7 +185,7 @@ try:
 
                             # Combine all
                             full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
-                            
+                           
                             
                             if len(filtered_segment) >= 2:
                                 pt1 = tuple(map(int, filtered_segment[0][:2]))
@@ -203,14 +204,14 @@ try:
 
                             if len(full_line_segment) >= MIN_LINE_LENGTH:
                                 vertical_lines.append(full_line_segment)
+                                depth_of_each_vertical_lines.append(center_depth)
                                 # Draw vertical_lines in green
                                 pt1 = tuple(map(int, full_line_segment[0][:2]))
                                 pt2 = tuple(map(int, full_line_segment[-1][:2]))
                                 cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
-
+                                #print(f"filtered_segment depth {center_depth:.2f}m")
                     
-                    intr = depth_frame.profile.as_video_stream_profile().intrinsics
-                    fx = intr.fx  # in pixels
+                    
                     
                     # there were some problem with stable_lines calculation. it was not working properly. so commenting it out for now
                     # Instead, we will just use vertical_lines directly for pairing
@@ -229,17 +230,17 @@ try:
 
                     #print(len(vertical_lines))
                     paired_lines = filter_vertical_lines_glass_contact(
-                        vertical_lines, depth_frame, fx, glass_width_cm=40, center_frame_width_cm=30
+                        vertical_lines, depth_of_each_vertical_lines, depth_frame, glass_width_cm=40, center_frame_width_cm=30
                     )
                     
                     # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
                     paired_lines_sorted = [
-                        (sort_line_by_y(left_line), sort_line_by_y(right_line))
-                        for left_line, right_line in paired_lines]
+                        (sort_line_by_y(left_line), sort_line_by_y(right_line), left_depth, right_depth)
+                        for left_line, right_line, left_depth, right_depth in paired_lines]
                     
 
                     # Visualize paired lines (glass frame candidates)
-                    for left_line, right_line in paired_lines_sorted:
+                    for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
                         # Draw left line in red
                         if len(left_line) >= 2:
                             pt1 = tuple(map(int, left_line[0][:2]))

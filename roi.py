@@ -100,7 +100,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
     valid_roi_polygon_left_list = []
     valid_roi_polygon_right_list = []
 
-    for i, (left_line_points, right_line_points) in enumerate(filtered_lines):
+    for i, (left_line_points, right_line_points, left_depth, right_depth) in enumerate(filtered_lines):
         
         y_bottom = max(np.max([pt[1] for pt in left_line_points]), 
                        np.max([pt[1] for pt in right_line_points]),
@@ -127,14 +127,14 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
         # Calculate mean Z along the left line. we are not using extrapolated_left_line_points because 
         # more reliable depth info comes from the original line points. extrapolated points shall be used only for defining the ROIs
         # to get the maximum area where we expect lot of zero and non zero depth values
-        z_left_line = [pt[2] for pt in left_line_points if pt[2] > 0 and not np.isnan(pt[2])]
-        mean_z_left_line = float(np.mean(z_left_line)) if z_left_line else None
-        
+        #z_left_line = [pt[2] for pt in left_line_points if pt[2] > 0 and not np.isnan(pt[2])]
+        #mean_z_left_line = float(np.mean(z_left_line)) if z_left_line else None
+        mean_z_left_line = left_depth
 
         # Calculate mean Z along the original right line points
-        z_right_line = [pt[2] for pt in right_line_points if pt[2] > 0 and not np.isnan(pt[2])]
-        mean_z_right_line = float(np.mean(z_right_line)) if z_right_line else None
-
+        #z_right_line = [pt[2] for pt in right_line_points if pt[2] > 0 and not np.isnan(pt[2])]
+        #mean_z_right_line = float(np.mean(z_right_line)) if z_right_line else None
+        mean_z_right_line = right_depth
         if mean_z_left_line is not None and mean_z_right_line is not None:
             mean_z_depth_along_frame_lines = 0.5 * (mean_z_left_line + mean_z_right_line)
         else:
@@ -144,7 +144,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
         if (mean_z_left_line is not None and avg_z_left_roi is not None and mean_z_left_line*correction_factor < avg_z_left_roi) and (mean_z_right_line is not None and avg_z_right_roi is not None and mean_z_right_line*correction_factor < avg_z_right_roi):
             avg_z_left_roi_list.append(avg_z_left_roi)
             avg_z_right_roi_list.append(avg_z_right_roi)
-            filtered_pairs.append((extrapolated_left_line_points, extrapolated_right_line_points))
+            filtered_pairs.append((extrapolated_left_line_points, extrapolated_right_line_points, left_depth, right_depth))
             valid_roi_polygon_left_list.append(roi_polygon_left)
             valid_roi_polygon_right_list.append(roi_polygon_right)
             mean_z_depth_along_frame_lines_list.append(mean_z_depth_along_frame_lines)

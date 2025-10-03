@@ -64,8 +64,8 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
         return 0.0
 
 
-    # Filter: only consider values within [-20%, +20%] of door_depth
-    lower = door_depth * 0.8
+    # Filter: only consider values within [-10%, +200%] of door_depth
+    lower = door_depth * 0.9
     upper = door_depth * 2.0
     filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
     filtered_indices = [i for i, (x, y, z) in enumerate(valid_points) if lower <= z <= upper]

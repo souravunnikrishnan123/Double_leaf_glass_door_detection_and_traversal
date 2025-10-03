@@ -40,11 +40,11 @@ def calculate_confidence_scores(line,depth_grad_x, depth_height, depth_width, co
 
 
     # For visualization, draw the line with color based on score
-    #color = (0, 0, 255) if confidence_score > 0.16 else (0, 255, 0)
+    color = (0, 0, 255) if confidence_score > 0.16 else (0, 255, 0)
     
-    #cv2.line(color_image, (x1, y1), (x2, y2), color, 2)
+    cv2.line(color_image, (x1, y1), (x2, y2), color, 2)
 
     # Display the confidence score as text
-    #cv2.putText(color_image, f"{confidence_score:.2f}", (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    cv2.putText(color_image, f"{confidence_score:.2f}", (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return ((x1, y1, x2, y2), confidence_score)

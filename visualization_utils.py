@@ -12,8 +12,12 @@ def show_stacked_visualization(color_image, depth_image, MIN_DEPTH, MAX_DEPTH, e
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
 
     target_height, target_width = color_image.shape[:2]
-    edges_resized = cv2.resize(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), (target_width, target_height))
-
+    if len(edges.shape) == 2 or edges.shape[2] == 1:
+        edges_vis = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    else:
+        edges_vis = edges
+    edges_resized = cv2.resize(edges_vis, (target_width, target_height))
+    
     stacked = np.hstack((color_image, depth_colormap, edges_resized))
 
     scale_w = screen_width / stacked.shape[1]

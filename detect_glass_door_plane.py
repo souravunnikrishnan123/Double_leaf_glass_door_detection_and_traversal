@@ -28,7 +28,9 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
         'is_door_candidate' -> True/False
       detected_plane -> list of 4 (x,y) tuples in image pixel coords outlining the detected plane (or None)
     """
-
+    found_vertical_planes = []
+    fraction_of_holes_in_plane = 0.0
+    inlier_density = 0.0
     H, W = depth_image_in_meters.shape
 
     # Step 1: Backproject depth -> points, uv coords (only non-zero points get returned)
@@ -38,7 +40,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                                                          subsample = 1)
     # If there are no valid points in ROI, nothing to do
     if points.shape[0] == 0:
-        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None
+        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
 
     # Step 2: Run RANSAC plane fit on points (robust to outliers)
     """
@@ -47,7 +49,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                                                            ransac_n=ransac_n,
                                                            num_iterations=num_iterations)
     """
-    horizontal_plane_model = None
+
     found_vertical_planes , found_horizontal_planes = find_vertical_planes(points,
                          distance_threshold=0.05,
                          ransac_n=3,
@@ -59,6 +61,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
     #print(f"Found {len(found_vertical_planes)} vertical planes and {len(found_horizontal_planes)} horizontal planes")
     
     highlight_planes_on_image(color_image, uv, found_vertical_planes)
+    
 
     for i, (plane_model, inlier_indices, inlier_points) in enumerate(found_vertical_planes):
         detected_plane = draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2)
@@ -76,7 +79,10 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                 depth_min = np.min(depths_in_plane)
                 depth_max = np.max(depths_in_plane)
                 print(f"Depth mean: {depth_mean:.3f} m, std: {depth_std:.3f} m, min: {depth_min:.3f} m, max: {depth_max:.3f} m, hole fraction: {fraction_of_holes_in_plane:.3f}, inlier density: {inlier_density:.3f}")
-            debug_visualize(points, uv, plane_model, inlier_indices)
+            #debug_visualize(points, uv, plane_model, inlier_indices)
+
+    if not found_vertical_planes or len(found_vertical_planes[0]) < 2:
+        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
 
 
     #print(found_vertical_planes)
@@ -85,7 +91,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
 
     # If RANSAC found no plane (rare if points exist), return
     if len(inlier_indices) == 0:
-        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None
+        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
 
     # convert plane params and compute distance
     a, b, c, d = plane_model  # plane: a*x + b*y + c*z + d = 0

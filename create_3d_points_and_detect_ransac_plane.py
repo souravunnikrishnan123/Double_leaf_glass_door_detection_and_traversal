@@ -133,6 +133,13 @@ def find_vertical_planes(points,
     edge_inlier_mask = ~core_inlier_mask
     edge_inlier_indices = np.array(inliers)[edge_inlier_mask]
 
+    mask = np.ones(len(remaining_points), dtype=bool)
+    # Remove inliers from remaining_points for next iteration. we are only removig the core inliers to get edge points for the next iteration of RANSAC plane detection.
+    #because, for slim door planes, floor is taking lot of points near the door boundary
+    
+    mask[core_inlier_indices] = False  # Remove core inliers
+
+
     # Check if the plane is vertical
     normal = np.array(plane_model[:3])
     normal = normal / np.linalg.norm(normal)
@@ -143,6 +150,8 @@ def find_vertical_planes(points,
         # Save vertical plane
         found_vertical_planes.append((plane_model, orig_inlier_indices, remaining_points[inliers]))
         print(f"Found vertical plane with {len(inliers)} inliers.")
+        mask[edge_inlier_indices] = False  # remove the edge inliers for next iteration
+        #here because we detected a potential door plane, we remove all inliers (core + edge) to get to avoid getting the same plane again
     
     elif abs(abs(normal[1]) - 1.0) < horizontal_tol:
         # Map inliers to original indices
@@ -151,10 +160,6 @@ def find_vertical_planes(points,
         print(f"Found horizontal plane with {len(inliers)} inliers.")
     
 
-    # Remove inliers from remaining_points for next iteration. we are only removig the core inliers to get edge points for the next iteration of RANSAC plane detection.
-    #because, for slim door planes, floor is taking lot of points near the door boundary
-    mask = np.ones(len(remaining_points), dtype=bool)
-    mask[core_inlier_indices] = False
     remaining_points = remaining_points[mask]
     remaining_indices = remaining_indices[mask]
 
@@ -184,13 +189,13 @@ def highlight_planes_on_image(color_image, uv, found_vertical_planes):
       for idx in inlier_indices:
           u, v = uv[idx]
           u, v = int(u), int(v)
-          """
+          
           if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
               cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
-            """
+            
 
 
-def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2, lower_pct=2, upper_pct=98, min_width_m=0.8, min_height_m=0.5):
+def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2, lower_pct=5, upper_pct=95, min_width_m=0.8, min_height_m=0.5):
     """
     Draws a robust outline of the detected plane as a quadrilateral on the color image.
     Uses percentiles to avoid outlier influence.

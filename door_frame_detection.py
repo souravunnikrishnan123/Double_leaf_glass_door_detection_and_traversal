@@ -22,29 +22,29 @@ from visualization_utils import show_stacked_visualization
 # Constants for Depth Display
 # -------------------------------
 MIN_DEPTH = 0.3  # Minimum depth (in meters)
-MAX_DEPTH = 6  # Maximum depth (in meters)
+MAX_DEPTH = 6.0  # Maximum depth (in meters)
 
-MIN_DEPTH_DEPTH_EDGE_DETECTION = 0.3  # Minimum depth for edge detection (in meters)
-MAX_DEPTH_DEPTH_EDGE_DETECTION = 3.0  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
+MIN_DEPTH_DEPTH_EDGE_DETECTION = 1.8  # Minimum depth for edge detection (in meters)
+MAX_DEPTH_DEPTH_EDGE_DETECTION = 2.5  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
 
 DEPTH_RANGE = (1.8, 2.2)  # in meters
 
 ROI_WIDTH = 60            # width of ROI in pixels
 
 MAX_CLIP_DEPTH = 0.1
-DOOR_MIN_DEPTH = 1.9  # e.g., 1 meter away
-DOOR_MAX_DEPTH = 2.1
+DOOR_MIN_DEPTH = 1.8  # e.g., 1 meter away
+DOOR_MAX_DEPTH = 2.2
 
 
 # Parameters
 HISTORY_LENGTH = 30  # Frames to track
 MAX_LINES_TO_TRACK = 5  # Keep top N stable lines
 DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
-
+PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters 
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/workspaces/implementation/realsense_camera_feed/grey_door_always_open_night_with_flat_wall_on_both_sides.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/workspaces/implementation/realsense_camera_feed/grey_door_opening_night_with_flat_wall_on_both_sides_with_reflections.bag")
 
 
 
@@ -90,6 +90,8 @@ try:
         # Convert colour image to numpy arrays for OpenCV
         #raw color (8-bit RGB values, already fine for OpenCV, no need of any conversion)
         color_image = np.asanyarray(color_frame.get_data())
+        color_image_for_depth_line = color_image.copy()
+        color_image_for_ransac = color_image.copy()
 
         # Get intrinsics
         intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
@@ -98,7 +100,8 @@ try:
 
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
-        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image, depth_image_in_meters, fx, fy, cx, cy)
+        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy)
+        cv2.imshow("ransac", color_image_for_ransac)
         #print(result)
 
         """
@@ -127,14 +130,14 @@ try:
                 lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image)
 
                 vertical_lines = []
-                
+                depth_based_edge_detection(depth_frame, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, None, None, depth_image_raw)
                 if lines is not None:
                     for line in lines:
                         x1, y1, x2, y2 = line[0]
                         angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
                         #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
                         if 80 < abs(angle) < 100:  # near-vertical
-                            #cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
+                            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
                             image_height = depth_image_in_meters.shape[0]
                             y_top = 0
                             y_bottom = image_height - 1
@@ -307,10 +310,10 @@ try:
                         roi_color = color_image[min_y:max_y, min_x:max_x]
                         roi_depth_np = np.asanyarray(depth_frame.get_data())[min_y:max_y, min_x:max_x]
 
-                        PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
+            
                         # need to adapt depth_based_edge_detection to accept numpy arrays for depth
                         #depth_based_edge_detection_within_rgb_based_frame_lines_roi(roi_depth_np, roi_color, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE)
-                        depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line)
+                        #depth_based_edge_detection(depth_frame, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line, depth_image_raw)
         else:
             cv2.putText(color_image, "No door-like plane detected", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             edges = np.zeros_like(color_image[:,:,0])  # Empty edges
@@ -319,7 +322,7 @@ try:
         # Stack visualizations horizontally:
         # Show the result in one window using the new utility function
         esc_pressed = show_stacked_visualization(
-            color_image, depth_image_raw, MIN_DEPTH, MAX_DEPTH, edges, depth_frame
+            color_image, depth_image_raw, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, "Color | Depth | Edges+ Lines"
         )
         if esc_pressed:
             break

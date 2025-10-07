@@ -3,6 +3,7 @@ import numpy as np
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, draw_plane_outline_on_image, find_vertical_planes, ransac_plane_from_points, highlight_planes_on_image
 from evaluate_detected_ransac_planes import evaluate_plane_candidate
+from human_detection import get_human_mask_mediapipe
 from plots import debug_visualize
 
 
@@ -11,7 +12,7 @@ from plots import debug_visualize
 # Main detector: find glass-door plane (if present) and compute distance
 # ---------------------------------------------------------
 def detect_glass_door_plane(color_image, depth_image_in_meters,
-                            fx, fy, cx, cy,
+                            fx, fy, cx, cy,segmentation,
                             hole_fraction_threshold=0.2,       # fraction of holes expected in glass
                             max_inlier_density=0.8,            # inliers / ROI nonzero pixels
                             max_depth_consider=5.0,
@@ -29,18 +30,34 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
       detected_plane -> list of 4 (x,y) tuples in image pixel coords outlining the detected plane (or None)
     """
     found_vertical_planes = []
+    planes = []
     fraction_of_holes_in_plane = 0.0
     inlier_density = 0.0
     H, W = depth_image_in_meters.shape
 
+
+    # Human segmentation mask
+    mask_person = get_human_mask_mediapipe(color_image, segmentation, threshold=0.5)
+    # Optionally visualize mask overlay for debugging
+    if np.sum(mask_person) > 0:
+        overlay = color_image.copy()
+        mask_vis = (mask_person * 255).astype(np.uint8)
+        colored_mask = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR)
+        overlay = cv2.addWeighted(overlay, 0.7, colored_mask, 0.3, 0)
+    # Zero-out person depth before backprojection
+    depth_masked = depth_image_in_meters
+    depth_masked[mask_person == 1] = 0.0
+
     # Step 1: Backproject depth -> points, uv coords (only non-zero points get returned)
-    points, uv, valid_mask = backproject_depth_to_points(depth_image_in_meters,
+    points, uv, valid_mask = backproject_depth_to_points(depth_masked,
                                                          fx, fy, cx, cy,
                                                          max_depth = max_depth_consider,
                                                          subsample = 1)
     # If there are no valid points in ROI, nothing to do
     if points.shape[0] == 0:
         return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
+
+
 
     # Step 2: Run RANSAC plane fit on points (robust to outliers)
     """
@@ -50,18 +67,20 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
                                                            num_iterations=num_iterations)
     """
 
-    found_vertical_planes , found_horizontal_planes = find_vertical_planes(points,
-                         distance_threshold=0.05,
+    found_vertical_planes , found_horizontal_planes, all_planes = find_vertical_planes(points,
+                         distance_threshold=0.04,
                          ransac_n=3,
-                         num_iterations=1000,
+                         num_iterations=500,
                          vertical_tol=0.1,
                          horizontal_tol = 0.2,
                          min_inliers=10000,
                          max_planes=4)
     #print(f"Found {len(found_vertical_planes)} vertical planes and {len(found_horizontal_planes)} horizontal planes")
     
-    highlight_planes_on_image(color_image, uv, found_vertical_planes)
-    
+    #highlight_planes_on_image(color_image, uv, found_vertical_planes)
+    highlight_planes_on_image(color_image, uv, all_planes)
+    for i, (plane_model, inlier_indices, inlier_points) in enumerate(all_planes):
+        planes.append(draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2))
 
     for i, (plane_model, inlier_indices, inlier_points) in enumerate(found_vertical_planes):
         detected_plane = draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2)

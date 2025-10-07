@@ -58,7 +58,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     """
     H, W = depth_image_in_meters.shape
     
-    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=5.0, subsample=1,roi_polygon = roi_polygon)
+    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=30, subsample=1,roi_polygon = roi_polygon)
 
     if len(valid_points) == 0:
         return 0.0
@@ -66,7 +66,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
 
     # Filter: only consider values within [-10%, +200%] of door_depth
     lower = door_depth * 0.9
-    upper = door_depth * 2.0
+    upper = door_depth * 20
     filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
     filtered_indices = [i for i, (x, y, z) in enumerate(valid_points) if lower <= z <= upper]
     if len(filtered_points) == 0:
@@ -75,7 +75,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
 
 
     # Count only those within ±10% of door_depth
-    close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.1]
+    close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.05]
     # Build a set for fast lookup
     original_close_points_set = set(tuple(pt) for pt in close_points)
 
@@ -173,8 +173,13 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
         door_state = "Open or Unknown"
 
     # Overlay decision text
-    cv2.putText(color_image, f"Door State: {door_state}", (30, 50),
-    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 0), 2)
+    cv2.putText(color_image, f"Door State: {door_state}", (30, 130),
+        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 0), 2)
+    
+    cv2.putText(color_image, f"Left match: {left_match:.2f}", (30, 170),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+    cv2.putText(color_image, f"Right match: {right_match:.2f}", (30, 210),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
     return door_state
 

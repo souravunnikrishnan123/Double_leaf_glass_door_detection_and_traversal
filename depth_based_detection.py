@@ -294,7 +294,8 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             # 2. Find the pair whose center is closest to the plane center
             min_dist = float('inf')
             best_pair = None
-            for left_line, right_line in filtered_pairs:
+            best_idx = None
+            for i, (left_line, right_line, left_depth, right_depth) in enumerate(filtered_pairs):
                 # Compute mean x of left and right line
                 left_x = np.mean([pt[0] for pt in left_line])
                 right_x = np.mean([pt[0] for pt in right_line])
@@ -303,8 +304,9 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 if dist < min_dist:
                     min_dist = dist
                     best_pair = (left_line, right_line)
+                    best_idx = i
             
-            idx = filtered_pairs.index(best_pair)
+            idx = best_idx
 
         else:# filtered pairs has only one pair.
             best_pair = filtered_pairs[0]

@@ -103,6 +103,7 @@ def find_vertical_planes(points,
   remaining_indices = np.arange(points.shape[0])  # Track original indices
   found_vertical_planes = []
   found_horizontal_planes = []
+  all_planes = []
 
   for _ in range(max_planes):
     if len(remaining_points) < ransac_n:
@@ -113,6 +114,9 @@ def find_vertical_planes(points,
     plane_model, inliers = pc.segment_plane(distance_threshold=distance_threshold,
                                             ransac_n=ransac_n,
                                             num_iterations=num_iterations)
+    
+    all_planes.append((plane_model, remaining_indices[inliers], remaining_points[inliers]))
+    
     if len(inliers) < min_inliers:
         break
     
@@ -163,7 +167,7 @@ def find_vertical_planes(points,
     remaining_points = remaining_points[mask]
     remaining_indices = remaining_indices[mask]
 
-  return found_vertical_planes, found_horizontal_planes
+  return found_vertical_planes, found_horizontal_planes, all_planes
 
 
 def highlight_planes_on_image(color_image, uv, found_vertical_planes):
@@ -209,6 +213,7 @@ def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy,
     # to avoid detecting small planes including the human body
     width = x_max - x_min
     height = y_max - y_min
+    print(f"width={width:.2f}, height={height:.2f}")
     if width < min_width_m or height < min_height_m:
         return []  # Plane too small to consider
     

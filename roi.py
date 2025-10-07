@@ -104,7 +104,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
         
         y_bottom = max(np.max([pt[1] for pt in left_line_points]), 
                        np.max([pt[1] for pt in right_line_points]),
-                       np.max([pt[1] for pt in detected_plane]) if detected_plane is not None else depth_frame.height - 1
+                       np.max([pt[1] for pt in detected_plane]) if (detected_plane is not None and len(detected_plane) > 0) else depth_frame.height - 1
                         )
         y_top = 0
 

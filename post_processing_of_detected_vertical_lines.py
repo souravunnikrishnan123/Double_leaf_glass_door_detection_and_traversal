@@ -3,7 +3,8 @@ import numpy as np
 
 
 
-def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gradient_threshold=0.1, window=5, min_valid_points=6, num_samples=100):
+
+def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gradient_threshold=0.1, window=10, min_valid_points=30, num_samples=100):
     """
     Traverse the line from (x1, y1) to (x2, y2) and extract the longest segment
     with smoothed depth gradient below a threshold.
@@ -26,6 +27,9 @@ def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gra
     if len(points) < min_valid_points:
         return [], 0
 
+
+    max_consecutive_outliers = 2
+    consecutive_outliers = 0    
     max_segment = []
     center_depth = 0
     current_segment = []
@@ -38,19 +42,26 @@ def extract_smooth_line_segment_with_moving_avg(depth_frame, x1, y1, x2, y2, gra
 
         if len(depth_window) < window:
             current_segment.append((x, y, d))
+            consecutive_outliers = 0
             continue
 
-        smoothed = np.mean(depth_window)
+        smoothed = np.median(depth_window)
         if abs(smoothed - d) < gradient_threshold:
             current_segment.append((x, y, d))
+            consecutive_outliers = 0
         else:
-            depths_from_current_segment = [d for _, _, d in current_segment]
-            center_depth_of_current_segment = np.median(depths_from_current_segment) 
-            if len(current_segment) > len(max_segment):
-                max_segment = current_segment
-                center_depth = center_depth_of_current_segment
-            current_segment = []  # Reset when gradient too high
-            depth_window = []     # Also reset smoothing window
+            consecutive_outliers += 1
+            if consecutive_outliers <= max_consecutive_outliers:
+                current_segment.append((x, y, d))
+            else:
+                depths_from_current_segment = [d for _, _, d in current_segment]
+                center_depth_of_current_segment = np.median(depths_from_current_segment) 
+                if len(current_segment) > len(max_segment):
+                    max_segment = current_segment
+                    center_depth = center_depth_of_current_segment
+                current_segment = []  # Reset when gradient too high
+                depth_window = []     # Also reset smoothing window
+                consecutive_outliers = 0
 
     # Final check
     if len(current_segment) > len(max_segment): # to cover the case where,there is no depth variation in the entire line detected by houglines and canny. that is if abs(smoothed - d) < gradient_threshold: never became false
@@ -94,7 +105,7 @@ def extrapolate_along_line_segment(depth_frame, start_point, direction_vector, c
         if abs(smoothed - center_depth) > gradient_threshold:
             break
 
-        extrapolated.append((xi, yi, center_depth))
+        extrapolated.append((xi, yi))
 
     return extrapolated
 
@@ -119,7 +130,7 @@ def get_median_depth_window(depth_frame, x, y, window=10):
 
 
 
-def get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_samples=20):
+def get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_samples, min_num_of_valid_depths=10):
     """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
 
     depths = []
@@ -130,7 +141,8 @@ def get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_sample
 
         if 0 <= x < depth_frame.width and 0 <= y < depth_frame.height: 
             d = get_z_depth(depth_frame, x, y)
-            if DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]:
+            #if DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]:
+            if d > 0 and np.isfinite(d):
                 depths.append(d)
 
-    return np.median(depths) if len(depths) >= 6 else None  # Require minimum valid points
+    return np.median(depths) if len(depths) >= min_num_of_valid_depths else None  # Require minimum valid points

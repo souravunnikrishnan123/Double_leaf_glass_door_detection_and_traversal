@@ -2,7 +2,10 @@
 import pyrealsense2 as rs   # RealSense SDK for Python
 import numpy as np          # For array and matrix operations
 import cv2                  # OpenCV for image processing
+import math
 from collections import deque, Counter
+
+
 
 from depth_based_detection import depth_based_edge_detection, depth_based_edge_detection_within_rgb_based_frame_lines_roi
 from detect_glass_door_plane import detect_glass_door_plane
@@ -10,8 +13,9 @@ from roi import process_filtered_lines
 from door_status import detect_door_state
 from get_z_depth import get_z_depth
 from get_roi_bounding_box_for_depth_line_detection import get_roi_bounding_box_from_frame_lines_for_depth_lines_detection
-from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment,extract_smooth_line_segment_with_moving_avg
+from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment,extract_smooth_line_segment_with_moving_avg, get_median_depth_along_detected_line
 from setup_realsense_pipeline import setup_realsense_pipeline
+from setup_segmentation_model import setup_segmentation_model
 from temporal_smoothing_of_frame_line_candidates import update_line_history
 from find_frame_line_pair import filter_vertical_lines_glass_contact
 from rgb_based_line_detected import get_rgb_based_lines_using_canny_and_hough_lines
@@ -27,13 +31,13 @@ MAX_DEPTH = 6.0  # Maximum depth (in meters)
 MIN_DEPTH_DEPTH_EDGE_DETECTION = 1.8  # Minimum depth for edge detection (in meters)
 MAX_DEPTH_DEPTH_EDGE_DETECTION = 2.5  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
 
-DEPTH_RANGE = (1.8, 2.2)  # in meters
+DEPTH_RANGE = (1.7, 2.3)  # in meters
 
 ROI_WIDTH = 60            # width of ROI in pixels
 
 MAX_CLIP_DEPTH = 0.1
-DOOR_MIN_DEPTH = 1.8  # e.g., 1 meter away
-DOOR_MAX_DEPTH = 2.2
+DOOR_MIN_DEPTH = 1.7  # e.g., 1 meter away
+DOOR_MAX_DEPTH = 2.3
 
 
 # Parameters
@@ -44,7 +48,9 @@ PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/workspaces/implementation/realsense_camera_feed/grey_door_opening_night_with_flat_wall_on_both_sides_with_reflections.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/brown_door_always_open_night_from_IAS_lab_side.bag")
+
+mp_drawing , segmentation = setup_segmentation_model()
 
 
 
@@ -100,7 +106,7 @@ try:
 
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
-        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy)
+        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy,segmentation)
         cv2.imshow("ransac", color_image_for_ransac)
         #print(result)
 
@@ -128,12 +134,14 @@ try:
 
                 # Detect vertical lines in color image using Canny + Hough
                 lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image)
-
+                
+                
                 vertical_lines = []
-                depth_of_each_vertical_lines = []
+                depth_of_each_lines = []
                 depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE,detected_plane, found_vertical_planes, PHYSICAL_GRADIENT_THRESHOLD, None, None, depth_image_raw)
                 if lines is not None:
                     for line in lines:
+                        filtered_segment = []
                         x1, y1, x2, y2 = line[0]
                         angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
                         #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
@@ -148,23 +156,34 @@ try:
                                 #center_depth = get_median_depth_along_line(depth_frame, x_center, y1, y2)
 
                         # Extract smooth portion along detected Hough line
+                            pixel_length = math.hypot(x2 - x1, y2 - y1)
+                            num_samples = int(pixel_length)
+                            """
                             filtered_segment,center_depth = extract_smooth_line_segment_with_moving_avg(
                                 depth_frame, x1, y1, x2, y2,
-                                gradient_threshold=0.1, window=5, num_samples=100
+                                gradient_threshold=0.1, window=10, num_samples=num_samples
                             ) 
+                            """
 
-                            #center_depth = get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2)
+                            center_depth = get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths=10)
                             # Compute median depth and center
-
+                            
                             if center_depth is None:
                                 continue  # Skip line if no valid depth
                             if not (DEPTH_RANGE[0] <= center_depth <= DEPTH_RANGE[1]):
                                 continue  # Still skip if out of expected depth range
                             
+                            filtered_segment.append((x1, y1))
+                            filtered_segment.append((x2, y2))
+                           
+                            # Draw vertical_lines in cyan
+                            
+                            cv2.line(color_image, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
 
+                            
                             # Use first and last points of filtered segment
-                            start_fwd = filtered_segment[-1][:2] # take only x and y coordinate. donot take depth
-                            start_back = filtered_segment[0][:2]
+                            start_fwd = filtered_segment[-1] # take only x and y coordinate. donot take depth
+                            start_back = filtered_segment[0]
 
                             # Compute direction vector of the line (normalized)
                             dx = x2 - x1
@@ -172,8 +191,9 @@ try:
                             norm = np.hypot(dx, dy)
                             dx /= norm
                             dy /= norm
-
+                            
                             # Extrapolate forward
+                            
                             extrapolated_forward = extrapolate_along_line_segment(
                                 depth_frame, start_fwd, (dx, dy), center_depth, gradient_threshold=0.1, window=5
                             )
@@ -185,13 +205,21 @@ try:
 
                             # Combine all
                             full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
-                           
                             
+                            
+
+                            if len(full_line_segment) >= 2:
+                                
+                                cv2.line(color_image, full_line_segment[0], full_line_segment[-1], (0, 255, 0), 2)  # Green
+                                vertical_lines.append(full_line_segment)
+                                depth_of_each_lines.append(center_depth)
+                            
+                            """
                             if len(filtered_segment) >= 2:
                                 pt1 = tuple(map(int, filtered_segment[0][:2]))
                                 pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                                #cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
-
+                                cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
+                            
                             if len(full_line_segment) >= 2:
                                 pt1 = tuple(map(int, full_line_segment[0][:2]))
                                 pt2 = tuple(map(int, full_line_segment[-1][:2]))
@@ -204,13 +232,13 @@ try:
 
                             if len(full_line_segment) >= MIN_LINE_LENGTH:
                                 vertical_lines.append(full_line_segment)
-                                depth_of_each_vertical_lines.append(center_depth)
+                                depth_of_each_lines.append(center_depth)
                                 # Draw vertical_lines in green
                                 pt1 = tuple(map(int, full_line_segment[0][:2]))
                                 pt2 = tuple(map(int, full_line_segment[-1][:2]))
                                 cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
                                 #print(f"filtered_segment depth {center_depth:.2f}m")
-                    
+                            """
                     
                     
                     # there were some problem with stable_lines calculation. it was not working properly. so commenting it out for now
@@ -230,7 +258,7 @@ try:
 
                     #print(len(vertical_lines))
                     paired_lines = filter_vertical_lines_glass_contact(
-                        vertical_lines, depth_of_each_vertical_lines, depth_frame, glass_width_cm=40, center_frame_width_cm=30
+                        vertical_lines, depth_of_each_lines, depth_frame, glass_width_cm=40, center_frame_width_cm=30
                     )
                     
                     # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
@@ -275,7 +303,7 @@ try:
                             # 2. Find the pair whose center is closest to the plane center
                             min_dist = float('inf')
                             best_pair = None
-                            for left_line, right_line in filtered_pairs:
+                            for left_line, right_line, left_depth, right_depth in filtered_pairs:
                                 # Compute mean x of left and right line
                                 left_x = np.mean([pt[0] for pt in left_line])
                                 right_x = np.mean([pt[0] for pt in right_line])
@@ -283,7 +311,7 @@ try:
                                 dist = abs(pair_center_x - plane_center_x)
                                 if dist < min_dist:
                                     min_dist = dist
-                                    best_pair = (left_line, right_line)
+                                    best_pair = (left_line, right_line, left_depth, right_depth)
                             
                             idx = filtered_pairs.index(best_pair)
 
@@ -332,5 +360,6 @@ try:
 # Stop pipeline and clean up on exit
 # ------------------------------------
 finally:
+    segmentation.close()
     pipeline.stop()
     cv2.destroyAllWindows()

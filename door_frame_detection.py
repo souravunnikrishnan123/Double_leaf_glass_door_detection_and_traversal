@@ -48,7 +48,7 @@ PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/brown_door_always_open_night_from_IAS_lab_side.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door_always_open_night_from_IAS_lab_side.bag")
 
 mp_drawing , segmentation = setup_segmentation_model()
 
@@ -98,6 +98,7 @@ try:
         color_image = np.asanyarray(color_frame.get_data())
         color_image_for_depth_line = color_image.copy()
         color_image_for_ransac = color_image.copy()
+        
 
         # Get intrinsics
         intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
@@ -109,6 +110,7 @@ try:
         result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy,segmentation)
         cv2.imshow("ransac", color_image_for_ransac)
         #print(result)
+        edges = np.zeros_like(color_image[:,:,0])  # Empty edges
 
         """
         # Highlight detected plane in color image (always, if valid)
@@ -329,6 +331,9 @@ try:
                         door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
                             roi_width=240, margin=10, threshold=0.1, z_door_depth = mean_z_depth_along_frame_lines)
 
+                        
+                        
+
 
                         #print(f"Door is {door_state}")
 
@@ -345,7 +350,7 @@ try:
                         #depth_based_edge_detection(depth_frame, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD, final_left_frame_line, final_right_frame_line, depth_image_raw)
         else:
             cv2.putText(color_image, "No door-like plane detected", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            edges = np.zeros_like(color_image[:,:,0])  # Empty edges
+            
     
             
         # Stack visualizations horizontally:

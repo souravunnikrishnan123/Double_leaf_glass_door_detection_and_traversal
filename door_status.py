@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import pyrealsense2 as rs 
+import open3d as o3d
 
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, ransac_plane_from_points
@@ -18,6 +19,41 @@ def offset_roi_polygon(roi_polygon, side="left", margin=10):
     roi_polygon_offset[:, 0] += offset  # Shift x-coordinates
     return roi_polygon_offset
 
+
+
+def extend_roi_polygon_to_full_height(roi_polygon, image_height):
+    """
+    Robustly extend a 4-point ROI (parallelogram) to full image height.
+    - Handles arbitrary ordering of the 4 points.
+    - Preserves the left/right slant by using x of the top pair for y=0
+      and x of the bottom pair for y=image_height-1.
+    """
+    roi = np.asarray(roi_polygon).reshape(-1, 2)
+    if roi.shape[0] != 4:
+        # fallback to full-width rect using min/max x
+        xs = roi[:, 0]
+        x_min, x_max = int(np.min(xs)), int(np.max(xs))
+        return np.array([[x_min, 0], [x_max, 0], [x_max, image_height - 1], [x_min, image_height - 1]], dtype=np.int32)
+
+    # sort points by y (top -> bottom)
+    sorted_idx = np.argsort(roi[:, 1])
+    top2 = roi[sorted_idx[:2]]
+    bot2 = roi[sorted_idx[2:]]
+
+    # determine left/right for top and bottom pairs by x
+    top_left_x = int(round(np.min(top2[:, 0])))
+    top_right_x = int(round(np.max(top2[:, 0])))
+    bot_left_x = int(round(np.min(bot2[:, 0])))
+    bot_right_x = int(round(np.max(bot2[:, 0])))
+
+    extended = np.array([
+        [top_left_x, 0],
+        [top_right_x, 0],
+        [bot_right_x, image_height - 1],
+        [bot_left_x, image_height - 1]
+    ], dtype=np.int32)
+
+    return extended
 
 
 def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image_height=None):
@@ -137,12 +173,75 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     return fraction_close
 
 
+def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, found_vertical_planes):
+    """
+    Check how much of ROI depth matches door reference depth.
+    """
+    H, W = depth_image_in_meters.shape
+    
+    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=6, subsample=2,roi_polygon = roi_polygon)
+
+    if len(valid_points) == 0:
+        return 0.0
+    
+    # Ensure numpy arrays
+    points_np = np.asarray(valid_points)
+    uv = np.asarray(uv)
+
+    # Visualization: translucent ROI fill + outline
+    try:
+        if color_image is not None:
+            overlay = color_image.copy()
+            fill_color = (50, 50, 200)  # BGR (reddish-blue)
+            cv2.fillPoly(overlay, [roi_polygon.astype(np.int32)], fill_color)
+            alpha = 0.25
+            cv2.addWeighted(overlay, alpha, color_image, 1.0 - alpha, 0, color_image)
+            cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=(0, 255, 0), thickness=2)
+    except Exception:
+        pass
+
+    pc = o3d.geometry.PointCloud()
+    pc.points = o3d.utility.Vector3dVector(points_np)
+    pc.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.03, max_nn=30)
+    )
+    normals = np.asarray(pc.normals)
+    vertical_mask = np.abs(normals[:, 1]) < 0.7 #(cos^-1(0.7) ≈ 45°)
+    keep_idx = np.where(vertical_mask)[0]
+    if keep_idx.size == 0:
+        return 0.0
+    pc = pc.select_by_index(keep_idx)
+    points = np.asarray(pc.points)
+    uv_kept = uv[keep_idx]
+
+    # Optionally mark kept points on the image for debugging/visibility
+    try:
+        if color_image is not None:
+            for (u, v) in uv_kept:
+                px, py = int(round(u)), int(round(v))
+                if 0 <= px < W and 0 <= py < H:
+                    cv2.circle(color_image, (px, py), 1, (0, 255, 255), -1)
+    except Exception:
+        pass
+
+    point_cloud_vertical_ratio = len(points)/len(valid_points)
+    cv2.putText(color_image, f"Passable ratio: {point_cloud_vertical_ratio:.3f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
+    cv2.imshow("passable", color_image)
+
+    
+    print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
+    return point_cloud_vertical_ratio
+
+    
+
+
 
 def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
                       roi_width=40, margin=10, threshold=0.1, z_door_depth=None):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
     """
+    color_image_for_passable_check = color_image.copy()
 
 
     # Step 2: build ROIs
@@ -171,6 +270,16 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
         door_state = "Open (on left side)"
     else:
         door_state = "Open or Unknown"
+
+
+    if door_state == "Open (on left side)":
+        roi_left_offset_full_height = extend_roi_polygon_to_full_height(roi_left_offset, color_image.shape[0])
+        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, found_vertical_planes)
+    
+    
+    elif door_state == "Open (on right side)":
+        roi_right_offset_full_height = extend_roi_polygon_to_full_height(roi_right_offset, color_image.shape[0])
+        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, found_vertical_planes)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

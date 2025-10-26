@@ -8,7 +8,7 @@ import cv2
 def backproject_depth_to_points(
     depth_image_in_meters,
     fx, fy, cx, cy,
-    max_depth=5.0,
+    max_depth=5.0,min_depth = 0.5,
     subsample=1,
     roi_polygon=None
 ):
@@ -31,7 +31,7 @@ def backproject_depth_to_points(
     # Find valid pixels inside ROI and with valid depth
     valid_mask = (
         (mask == 255)
-        & (depth_image_in_meters > 0)
+        & (depth_image_in_meters > min_depth)
         & np.isfinite(depth_image_in_meters)
         & (depth_image_in_meters < max_depth)
     )
@@ -213,7 +213,7 @@ def draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy,
     # to avoid detecting small planes including the human body
     width = x_max - x_min
     height = y_max - y_min
-    print(f"width={width:.2f}, height={height:.2f}")
+    #print(f"width={width:.2f}, height={height:.2f}")
     if width < min_width_m or height < min_height_m:
         return []  # Plane too small to consider
     

@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import open3d as o3d
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, draw_plane_outline_on_image, find_vertical_planes, ransac_plane_from_points, highlight_planes_on_image
 from evaluate_detected_ransac_planes import evaluate_plane_candidate
@@ -13,9 +14,10 @@ from plots import debug_visualize
 # ---------------------------------------------------------
 def detect_glass_door_plane(color_image, depth_image_in_meters,
                             fx, fy, cx, cy,segmentation,
-                            hole_fraction_threshold=0.2,       # fraction of holes expected in glass
-                            max_inlier_density=0.8,            # inliers / ROI nonzero pixels
-                            max_depth_consider=5.0,
+                            hole_fraction_threshold=0.05,       # fraction of holes expected in glass
+                            max_inlier_density=1.0,            # inliers / ROI nonzero pixels
+                            max_depth_consider=4.0,
+                            min_depth_consider=1.0,
                             ):
     """
     Top-level function:
@@ -35,50 +37,130 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
     inlier_density = 0.0
     H, W = depth_image_in_meters.shape
 
-
+    """
     # Human segmentation mask
-    mask_person = get_human_mask_mediapipe(color_image, segmentation, threshold=0.5)
+    mask_person = get_human_mask_mediapipe(color_image, segmentation, threshold=0.3)
+    # defensive: ensure binary 0/1 uint8
+    print(f"Human mask sum: {mask_person.sum()}")
+    mask_person = (mask_person > 0).astype(np.uint8)
     # Optionally visualize mask overlay for debugging
-    if np.sum(mask_person) > 0:
+    if mask_person.sum() > 0:
         overlay = color_image.copy()
         mask_vis = (mask_person * 255).astype(np.uint8)
-        colored_mask = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR)
-        overlay = cv2.addWeighted(overlay, 0.7, colored_mask, 0.3, 0)
+
+        # create a colored fill (red) only where the person is
+        colored_mask = np.zeros_like(color_image)
+        colored_mask[mask_vis == 255] = (0, 0, 255)  # BGR red
+
+        # blend colored mask into the overlay (stronger alpha so it's obvious)
+        alpha = 0.5
+        cv2.addWeighted(colored_mask, alpha, overlay, 1.0 - alpha, 0, overlay)
+
+        # draw largest contour filled with a slightly darker red outline for clarity
+        contours, _ = cv2.findContours(mask_vis, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            cv2.drawContours(overlay, [largest], -1, (0, 0, 180), 3)  # thicker outline
+            x, y, w, h = cv2.boundingRect(largest)
+            # thicker bbox in yellow for visibility
+            cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 255, 255), 3)
+            # label
+            cv2.putText(overlay, "PERSON", (x, max(15, y - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+        # write overlay back to the color image so callers see the highlighted human
+        color_image[:, :] = overlay
+
+
+        
     # Zero-out person depth before backprojection
     depth_masked = depth_image_in_meters
     depth_masked[mask_person == 1] = 0.0
-
+    """
     # Step 1: Backproject depth -> points, uv coords (only non-zero points get returned)
-    points, uv, valid_mask = backproject_depth_to_points(depth_masked,
+    points, uv, valid_mask = backproject_depth_to_points(depth_image_in_meters,
                                                          fx, fy, cx, cy,
-                                                         max_depth = max_depth_consider,
+                                                         max_depth = max_depth_consider,min_depth = min_depth_consider,
                                                          subsample = 1)
     # If there are no valid points in ROI, nothing to do
     if points.shape[0] == 0:
         return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
 
 
+    # ---------------------------------------------------------
+    # 💡 Step 2: Voxel Downsampling (AFTER backprojection)
+    # ---------------------------------------------------------
+    # Setting: voxel_size = 0.01 to 0.015 meters (1–1.5 cm)
+    # Why: Reduces redundant neighboring points while preserving
+    #      metal frame edges and door boundaries. This balances
+    #      point density for RANSAC without losing structure.
+    # Use a numpy voxel-grid so we can apply the same index selection to uv.
+    voxel_size = 0.008  # meters (0.8 cm)
+    # compute voxel coordinates
+    vox_coords = np.floor(points / voxel_size).astype(np.int64)
+    # find unique voxels and keep one representative point per voxel
+    _, unique_idx = np.unique(vox_coords, axis=0, return_index=True)
+    unique_idx = np.array(unique_idx, dtype=np.int64)
+    # sort so ordering is deterministic (optional)
+    unique_idx = np.sort(unique_idx)
+    points = points[unique_idx]
+    uv = uv[unique_idx]
 
-    # Step 2: Run RANSAC plane fit on points (robust to outliers)
-    """
-    plane_model, inlier_indices = ransac_plane_from_points(points,
-                                                           distance_threshold=distance_threshold,
-                                                           ransac_n=ransac_n,
-                                                           num_iterations=num_iterations)
-    """
+    pc = o3d.geometry.PointCloud()
+    pc.points = o3d.utility.Vector3dVector(points)
+    
+
+    # ---------------------------------------------------------
+    # 💡 Step 3: Pre-filter by surface normal
+    # ---------------------------------------------------------
+    # Setting: estimate normals and remove points with near-horizontal normals.
+    # Why: RANSAC is sensitive to dominant surfaces (like floor/ceiling).
+    #      Pre-filter keeps only points whose normals are likely vertical,
+    #      i.e., |normal_y| < 0.8 and |normal_z| < 0.8, since we expect
+    #      glass door planes to stand roughly vertical to the ground.
+    pc.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.03, max_nn=30)
+    )
+    normals = np.asarray(pc.normals)
+
+    # Filter out points whose normals are too horizontal
+    # (optional threshold, adjust if doors tilt slightly)
+    #vertical_mask = np.abs(normals[:, 1]) < 0.7 #(cos^-1(0.7) ≈ 45°)
+
+    # Keep points whose normals are close to the Z axis (nx ~ 0, ny ~ 0, |nz| ~ 1)
+    # Tune thresholds as needed for your sensor / mounting:
+    nx_thr = 0.30   # allow small x component
+    ny_thr = 0.30   # allow small y component (reduces horizontal surfaces)
+    nz_min = 0.85   # require nz to be fairly large (cos angle ≳ 31.8°)
+
+    z_axis_mask = (np.abs(normals[:, 0]) < nx_thr) & (np.abs(normals[:, 1]) < ny_thr) & (np.abs(normals[:, 2]) >= nz_min)
+    
+    keep_idx = np.where(z_axis_mask)[0]
+    if keep_idx.size == 0:
+        return {"plane_model": None, "distance_m": None, "is_door_candidate": False}, None, found_vertical_planes
+    pc = pc.select_by_index(keep_idx)
+    points = np.asarray(pc.points)
+    uv = uv[keep_idx]
+    # ---------------------------------------------------------
+
+
+
+
+
 
     found_vertical_planes , found_horizontal_planes, all_planes = find_vertical_planes(points,
-                         distance_threshold=0.04,
+                         distance_threshold=0.03,
                          ransac_n=3,
-                         num_iterations=500,
+                         num_iterations=100,
                          vertical_tol=0.1,
                          horizontal_tol = 0.2,
-                         min_inliers=10000,
-                         max_planes=4)
+                         min_inliers=2000,
+                         max_planes=1)
     #print(f"Found {len(found_vertical_planes)} vertical planes and {len(found_horizontal_planes)} horizontal planes")
     
     #highlight_planes_on_image(color_image, uv, found_vertical_planes)
+    # now uv corresponds to the 'points' used by RANSAC — pass uv here so inlier indices map correctly
     highlight_planes_on_image(color_image, uv, all_planes)
+    
     for i, (plane_model, inlier_indices, inlier_points) in enumerate(all_planes):
         planes.append(draw_plane_outline_on_image(color_image, plane_model, inlier_points, fx, fy, cx, cy, color=(0,255,255), thickness=2))
 

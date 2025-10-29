@@ -13,7 +13,7 @@ from plots import debug_visualize
 # Main detector: find glass-door plane (if present) and compute distance
 # ---------------------------------------------------------
 def detect_glass_door_plane(color_image, depth_image_in_meters,
-                            fx, fy, cx, cy,segmentation,
+                            fx, fy, cx, cy,
                             hole_fraction_threshold=0.05,       # fraction of holes expected in glass
                             max_inlier_density=1.0,            # inliers / ROI nonzero pixels
                             max_depth_consider=4.0,

@@ -50,8 +50,6 @@ line_history = deque(maxlen=HISTORY_LENGTH)
 
 pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door_always_open_night_from_IAS_lab_side.bag")
 
-mp_drawing , segmentation = setup_segmentation_model()
-
 
 
 
@@ -107,7 +105,7 @@ try:
 
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
-        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy,segmentation)
+        result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy)
         cv2.imshow("ransac", color_image_for_ransac)
         #print(result)
         edges = np.zeros_like(color_image[:,:,0])  # Empty edges
@@ -365,6 +363,5 @@ try:
 # Stop pipeline and clean up on exit
 # ------------------------------------
 finally:
-    segmentation.close()
     pipeline.stop()
     cv2.destroyAllWindows()

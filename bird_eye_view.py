@@ -10,7 +10,7 @@ def check_passable_birdeye(points_above_floor,
                            grid_res=0.02,
                            required_clearance=0.45,
                            max_obstacle_height=-1.5,
-                           visualize=True):
+                           plotname=None):
     """
     BEV passability check that (a) computes x_min/x_max from the provided ROI
     polygon (in image pixel coordinates) if available, and (b) ignores obstacles
@@ -122,19 +122,9 @@ def check_passable_birdeye(points_above_floor,
     # 10) Compute free fraction per column (X direction)
     #Compute how much of each column (X direction) is free
     free_cols = (occ_map == 1).astype(np.uint8)
-    known_cols = ((occ_map == 1) | (occ_map == 2)).astype(np.uint8)
 
-    free_counts = np.sum(free_cols, axis=0).astype(np.float32)
-    known_counts = np.sum(known_cols, axis=0).astype(np.float32)
-    free_fraction = np.divide(free_counts, np.maximum(known_counts, 1.0))  # avoid /0
-
-    coverage = np.sum(known_cols, axis=0) / float(z_bins)
-
-    min_free_frac = 0.90   # ≥90% of column must be free
-    min_coverage = 0.60    # ≥60% of column must be observed (not unknown)
-
-    free_widths = (free_fraction >= min_free_frac).astype(np.uint8)
-
+    # 10) Columns considered clear only if they contain no occupied cells anywhere
+    free_widths = (np.sum(occ_map == 2, axis=0) == 0).astype(np.uint8)
 
     # 11) find largest continuous free column run
     max_clear_cells = 0
@@ -152,17 +142,18 @@ def check_passable_birdeye(points_above_floor,
     passable = max_clearance_m >= required_clearance
 
     # 13) visualization (optional)
-    if visualize:
+    if plotname:
         bev_vis = np.zeros((z_bins, x_bins, 3), dtype=np.uint8)
         bev_vis[occ_map == 2] = (0, 0, 255)     # red occupied
         bev_vis[occ_map == 1] = (0, 255, 0)     # green free
         bev_vis[occ_map == 0] = (80, 80, 80)    # gray unknown
 
-        # highlight free columns (those that met the >90% free criterion)
+        # highlight free columns (those that met the >99.9% free criterion)
+        
         free_col_indices = np.where(free_widths == 1)[0]
         for col in free_col_indices:
             bev_vis[:, col] = (0, 200, 255)     # orange for clear corridor
-
+        
         # resize for display - keep aspect ratio but make it readable
         if bev_vis.shape[1] > 0:
             scale = 400.0 / bev_vis.shape[1]
@@ -176,8 +167,8 @@ def check_passable_birdeye(points_above_floor,
         bev_vis_display = cv2.flip(bev_vis_resized, 0)
         # display with axes in meters (extent = [x_min, x_max, z_min, z_max])
         #Near/far are inverted because OpenCV shows row 0 at the top. Flip the BEV image vertically before imshow.
-        cv2.namedWindow("BEV occupancy", cv2.WINDOW_NORMAL)
-        cv2.imshow("BEV occupancy", bev_vis_display)
+        cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
+        cv2.imshow(plotname+"BEV", bev_vis_display)
         cv2.waitKey(1)
 
     return max_clearance_m, passable, occ_map

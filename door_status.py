@@ -219,7 +219,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     return fraction_close
 
 
-def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, found_vertical_planes):
+def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, plotname="passable"):
     """
     Check how much of ROI depth matches door reference depth.
     """
@@ -306,10 +306,10 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         return 0.0
 
 
-    # 3) Remove floor by percentile (top 95% in camera-frame Y)
+    # 3) Remove floor by percentile (top 98% in camera-frame Y)
     # If your vertical axis is not column 1, change the index accordingly.
-    floor_height = float(np.percentile(points_clean[:, 1], 95))
-    margin = 0.1  # meters above floor
+    floor_height = float(np.percentile(points_clean[:, 1], 98))
+    margin = 0.02  # meters above floor
     non_floor_mask = points_clean[:, 1] < (floor_height - margin)
     print(f"Detected floor height at y={floor_height:.3f} meters")
     points_nofloor = points_clean[non_floor_mask]
@@ -323,8 +323,11 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     pc_nf = o3d.geometry.PointCloud()
     pc_nf.points = o3d.utility.Vector3dVector(points_nofloor)
     try:
-        pc_nf.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=60))
+        pc_nf.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.25, max_nn=100))
+        pc_nf.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
         normals = np.asarray(pc_nf.normals)
+   
+        
     except Exception:
         normals = None
 
@@ -349,7 +352,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
         # Depth-aware params
         base_area_at_1m = 140  # px required at ~1m; tune 80–140
-        min_z = 0.35           # clamp near
+        min_z = 0.1           # clamp near
         max_z = 4.0            # clamp far
         near_z = 0.8           # anything closer is "near field"
         min_area_near = 8      # px required for near-field small obstacles
@@ -418,8 +421,8 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     uv_pts=uv_final,         # matching uv coordinates for the 3D points
     grid_res=0.02,
     required_clearance=0.45,
-    max_obstacle_height=-1.5,      # tune for your robot / camera mounting
-    visualize=True
+    max_obstacle_height=-2.0,      # tune for your robot / camera mounting
+    plotname=plotname
 
 )
 
@@ -437,7 +440,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     point_cloud_vertical_ratio = len(points_final)/len(valid_points)
     cv2.putText(color_image, f"Passable ratio: {point_cloud_vertical_ratio:.3f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
-    cv2.imshow("passable", color_image)
+    cv2.imshow(plotname, color_image)
     cv2.waitKey(1)
 
     
@@ -489,13 +492,13 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     if door_state == "Open (on left side)":
         roi_polygon_left_corners = extract_roi_corners(roi_left_offset)
         roi_left_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_left_corners, color_image.shape[0])
-        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, found_vertical_planes)
+        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth)
     
     
     elif door_state == "Open (on right side)":
         roi_polygon_right_corners = extract_roi_corners(roi_right_offset)
         roi_right_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_right_corners, color_image.shape[0])
-        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, found_vertical_planes)
+        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

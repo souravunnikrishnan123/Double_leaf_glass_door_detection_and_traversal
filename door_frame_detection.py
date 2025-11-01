@@ -10,7 +10,7 @@ from collections import deque, Counter
 from depth_based_detection import depth_based_edge_detection, depth_based_edge_detection_within_rgb_based_frame_lines_roi
 from detect_glass_door_plane import detect_glass_door_plane
 from roi import process_filtered_lines
-from door_status import detect_door_state
+from door_status import check_if_passable, detect_door_state
 from get_z_depth import get_z_depth
 from get_roi_bounding_box_for_depth_line_detection import get_roi_bounding_box_from_frame_lines_for_depth_lines_detection
 from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment,extract_smooth_line_segment_with_moving_avg, get_median_depth_along_detected_line
@@ -48,7 +48,7 @@ PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters
 # History: store list of detected lines (each as a tuple: (avg_x, points))
 line_history = deque(maxlen=HISTORY_LENGTH)
 
-pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door_always_open_night_from_IAS_lab_side.bag")
+pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_with_flat_wall_on_both_sides.bag")
 
 
 
@@ -96,6 +96,7 @@ try:
         color_image = np.asanyarray(color_frame.get_data())
         color_image_for_depth_line = color_image.copy()
         color_image_for_ransac = color_image.copy()
+        color_image_for_bev = color_image.copy()
         
 
         # Get intrinsics
@@ -328,9 +329,11 @@ try:
 
                         door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
                             roi_width=240, margin=10, threshold=0.1, z_door_depth = mean_z_depth_along_frame_lines)
+                        
 
-                        
-                        
+                        #create BEV of entire view
+                        full_image_roi = np.array([[0,0],[color_image.shape[1]-1,0],[color_image.shape[1]-1,color_image.shape[0]-1],[0,color_image.shape[0]-1]])
+                        ratio = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_bev, full_image_roi, door_depth = mean_z_depth_along_frame_lines, plotname = "full_view_bev")
 
 
                         #print(f"Door is {door_state}")

@@ -4,7 +4,6 @@ import open3d as o3d
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, draw_plane_outline_on_image, find_vertical_planes, ransac_plane_from_points, highlight_planes_on_image
 from evaluate_detected_ransac_planes import evaluate_plane_candidate
-from human_detection import get_human_mask_mediapipe
 from plots import debug_visualize
 
 
@@ -37,45 +36,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
     inlier_density = 0.0
     H, W = depth_image_in_meters.shape
 
-    """
-    # Human segmentation mask
-    mask_person = get_human_mask_mediapipe(color_image, segmentation, threshold=0.3)
-    # defensive: ensure binary 0/1 uint8
-    print(f"Human mask sum: {mask_person.sum()}")
-    mask_person = (mask_person > 0).astype(np.uint8)
-    # Optionally visualize mask overlay for debugging
-    if mask_person.sum() > 0:
-        overlay = color_image.copy()
-        mask_vis = (mask_person * 255).astype(np.uint8)
 
-        # create a colored fill (red) only where the person is
-        colored_mask = np.zeros_like(color_image)
-        colored_mask[mask_vis == 255] = (0, 0, 255)  # BGR red
-
-        # blend colored mask into the overlay (stronger alpha so it's obvious)
-        alpha = 0.5
-        cv2.addWeighted(colored_mask, alpha, overlay, 1.0 - alpha, 0, overlay)
-
-        # draw largest contour filled with a slightly darker red outline for clarity
-        contours, _ = cv2.findContours(mask_vis, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            largest = max(contours, key=cv2.contourArea)
-            cv2.drawContours(overlay, [largest], -1, (0, 0, 180), 3)  # thicker outline
-            x, y, w, h = cv2.boundingRect(largest)
-            # thicker bbox in yellow for visibility
-            cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 255, 255), 3)
-            # label
-            cv2.putText(overlay, "PERSON", (x, max(15, y - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
-        # write overlay back to the color image so callers see the highlighted human
-        color_image[:, :] = overlay
-
-
-        
-    # Zero-out person depth before backprojection
-    depth_masked = depth_image_in_meters
-    depth_masked[mask_person == 1] = 0.0
-    """
     # Step 1: Backproject depth -> points, uv coords (only non-zero points get returned)
     points, uv, valid_mask = backproject_depth_to_points(depth_image_in_meters,
                                                          fx, fy, cx, cy,

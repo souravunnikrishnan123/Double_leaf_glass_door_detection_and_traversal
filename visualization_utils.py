@@ -3,19 +3,25 @@ import numpy as np
 from get_z_depth import get_z_depth
 
 
-def show_stacked_visualization(color_image, depth_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, window_name="Color | Depth | Edges+ Lines", screen_width=1920, screen_height=1080):
+def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, window_name="Color | Depth | Edges+ Lines", screen_width=1920, screen_height=1080):
     """
     Stack color, depth, and edge images horizontally, resize to fit screen, display in a window,
     attach mouse callback for depth, and handle ESC key to exit.
     Returns True if ESC is pressed, else False.
     """
+    depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
 
     target_height, target_width = color_image.shape[:2]
-    if len(edges.shape) == 2 or edges.shape[2] == 1:
-        edges_vis = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    # Fallback if edges is None
+    if edges is None:
+        edges_vis = np.zeros_like(color_image)
     else:
-        edges_vis = edges
+        # Normalize to 3-channel BGR for stacking
+        if edges.ndim == 2 or (edges.ndim == 3 and edges.shape[2] == 1):
+            edges_vis = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        else:
+            edges_vis = edges
     edges_resized = cv2.resize(edges_vis, (target_width, target_height))
     
     stacked = np.hstack((color_image, depth_colormap, edges_resized))

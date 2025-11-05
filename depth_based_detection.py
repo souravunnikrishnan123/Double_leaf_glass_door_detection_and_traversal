@@ -9,7 +9,6 @@ from cluster_and_merge_depth_based_lines import cluster_and_merge_lines
 from find_frame_line_pair import filter_vertical_lines_glass_contact
 from get_z_depth import get_z_depth
 from roi import process_filtered_lines
-from visualization_utils import show_stacked_visualization
 from door_status import detect_door_state
 from sort_lines_by_y import sort_lines_by_y
 
@@ -69,7 +68,7 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, found_vertical_planes, PHYSICAL_GRADIENT_THRESHOLD=0.25, final_left_frame_line=None, final_right_frame_line=None, depth_image_raw=None):
+def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, PHYSICAL_GRADIENT_THRESHOLD=0.25):
 
 
     intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
@@ -133,13 +132,6 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
     depth_lines = cv2.HoughLinesP(depth_edges, 1, np.pi / 180, threshold=100,
                                 minLineLength=100, maxLineGap=30)
 
-    # Compute average x for frame lines
-    if final_left_frame_line is not None or final_right_frame_line is not None:
-        left_x = np.mean([pt[0] for pt in final_left_frame_line])
-        right_x = np.mean([pt[0] for pt in final_right_frame_line])
-    else:
-        left_x = 0
-        right_x = 0
 
     margin_to_the_frame_side = 5  # pixels
     margin_to_the_glass_side = 20  # pixels
@@ -164,8 +156,8 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 y_m = int((y1 + y2) / 2)
                 
                 # Limit area for left and right
-                left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
-                right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
+                #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
+                #right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
 
 
                 # Draw only if within specified depth range
@@ -254,13 +246,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
         roi_polygon_right = roi_polygon_right_list[idx]
         mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
 
-        cv2.imshow("Main Output", color_image)
 
-
-        esc_pressed = show_stacked_visualization(
-                color_image, depth_image_raw, MIN_DEPTH, MAX_DEPTH, sobel_vis_color, depth_frame, "depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
-            )
-
-        return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines
+        return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, sobel_vis_color
     else:
-        return None, None, 0
+        return None, None, 0, None

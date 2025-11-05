@@ -15,6 +15,8 @@ def offset_roi_polygon(roi_polygon, side="left", margin=10):
     Offset the ROI polygon horizontally by margin.
     For left ROI, shift left; for right ROI, shift right.
     """
+    if roi_polygon is None:
+        return None
     offset = -margin if side == "left" else margin
     roi_polygon_offset = roi_polygon.copy()
     roi_polygon_offset[:, 0] += offset  # Shift x-coordinates
@@ -452,7 +454,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
 
 def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_polygon_left, roi_polygon_right,found_vertical_planes,
-                      roi_width=40, margin=10, threshold=0.1, z_door_depth=None):
+                      roi_width=40, margin=10, threshold=0.05, z_door_depth=None, plotname = "door_state_based_on_color_image"):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
     """
@@ -492,13 +494,13 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     if door_state == "Open (on left side)":
         roi_polygon_left_corners = extract_roi_corners(roi_left_offset)
         roi_left_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_left_corners, color_image.shape[0])
-        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth)
+        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, plotname=plotname)
     
     
     elif door_state == "Open (on right side)":
         roi_polygon_right_corners = extract_roi_corners(roi_right_offset)
         roi_right_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_right_corners, color_image.shape[0])
-        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth)
+        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, plotname=plotname)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

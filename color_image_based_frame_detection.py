@@ -205,10 +205,10 @@ def color_image_based_frame_detection(detected_plane, color_image, depth_frame, 
             roi_polygon_right = roi_polygon_right_list[idx]
             mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
 
-            return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines
+            return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, edges
         else:
-            return None, None, 0
-    return None, None, 0
+            return None, None, 0, None
+    return None, None, 0, None
 
             
             

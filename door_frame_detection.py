@@ -96,7 +96,10 @@ try:
         result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy)
         cv2.imshow("ransac", color_image_for_ransac)
         #print(result)
-        edges = np.zeros_like(color_image[:,:,0])  # Empty edges
+
+        edges = None
+        sobel_vis_color = None
+
         
 
         if result["is_door_candidate"]:
@@ -105,13 +108,16 @@ try:
 
             # Only proceed if around 2 m (add ± tolerance)
             if abs(distance - 2.0) < 0.3:
-                
-                depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE,detected_plane, found_vertical_planes, PHYSICAL_GRADIENT_THRESHOLD, None, None, depth_image_raw)
 
-                roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image = color_image_based_frame_detection(detected_plane, color_image, depth_frame, DEPTH_RANGE)
+                roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image, mean_z_depth_to_frame_based_on_depth_image, sobel_vis_color = depth_based_edge_detection(depth_frame, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE,detected_plane, PHYSICAL_GRADIENT_THRESHOLD)
 
-                door_state = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image,found_vertical_planes,
-                roi_width=240, margin=10, threshold=0.1, z_door_depth = mean_z_depth_to_frame_based_on_color_image)
+                roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image, edges = color_image_based_frame_detection(detected_plane, color_image, depth_frame, DEPTH_RANGE)
+
+                door_state_based_on_color_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image,found_vertical_planes,
+                roi_width=240, margin=10, threshold=0.05, z_door_depth = mean_z_depth_to_frame_based_on_color_image, plotname = "door_state_based_on_color_image")
+
+                door_state_based_on_depth_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image_for_depth_line, roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image,found_vertical_planes,
+                roi_width=240, margin=10, threshold=0.05, z_door_depth = mean_z_depth_to_frame_based_on_depth_image, plotname = "door_state_based_on_depth_image")
 
 
                 #create BEV of entire view
@@ -126,8 +132,12 @@ try:
         # Stack visualizations horizontally:
         # Show the result in one window using the new utility function
         esc_pressed = show_stacked_visualization(
-            color_image, depth_image_raw, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, "Color | Depth | Edges+ Lines"
+            color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, "Color | Depth | Edges+ Lines"
         )
+
+        esc_pressed = show_stacked_visualization(
+                color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, sobel_vis_color, depth_frame, "depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
+            )
         if esc_pressed:
             break
 

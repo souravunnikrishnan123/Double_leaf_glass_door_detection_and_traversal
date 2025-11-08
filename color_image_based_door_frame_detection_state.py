@@ -11,7 +11,7 @@ class color_image_based_door_frame_detection_state(BaseState):
         if ctx.detected_plane is None:
             return None
 
-        roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image, edges = color_image_based_frame_detection(ctx.detected_plane, ctx.color_image_color_based, ctx.depth_frame, DEPTH_RANGE = (1.7, 2.3))
+        roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image, edges = color_image_based_frame_detection(ctx.depth_image_in_meters, ctx.detected_plane, ctx.color_image_color_based, ctx.depth_frame, DEPTH_RANGE = (1.7, 2.3))
         
         ctx.edges = edges
         if roi_polygon_left_based_on_color_image is not None and roi_polygon_right_based_on_color_image is not None:

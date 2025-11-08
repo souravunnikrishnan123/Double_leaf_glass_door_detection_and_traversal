@@ -2,9 +2,8 @@ import pyrealsense2 as rs   # RealSense SDK for Python
 import numpy as np
 import cv2
 
-from get_z_depth import get_z_depth
 
-def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_depth=1.7):
+def get_strip_avg_z(depth_image_in_meters, line_points, side="left", roi_width=20, min_depth=1.7):
     """
     Calculate the average Z coordinate in a strip (ROI) parallel to a given line.
     """
@@ -33,23 +32,20 @@ def get_strip_avg_z(depth_frame, line_points, side="left", roi_width=20, min_dep
     roi_polygon = np.vstack((pts, pts_offset[::-1]))
 
     # Create mask for ROI
-    mask = np.zeros((depth_frame.height, depth_frame.width), dtype=np.uint8)
+    mask = np.zeros(depth_image_in_meters.shape, dtype=np.uint8)
     cv2.fillPoly(mask, [roi_polygon.astype(np.int32)], 255)
 
-    # Collect Z values
-    z_values = []
-    ys, xs = np.where(mask == 255)
-    for (x, y) in zip(xs, ys):
-        if 0 <= x < depth_frame.width and 0 <= y < depth_frame.height:
-            z = get_z_depth(depth_frame, x, y)
-            if z >= min_depth and z != 0 and not np.isnan(z):
-                z_values.append(z)
+    roi_depth = depth_image_in_meters[mask == 255]
 
-    avg_z = float(np.mean(z_values)) if len(z_values) > 10 else None
+    # Vectorized filtering
+    valid_mask = (roi_depth >= min_depth) & (roi_depth != 0) & ~np.isnan(roi_depth)
+    valid_depths = roi_depth[valid_mask]
+
+    avg_z = float(np.mean(valid_depths)) if len(valid_depths) > 10 else None
     return avg_z, roi_polygon
 
 
-import numpy as np
+
 
 def extrapolate_line_to_y_range(line_points, y_start, y_end, step=1):
     """
@@ -73,7 +69,7 @@ def extrapolate_line_to_y_range(line_points, y_start, y_end, step=1):
     return sampled_points
 
 
-def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_plane):
+def process_filtered_lines(filtered_lines, depth_image_in_meters, color_image, detected_plane):
     """
     For each pair of lines, create ROIs:
     - Left ROI: to the left of the left line in the pair
@@ -92,7 +88,6 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
     correction_factor=1.1
 
 
-    #print(f"Processing {len(filtered_lines)} pairs for ROIs.")
     avg_z_left_roi_list = []
     avg_z_right_roi_list = []
     filtered_pairs = []
@@ -104,7 +99,7 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
         
         y_bottom = max(np.max([pt[1] for pt in left_line_points]), 
                        np.max([pt[1] for pt in right_line_points]),
-                       np.max([pt[1] for pt in detected_plane]) if (detected_plane is not None and len(detected_plane) > 0) else depth_frame.height - 1
+                       np.max([pt[1] for pt in detected_plane]) if (detected_plane is not None and len(detected_plane) > 0) else depth_image_in_meters.shape[0] - 1
                         )
         y_top = 0
 
@@ -114,13 +109,13 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
 
         # Compute average Z for left ROI
         avg_z_left_roi, roi_polygon_left = get_strip_avg_z(
-            depth_frame, extrapolated_left_line_points, side="left", roi_width=240, min_depth=1.7
+            depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=240, min_depth=1.7
         )
         
 
         # Compute average Z for right ROI
         avg_z_right_roi, roi_polygon_right = get_strip_avg_z(
-            depth_frame, extrapolated_right_line_points, side="right", roi_width=240, min_depth=1.7
+            depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=240, min_depth=1.7
         ) # minimum depth used to ignore the depth info from human who is between the door and robodog
         
 
@@ -171,6 +166,3 @@ def process_filtered_lines(filtered_lines, depth_frame, color_image, detected_pl
 
     return valid_roi_polygon_left_list, valid_roi_polygon_right_list, filtered_pairs, mean_z_depth_along_frame_lines_list
 
-
-if __name__ == "__main__":
-    main()

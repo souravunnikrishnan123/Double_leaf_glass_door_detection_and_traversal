@@ -11,17 +11,19 @@ from get_z_depth import get_z_depth
 from roi import process_filtered_lines
 from door_status import detect_door_state
 from sort_lines_by_y import sort_lines_by_y
+from get_depth_based_lines_using_sobel_and_hough_lines import get_depth_based_lines_using_sobel_and_hough_lines 
 
+from duration import get_duration_seconds
 
 confidence_history = deque()
 
-
+"""
 
 def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
-    """
-    Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
-    using get_z_depth for accurate Z-axis depth.
-    """
+    
+    #Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
+    #using get_z_depth for accurate Z-axis depth.
+    
     if abs(x1 - x2) > abs(y1 - y2):
         print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
         return None
@@ -63,115 +65,121 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
         return med_z_depth1
     else:
         return min(med_z_depth1, med_z_depth2)
+    
+    """  
+
+def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
+    """
+    Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
+    using get_z_depth for accurate Z-axis depth.
+    """
+    if abs(x1 - x2) > abs(y1 - y2):
+        print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
+        return None
+    depth_m = np.asanyarray(depth_frame.get_data()).astype(np.float32) / 1000.0
+    H, W = depth_m.shape
+
+    y_start, y_end = sorted((y1, y2))
+    y_start= max(0, y_start)
+    y_end = min(H, y_end)
+
+    if y_end <= y_start:
+        return None
+    
+    ys = np.arange(y_start, y_end)
+
+    x_center = int((x1 + x2) / 2)
+
+    x_left_roi_start = max(0, x_center - roi_width)
+    x_left_roi_end = min(W, x_center)
+
+    x_right_roi_start = max(0, x_center + 1)
+    x_right_roi_end = min(W, x_center + roi_width + 1)
+
+    # List to store valid Z-depths for each ROI
+    z_depths1 = depth_m[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
+    z_depths2 = depth_m[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
+
+    z_depths1 = z_depths1.ravel() #to convert to 1D array
+    z_depths2 = z_depths2.ravel() #to convert to 1D array
+
+    z_depths1 = z_depths1[np.isfinite(z_depths1) & (z_depths1 > 0)]
+    z_depths2 = z_depths2[np.isfinite(z_depths2) & (z_depths2 > 0)]
+
+
+    # Compute medians
+    med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
+    med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
+
+    # Apply your filtering logic
+    if med_z_depth1 == 0 and med_z_depth2 == 0:
+        return None
+    elif med_z_depth1 == 0:
+        return med_z_depth2
+    elif med_z_depth2 == 0:
+        return med_z_depth1
+    else:
+        return min(med_z_depth1, med_z_depth2)
 
 
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, PHYSICAL_GRADIENT_THRESHOLD=0.25):
+def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, PHYSICAL_GRADIENT_THRESHOLD=0.25):
 
-
-    intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
-    fx, fy = intrinsics.fx, intrinsics.fy
-    cx, cy = intrinsics.ppx, intrinsics.ppy
-
-    # Build Z-depth map
-    z_depth_map = np.asanyarray(depth_frame.get_data()).astype(np.float32) / 1000.0
-
-
-    # Global validity check
-    # Filter out sensor invalid values (too close, too far, nan/0)
-    final_mask = (z_depth_map > MIN_DEPTH) & (z_depth_map < MAX_DEPTH)
-
-    # Detect strong edges between ~door distance (1.8–2.2 m) and background (0 or >2.5 m)
-    #roi_mask = ((z_depth_map > 1.8) & (z_depth_map < 2.2)) | (z_depth_map == 0) | (z_depth_map > 2.5)
-
-    # Combine masks
-    #final_mask = valid_mask & roi_mask
-
-    # Smooth Z-depth (bilateral preserves edges better than Gaussian)
-    z_depth_filtered = cv2.bilateralFilter(z_depth_map, d=7, sigmaColor=50, sigmaSpace=75)
-
-    # Gradient along X (detect vertical edges in depth)
-    depth_grad_x = cv2.Sobel(z_depth_filtered, cv2.CV_32F, 1, 0, ksize=5)
-    depth_grad_x = np.abs(depth_grad_x)
-    # Apply mask (keep only valid + relevant regions)
-    depth_grad_x[~final_mask] = 0 
-
-    # Normalize for visualization (convert to 8-bit image)
-    sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-
-
-    # Convert Sobel visualization to color (BGR)
-    sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
-
-
-    # Adaptive threshold: mean + k*std of valid gradients
-    valid_grad_vals = depth_grad_x[final_mask]  #Only gradients at valid depth pixels are used to compute the threshold
-    if len(valid_grad_vals) > 0:
-        mean_val = np.mean(valid_grad_vals)
-        std_val = np.std(valid_grad_vals)
-        k = 2.0  # tune sensitivity
-        thresh_val = mean_val + k * std_val
-    else:
-        thresh_val = 0.1  # fallback threshold
-
-    _, depth_edges = cv2.threshold(depth_grad_x, thresh_val, 255, cv2.THRESH_BINARY)
-    depth_edges = depth_edges.astype(np.uint8)
-
-    #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
-    # but if there are depth hole within the frame, the depth gradient will be high, that case is not covered here
-    physical_mask = (depth_grad_x > PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
-    depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
-
-    # Overlay depth edges in red
-    sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
-    cv2.imshow("Sobel + Depth Edges", sobel_vis_color)
-
-    # Hough Transform on depth-based vertical edges
-    depth_lines = cv2.HoughLinesP(depth_edges, 1, np.pi / 180, threshold=100,
-                                minLineLength=100, maxLineGap=30)
-
-
-    margin_to_the_frame_side = 5  # pixels
-    margin_to_the_glass_side = 20  # pixels
+    timer1 = get_duration_seconds()
 
     valid_lines = []
     depth_of_valid_lines = []
+
+    depth_lines, sobel_vis_color = get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH, MAX_DEPTH, PHYSICAL_GRADIENT_THRESHOLD)
+
+    timer1.get_duration("depth_based_edge_detection preprocessing")
+    timer2 = get_duration_seconds()
+
     if depth_lines is not None:
+        x1_np = depth_lines[:, 0, 0]
+        y1_np = depth_lines[:, 0, 1]
+        x2_np = depth_lines[:, 0, 2]
+        y2_np = depth_lines[:, 0, 3]
+
+        angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)  # radians. 78°–102°
+        vertical_mask = (np.abs(np.cos(angles)) < 0.2)  # near-vertical
+        depth_lines = depth_lines[vertical_mask]  # only has near-vertical lines
+
+
         for line in depth_lines:
             x1, y1, x2, y2 = line[0]
 
-            x_avg = (x1 + x2) / 2
-
             # Compute line angle
-            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+            #angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
 
             # Keep only near-vertical lines
-            if 80 < abs(angle) < 100:
-                # Estimate Z-depth of the line robustly
-                d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
-                cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
-                x_m = int((x1 + x2) / 2)
-                y_m = int((y1 + y2) / 2)
+            #if 80 < abs(angle) < 100:
+            # Estimate Z-depth of the line robustly
+            d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
+            cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
+            x_m = int((x1 + x2) / 2)
+            y_m = int((y1 + y2) / 2)
+            
+            # Limit area for left and right
+            #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
+            #right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
+
+
+            # Draw only if within specified depth range
+            #if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
+            if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]):
                 
-                # Limit area for left and right
-                #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
-                #right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
-
-
-                # Draw only if within specified depth range
-                #if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
-                if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1]):
-                    
-                    valid_lines.append((x1, y1, x2, y2))
-                    depth_of_valid_lines.append(d)
-                    # show the midpoint used for normals
-                    cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
-                    cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
-                    # optional annotate depth
-                    #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
-
+                valid_lines.append((x1, y1, x2, y2))
+                depth_of_valid_lines.append(d)
+                # show the midpoint used for normals
+                cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
+                cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
+                # optional annotate depth
+                #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+    timer2.get_duration("depth_based_edge_detection line processing")
+    timer3 = get_duration_seconds()
     merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
 
     MIN_LINE_LENGTH = 50
@@ -207,7 +215,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
             pt2 = tuple(map(int, right_line[-1][:2]))
             cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
 
-    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
+    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image, detected_plane)
 
 
     if filtered_pairs: 
@@ -246,7 +254,7 @@ def depth_based_edge_detection(depth_frame, color_image, MIN_DEPTH, MAX_DEPTH, D
         roi_polygon_right = roi_polygon_right_list[idx]
         mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
 
-
+        timer3.get_duration("depth_based_edge_detection pairing and roi processing")
         return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, sobel_vis_color
     else:
         return None, None, 0, None

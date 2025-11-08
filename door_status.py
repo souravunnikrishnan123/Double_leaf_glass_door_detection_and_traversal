@@ -2,10 +2,10 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs 
 import open3d as o3d
-
+from duration import get_duration_seconds
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, ransac_plane_from_points
-from get_z_depth import get_z_depth
+
 from bird_eye_view import check_passable_birdeye
 
 
@@ -140,6 +140,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     """
     Check how much of ROI depth matches door reference depth.
     """
+    timer = get_duration_seconds()
     H, W = depth_image_in_meters.shape
     
     valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=30, subsample=1,roi_polygon = roi_polygon)
@@ -147,21 +148,28 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     if len(valid_points) == 0:
         return 0.0
 
+    valid_points = np.asarray(valid_points,dtype=np.float32)
+    uv = np.asarray(uv,dtype=np.float32)
 
     # Filter: only consider values within [-10%, +200%] of door_depth
     lower = door_depth * 0.9
     upper = door_depth * 20
-    filtered_points = [(x, y, z) for (x, y, z) in valid_points if lower <= z <= upper]
-    filtered_indices = [i for i, (x, y, z) in enumerate(valid_points) if lower <= z <= upper]
-    if len(filtered_points) == 0:
+
+    valid_z_points = valid_points[:, 2]
+    filtered_mask = (valid_z_points >= lower) & (valid_z_points <= upper)
+
+    if not np.any(filtered_mask):
         return 0.0
     
+    filtered_points = valid_points[filtered_mask]
+    filtered_uv = uv[filtered_mask]
 
+    close_mask = np.abs(filtered_points[:, 2] - door_depth) <= door_depth * 0.05
+    close_points = filtered_points[close_mask]
+    close_uv = filtered_uv[close_mask]
 
-    # Count only those within ±10% of door_depth
-    close_points = [(x, y, z) for (x, y, z) in filtered_points if abs(z - door_depth) <= door_depth * 0.05]
-    # Build a set for fast lookup
-    original_close_points_set = set(tuple(pt) for pt in close_points)
+    removed_close_points = np.empty((0, 3), dtype=np.float32)
+    removed_close_uv = np.empty((0, 2), dtype=np.float32)
 
 
     #because we only interested in the floor plane, we only process the first detected horizontal plane
@@ -180,44 +188,50 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
         plane_norm = np.linalg.norm([a, b, c])
         # Set a tight threshold for coplanarity (2cm)
         coplanar_thresh = 0.05
-        close_points = [
-            (x, y, z)
-            for (x, y, z) in close_points
-            if abs(a * x + b * y + c * z + d) / plane_norm < coplanar_thresh
-        ]
+        #vectorized planarity check
+        plane_distances =  np.abs((a*close_points[:,0] + b*close_points[:,1] + c*close_points[:,2] + d) / plane_norm)
+
+        coplanar_mask = plane_distances < coplanar_thresh
+
+        # Save removed points before filtering
+        removed_close_points = close_points[~coplanar_mask]
+        removed_close_uv = close_uv[~coplanar_mask]
+
+        close_points = close_points[coplanar_mask]
+        close_uv = close_uv[coplanar_mask]
         
-    close_points_set = set(tuple(pt) for pt in close_points)
-    removed_close_points_set = original_close_points_set - close_points_set
-
-
-    close_indices = [i for i, pt in enumerate(filtered_points) if pt in close_points_set]
-    bottom_points = [
-    filtered_points[i]
-    for i in close_indices
-    if uv[filtered_indices[i]][1] > H / 2
-]
+        
     #print(len(bottom_points))
-    fraction_close = len(close_points) / len(filtered_points)
-    #bottom_ration = len(bottom_points) / len(filtered_points)
-    #print(f"Fraction close: {fraction_close:.3f}, bottom ration: {bottom_ration:.3f}")
+    fraction_close = close_points.shape[0] / filtered_points.shape[0]
+
+    #print(f"Fraction close: {fraction_close:.3f}")
+    timer.get_duration("check_side_roi_against_door")
     
+    timer2 = get_duration_seconds()
     # Visualization
     if color_image is not None:
+        # Draw ROI polygon
         cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=color, thickness=2)
-       
-        for i, (x, y, z) in enumerate(filtered_points):
-            u, v = uv[filtered_indices[i]]
-            px, py = int(u), int(v)
-            if 0 <= px < W and 0 <= py < H:
-                pt_tuple = (x, y, z)
-                
-                if pt_tuple in close_points_set:
-                    cv2.circle(color_image, (px, py), 1, (0, 255, 255), -1)  # cyan for close_points
-                elif pt_tuple in removed_close_points_set:
-                    cv2.circle(color_image, (px, py), 1, (0, 255, 0), -1)  # green for removed close points
-                else:
-                    cv2.circle(color_image, (px, py), 1, (255, 0, 0), -1)  # blue for others
-                     
+        
+        # Prepare coordinate arrays
+        uv_filtered = filtered_uv.astype(np.int32)
+        uv_close = close_uv.astype(np.int32)
+        uv_removed = removed_close_uv.astype(np.int32)
+
+        # Validity masks to avoid out-of-bounds
+        valid_filtered = (uv_filtered[:, 0] >= 0) & (uv_filtered[:, 0] < W) & (uv_filtered[:, 1] >= 0) & (uv_filtered[:, 1] < H)
+        valid_close = (uv_close[:, 0] >= 0) & (uv_close[:, 0] < W) & (uv_close[:, 1] >= 0) & (uv_close[:, 1] < H)
+        valid_removed = (uv_removed[:, 0] >= 0) & (uv_removed[:, 0] < W) & (uv_removed[:, 1] >= 0) & (uv_removed[:, 1] < H)
+
+        # Draw "all filtered points" as blue
+        color_image[uv_filtered[valid_filtered][:, 1], uv_filtered[valid_filtered][:, 0]] = (255, 0, 0)
+        # Draw "close to door depth" points as cyan
+        color_image[uv_close[valid_close][:, 1], uv_close[valid_close][:, 0]] = (0, 255, 255)
+        # Draw "removed (coplanar/floor)" points as green
+        color_image[uv_removed[valid_removed][:, 1], uv_removed[valid_removed][:, 0]] = (0, 255, 0)
+
+
+    timer2.get_duration("check_side_roi_against_door: visualization")                 
     return fraction_close
 
 
@@ -225,8 +239,10 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     """
     Check how much of ROI depth matches door reference depth.
     """
+    timer = get_duration_seconds()
     H, W = depth_image_in_meters.shape
-    
+
+    timer1 = get_duration_seconds()
     # Visualization: translucent ROI fill + outline
     try:
         if color_image is not None:
@@ -270,87 +286,100 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     except Exception:
         depth_med = depth_image_in_meters
 
-    # 1) Image-local median filter to reject specular / spike depths
+    # Image-local median filter to reject specular / spike depths
     depth_dev_thresh = 0.12  # meters; tune as needed
-    keep_mask = np.zeros(len(points_np), dtype=bool)
-    for i, (x, y, z) in enumerate(points_np):
-        u, v = np.round(uv[i]).astype(int)
-        if not (0 <= u < W and 0 <= v < H):
-            continue
-        d_img = float(depth_image_in_meters[v, u])
-        d_med = float(depth_med[v, u])
-        if d_img == 0 or np.isnan(d_img) or np.isnan(d_med):
-            continue
-        if abs(d_img - d_med) <= depth_dev_thresh:
-            keep_mask[i] = True
 
-    if not keep_mask.any():
+    # Round UVs, clip to valid image bounds
+    uv_int = np.round(uv).astype(int)
+    valid_mask = (
+        (uv_int[:, 0] >= 0) & (uv_int[:, 0] < W) &
+        (uv_int[:, 1] >= 0) & (uv_int[:, 1] < H)
+    )
+
+    u = uv_int[:, 0][valid_mask]
+    v = uv_int[:, 1][valid_mask]
+
+    d_img = depth_image_in_meters[v, u]
+    d_med = depth_med[v, u]
+
+    valid_depth_mask = (d_img > 0) & (~np.isnan(d_img)) & (~np.isnan(d_med))
+    diff_mask = np.abs(d_img - d_med) <= depth_dev_thresh
+    combined_mask = np.zeros(len(points_np), dtype=bool)
+    combined_mask[valid_mask] = valid_depth_mask & diff_mask
+
+    if not combined_mask.any():
         return 0.0
 
-    points_clean = points_np[keep_mask]
-    uv_clean = uv[keep_mask]
+    points_1_depth_gradient = points_np[combined_mask]
+    uv_1_depth_gradient = uv[combined_mask]
 
-
+    timer1.get_duration("check_if_passable: depth gradient filter")
     # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
+    timer2 = get_duration_seconds()
     try:
         pc_clean = o3d.geometry.PointCloud()
-        pc_clean.points = o3d.utility.Vector3dVector(points_clean)
+        pc_clean.points = o3d.utility.Vector3dVector(points_1_depth_gradient)
         pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=16, std_ratio=1.5)
         ind = np.array(ind, dtype=int)
         if ind.size == 0:
             return 0.0
-        points_clean = points_clean[ind]
-        uv_clean = uv_clean[ind]
+        points_2_3d_outlier_removal = points_1_depth_gradient[ind]
+        uv_2_3d_outlier_removal = uv_1_depth_gradient[ind]
     except Exception:
+        points_2_3d_outlier_removal = points_1_depth_gradient
+        uv_2_3d_outlier_removal = uv_1_depth_gradient
         pass
 
-    if points_clean.shape[0] == 0:
+    if points_2_3d_outlier_removal.shape[0] == 0:
         return 0.0
+    timer2.get_duration("check_if_passable: 3D outlier removal")
 
-
+    timer3 = get_duration_seconds()
     # 3) Remove floor by percentile (top 98% in camera-frame Y)
     # If your vertical axis is not column 1, change the index accordingly.
-    floor_height = float(np.percentile(points_clean[:, 1], 98))
+    floor_height = float(np.percentile(points_2_3d_outlier_removal[:, 1], 98))
     margin = 0.02  # meters above floor
-    non_floor_mask = points_clean[:, 1] < (floor_height - margin)
+    non_floor_mask = points_2_3d_outlier_removal[:, 1] < (floor_height - margin)
     print(f"Detected floor height at y={floor_height:.3f} meters")
-    points_nofloor = points_clean[non_floor_mask]
-    uv_nofloor = uv_clean[non_floor_mask]
-    if points_nofloor.shape[0] == 0:
+    points_3_nofloor = points_2_3d_outlier_removal[non_floor_mask]
+    uv_3_nofloor = uv_2_3d_outlier_removal[non_floor_mask]
+    if points_3_nofloor.shape[0] == 0:
         return 0.0
     
+    timer3.get_duration("check_if_passable: floor removal")
 
-    
+    timer4 = get_duration_seconds()
     # 4) Keep points whose normals are close to camera Z axis (door plane direction)
     pc_nf = o3d.geometry.PointCloud()
-    pc_nf.points = o3d.utility.Vector3dVector(points_nofloor)
+    pc_nf.points = o3d.utility.Vector3dVector(points_3_nofloor)
     try:
         pc_nf.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.25, max_nn=100))
         pc_nf.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
         normals = np.asarray(pc_nf.normals)
-   
-        
+
     except Exception:
         normals = None
 
     if normals is None:
-        points_kept = points_nofloor
-        uv_kept = uv_nofloor
+        points_4_normal = points_3_nofloor
+        uv_4_normal = uv_3_nofloor
     else:
         ny_thr = 0.7
         vertical_mask = np.abs(normals[:, 1]) < ny_thr
         keep_idx = np.where(vertical_mask)[0]
         if keep_idx.size == 0:
             return 0.0
-        points_kept = points_nofloor[keep_idx]
-        uv_kept = uv_nofloor[keep_idx]    
+        points_4_normal = points_3_nofloor[keep_idx]
+        uv_4_normal = uv_3_nofloor[keep_idx]    
 
+    timer4.get_duration("check_if_passable: normal filtering")
 
         # --- Remove small patches in image space (connected components) ---
+    timer5 = get_duration_seconds()
     try:
         # Defaults so visualization doesn't disappear if nothing is filtered
-        uv_final = uv_kept
-        points_final = points_kept
+        uv_5_remove_patches = uv_4_normal
+        points_5_remove_patches = points_4_normal
 
         # Depth-aware params
         base_area_at_1m = 140  # px required at ~1m; tune 80–140
@@ -359,91 +388,126 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         near_z = 0.8           # anything closer is "near field"
         min_area_near = 8      # px required for near-field small obstacles
 
-        # Build 1px mask (no morphology, as requested)
+        # Build 1px mask (no morphology and vectorized)
+
+        uv_int = np.round(uv_4_normal).astype(int)
+        valid_uv = (
+            (uv_int[:, 0] >= 0) & (uv_int[:, 0] < W) &
+            (uv_int[:, 1] >= 0) & (uv_int[:, 1] < H)
+        )
         mask = np.zeros((H, W), np.uint8)
-        for (u, v) in uv_kept:
-            px, py = int(round(u)), int(round(v))
-            if 0 <= px < W and 0 <= py < H:
-                mask[py, px] = 255
+        mask[uv_int[valid_uv, 1], uv_int[valid_uv, 0]] = 255
 
         num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
 
-        # Map component label -> indices in uv_kept/points_kept
-        label_to_idx = {}
-        for i, (u, v) in enumerate(uv_kept):
-            px, py = int(round(u)), int(round(v))
-            if 0 <= px < W and 0 <= py < H:
-                lbl = labels[py, px]
-                if lbl > 0:
-                    label_to_idx.setdefault(lbl, []).append(i)
+        if num <= 1:
+            return 0.0  # only background
+        
+# Vectorized mapping: label lookup per UV pixel
+        lbl_values = labels[
+            np.clip(uv_int[valid_uv, 1], 0, H - 1),
+            np.clip(uv_int[valid_uv, 0], 0, W - 1)
+        ]
 
-        keep_indices = []
-        for lbl, idxs in label_to_idx.items():
-            # Pixel area of this component
-            area_px = int(stats[lbl, cv2.CC_STAT_AREA])
+        # Filter out background (label 0)
+        valid_labels = lbl_values > 0
+        lbl_values = lbl_values[valid_labels]
+        uv_valid = uv_4_normal[valid_uv][valid_labels]
+        pts_valid = points_4_normal[valid_uv][valid_labels]
 
-            # Median depth (ignore NaNs), clamped to [min_z, max_z]
-            z_vals = points_kept[idxs, 2]
+        # Precompute per-component area and median depth
+        unique_lbls, inverse_idx = np.unique(lbl_values, return_inverse=True)
+        areas = stats[unique_lbls, cv2.CC_STAT_AREA]
+
+        keep_mask = np.zeros(len(lbl_values), dtype=bool)
+        for i, lbl in enumerate(unique_lbls):
+            label_mask = inverse_idx == i
+            area_px = areas[i]
+            z_vals = pts_valid[label_mask, 2]
             z_vals = z_vals[~np.isnan(z_vals)]
             if z_vals.size == 0:
                 continue
-            z_med = float(np.median(z_vals))
-            z_eff = float(np.clip(z_med, min_z, max_z))
-
-            # Depth-adaptive area: farther blobs project smaller -> require fewer pixels
+            z_med = np.median(z_vals)
+            z_eff = np.clip(z_med, min_z, max_z)
             area_thresh = base_area_at_1m / (z_eff * z_eff)
-
-            # Keep if:
-            # - it's near-field and has a tiny-but-meaningful area (small obstacle), or
-            # - it passes the depth-adaptive area threshold
             if (z_eff < near_z and area_px >= min_area_near) or (area_px >= area_thresh):
-                keep_indices.extend(idxs)
+                keep_mask[label_mask] = True
 
-        if keep_indices:
-            keep_indices = np.array(sorted(set(keep_indices)), dtype=int)
-            if keep_indices.size < len(uv_kept):
-                uv_final = uv_kept[keep_indices]
-                points_final = points_kept[keep_indices]
+        if np.any(keep_mask):
+            uv_5_remove_patches = uv_valid[keep_mask]
+            points_5_remove_patches = pts_valid[keep_mask]
     except Exception:
         # fall back without filtering on any error
-        uv_final = uv_kept
-        points_final = points_kept    
+        uv_5_remove_patches = uv_4_normal
+        points_5_remove_patches = points_4_normal    
+    timer5.get_duration("check_if_passable: remove small patches")
 
-
-    x_vals = [x for (x, y, z) in valid_points]
+    x_vals = points_np[:, 0]
     # Robust percentiles to reject outliers, then pad slightly
     x_min = float(np.percentile(x_vals, 5))
     x_max = float(np.percentile(x_vals, 95))
 
+    timer.get_duration("check_if_passable: main passability check")
+    timer6 = get_duration_seconds()
+    # Check passability using bird-eye view grid
     clearance_m, passable, occ_map = check_passable_birdeye(
-    points_final,
+    points_5_remove_patches,
     door_depth,
     x_min,
     x_max,  
-    uv_pts=uv_final,         # matching uv coordinates for the 3D points
+    uv_pts=uv_5_remove_patches,         # matching uv coordinates for the 3D points
     grid_res=0.02,
     required_clearance=0.45,
     max_obstacle_height=-2.0,      # tune for your robot / camera mounting
     plotname=plotname
 
 )
-
+    timer6.get_duration("check_if_passable: BEV passability check")
+    
+    timer7 = get_duration_seconds()
     #  mark kept points on the image for debugging
     try:
         if color_image is not None:
-            for (u, v) in uv_final:
-                px, py = int(round(u)), int(round(v))
-                if 0 <= px < W and 0 <= py < H:
-                    cv2.circle(color_image, (px, py), 1, (0, 255, 255), -1)
+            """
+            for uv_set, color in [
+                (uv, (128, 128, 128)),     # raw points: gray
+                (uv_1_depth_gradient, (0, 0, 255)), # after depth dev filter: red
+                (uv_2_3d_outlier_removal, (255, 0, 255)), # after statistical outlier removal: magenta
+                (uv_3_nofloor, (0, 165, 255)), # floor removed: orange
+                (uv_4_normal, (255, 0, 0)),    # normals filtered: blue
+                (uv_5_remove_patches, (0, 255, 255))    # final kept (CC + size): yellow
+            ]:
+                if uv_set.size > 0:
+                    px = np.round(uv_set[:, 0]).astype(int)
+                    py = np.round(uv_set[:, 1]).astype(int)
+                    valid_mask = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+                    color_image[py[valid_mask], px[valid_mask]] = color
+            """
+            for uv_set, color in [
+                (uv, (0, 255, 0)),     # raw points: green
+                (uv_1_depth_gradient, (0, 0, 255)), # after depth dev filter: red
+                (uv_2_3d_outlier_removal, (255, 0, 255)), # after statistical outlier removal: magenta
+                (uv_3_nofloor, (0, 165, 255)), # floor removed: orange
+                (uv_4_normal, (255, 0, 0)),    # normals filtered: blue
+                (uv_5_remove_patches, (0, 255, 255))    # final kept (CC + size): yellow
+            ]:
+                if uv_set.size > 0:
+                    px = np.round(uv_set[:, 0]).astype(int)
+                    py = np.round(uv_set[:, 1]).astype(int)
+                    valid_mask = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+                    color_image[py[valid_mask], px[valid_mask]] = color
 
 
+
+        
     except Exception:
         pass
+    timer7.get_duration("check_if_passable: visualization of final points")
 
-    point_cloud_vertical_ratio = len(points_final)/len(valid_points)
+    point_cloud_vertical_ratio = len(points_5_remove_patches)/len(valid_points)
     cv2.putText(color_image, f"Passable ratio: {point_cloud_vertical_ratio:.3f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
     cv2.imshow(plotname, color_image)
-    cv2.waitKey(1)
+
 
     
     print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")

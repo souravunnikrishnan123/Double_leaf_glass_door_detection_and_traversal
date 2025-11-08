@@ -7,7 +7,6 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
     """
     Stack color, depth, and edge images horizontally, resize to fit screen, display in a window,
     attach mouse callback for depth, and handle ESC key to exit.
-    Returns True if ESC is pressed, else False.
     """
     depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
@@ -35,10 +34,7 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
 
     cv2.setMouseCallback(window_name, click_event, param=(depth_frame, scale_factor))
 
-    key = cv2.waitKey(1)
-    if key == 27:  # ESC
-        return True
-    return False
+
 
 
 # -------------------------------

@@ -3,17 +3,17 @@ import pyrealsense2 as rs
 import numpy as np
 
 def get_z_depth(depth_frame, x, y):
-    # Your get_z_depth function remains the same
-
-    if not (0 <= x < depth_frame.width and 0 <= y < depth_frame.height):
-        return None
+    # Return Z in meters directly; no deprojection needed for Z
+    xi, yi = int(x), int(y)
     try:
-        depth = depth_frame.get_distance(int(x), int(y))
-        intr = depth_frame.profile.as_video_stream_profile().intrinsics
-        _, _, z = rs.rs2_deproject_pixel_to_point(intr, [int(x), int(y)], depth)
-        if np.isfinite(z):
-            return z
-        else:
-            return None
-    except Exception as e:
+        w = depth_frame.get_width()
+        h = depth_frame.get_height()
+    except Exception:
+        # Fallback for older bindings
+        prof = depth_frame.profile.as_video_stream_profile()
+        w, h = prof.width(), prof.height()
+
+    if not (0 <= xi < w and 0 <= yi < h):
         return None
+    z = float(depth_frame.get_distance(xi, yi))
+    return z if np.isfinite(z) and z > 0 else None

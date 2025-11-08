@@ -9,115 +9,128 @@ from post_processing_of_detected_vertical_lines import get_median_depth_along_de
 from find_frame_line_pair import filter_vertical_lines_glass_contact
 from roi import process_filtered_lines
 from sort_lines_by_y import sort_lines_by_y
+from duration import get_duration_seconds
 
 
 
-def color_image_based_frame_detection(detected_plane, color_image, depth_frame, DEPTH_RANGE):
+def color_image_based_frame_detection(depth_image_in_meters, detected_plane, color_image, depth_frame, DEPTH_RANGE):
     # Detect vertical lines in color image using Canny + Hough
     vertical_lines = []
     depth_of_each_lines = []
-    lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image) 
+    lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 1.0)
+
+    timer = get_duration_seconds()
 
     if lines is not None:
+        x1_np = lines[:, 0, 0]
+        y1_np = lines[:, 0, 1]
+        x2_np = lines[:, 0, 2]
+        y2_np = lines[:, 0, 3]
+
+        angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)  # radians. 78°–102°
+        vertical_mask = (np.abs(np.cos(angles)) < 0.2)  # near-vertical
+        lines = lines[vertical_mask]  # only has near-vertical lines
+
+
         for line in lines:
             filtered_segment = []
             x1, y1, x2, y2 = line[0]
-            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+            #angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
             #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
-            if 80 < abs(angle) < 100:  # near-vertical
-                cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
-                image_height = color_image.shape[0]
-                y_top = 0
-                y_bottom = image_height - 1
+            #if 80 < abs(angle) < 100:  # near-vertical
+            cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
+            image_height = color_image.shape[0]
+            y_top = 0
+            y_bottom = image_height - 1
 
-                #center_depth = get_median_depth_window(depth_frame, x_center, y_center, window=10)
-                #if center_depth is None:
-                    #center_depth = get_median_depth_along_line(depth_frame, x_center, y1, y2)
+            #center_depth = get_median_depth_window(depth_frame, x_center, y_center, window=10)
+            #if center_depth is None:
+                #center_depth = get_median_depth_along_line(depth_frame, x_center, y1, y2)
 
-                # Extract smooth portion along detected Hough line
-                pixel_length = math.hypot(x2 - x1, y2 - y1)
-                num_samples = int(pixel_length)
-                """
-                filtered_segment,center_depth = extract_smooth_line_segment_with_moving_avg(
-                    depth_frame, x1, y1, x2, y2,
-                    gradient_threshold=0.1, window=10, num_samples=num_samples
-                ) 
-                """
+            # Extract smooth portion along detected Hough line
+            pixel_length = math.hypot(x2 - x1, y2 - y1)
+            num_samples = int(pixel_length)
+            """
+            filtered_segment,center_depth = extract_smooth_line_segment_with_moving_avg(
+                depth_frame, x1, y1, x2, y2,
+                gradient_threshold=0.1, window=10, num_samples=num_samples
+            ) 
+            """
 
-                center_depth = get_median_depth_along_detected_line(depth_frame, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths=10)
-                # Compute median depth and center
-                
-                if center_depth is None:
-                    continue  # Skip line if no valid depth
-                if not (DEPTH_RANGE[0] <= center_depth <= DEPTH_RANGE[1]):
-                    continue  # Still skip if out of expected depth range
-                
-                filtered_segment.append((x1, y1))
-                filtered_segment.append((x2, y2))
-                
-                # Draw vertical_lines in cyan
-                
-                cv2.line(color_image, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
+            center_depth = get_median_depth_along_detected_line(depth_image_in_meters, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths=10)
+            # Compute median depth and center
+            
+            if center_depth is None:
+                continue  # Skip line if no valid depth
+            if not (DEPTH_RANGE[0] <= center_depth <= DEPTH_RANGE[1]):
+                continue  # Still skip if out of expected depth range
+            
+            filtered_segment.append((x1, y1))
+            filtered_segment.append((x2, y2))
+            
+            # Draw vertical_lines in cyan
+            
+            cv2.line(color_image, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
 
-                
-                # Use first and last points of filtered segment
-                start_fwd = filtered_segment[-1] # take only x and y coordinate. donot take depth
-                start_back = filtered_segment[0]
+            
+            # Use first and last points of filtered segment
+            start_fwd = filtered_segment[-1] # take only x and y coordinate. donot take depth
+            start_back = filtered_segment[0]
 
-                # Compute direction vector of the line (normalized)
-                dx = x2 - x1
-                dy = y2 - y1
-                norm = np.hypot(dx, dy)
-                dx /= norm
-                dy /= norm
-                
-                # Extrapolate forward
-                
-                extrapolated_forward = extrapolate_along_line_segment(
-                    depth_frame, start_fwd, (dx, dy), center_depth, gradient_threshold=0.1, window=5
-                )
+            # Compute direction vector of the line (normalized)
+            dx = x2 - x1
+            dy = y2 - y1
+            norm = np.hypot(dx, dy)
+            dx /= norm
+            dy /= norm
+            
+            # Extrapolate forward
+            
+            extrapolated_forward = extrapolate_along_line_segment(
+                depth_image_in_meters, start_fwd, (dx, dy), center_depth, gradient_threshold=0.1, window=5
+            )
 
-                # Extrapolate backward
-                extrapolated_backward = extrapolate_along_line_segment(
-                    depth_frame, start_back, (-dx, -dy), center_depth, gradient_threshold=0.1, window=5
-                )
+            # Extrapolate backward
+            extrapolated_backward = extrapolate_along_line_segment(
+                depth_image_in_meters, start_back, (-dx, -dy), center_depth, gradient_threshold=0.1, window=5
+            )
 
-                # Combine all
-                full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
-                
-                
+            # Combine all
+            full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
+            
+            
 
-                if len(full_line_segment) >= 2:
-                    
-                    cv2.line(color_image, full_line_segment[0], full_line_segment[-1], (0, 255, 0), 2)  # Green
-                    vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(center_depth)
+            if len(full_line_segment) >= 2:
                 
-                """
-                if len(filtered_segment) >= 2:
-                    pt1 = tuple(map(int, filtered_segment[0][:2]))
-                    pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
-                
-                if len(full_line_segment) >= 2:
-                    pt1 = tuple(map(int, full_line_segment[0][:2]))
-                    pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
-                
+                cv2.line(color_image, full_line_segment[0], full_line_segment[-1], (0, 255, 0), 2)  # Green
+                vertical_lines.append(full_line_segment)
+                depth_of_each_lines.append(center_depth)
+            
+            """
+            if len(filtered_segment) >= 2:
+                pt1 = tuple(map(int, filtered_segment[0][:2]))
+                pt2 = tuple(map(int, filtered_segment[-1][:2]))
+                cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
+            
+            if len(full_line_segment) >= 2:
+                pt1 = tuple(map(int, full_line_segment[0][:2]))
+                pt2 = tuple(map(int, full_line_segment[-1][:2]))
+                cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
+            
 
-                # Append clipped vertical line
-                MIN_LINE_LENGTH = 50  # Minimum number of points required. because otherwise a small line segment
-                #on the frame ( which is clipped by the previous logic) will be still considered as valid line and cause issue with detection
+            # Append clipped vertical line
+            MIN_LINE_LENGTH = 50  # Minimum number of points required. because otherwise a small line segment
+            #on the frame ( which is clipped by the previous logic) will be still considered as valid line and cause issue with detection
 
-                if len(full_line_segment) >= MIN_LINE_LENGTH:
-                    vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(center_depth)
-                    # Draw vertical_lines in green
-                    pt1 = tuple(map(int, full_line_segment[0][:2]))
-                    pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
-                    #print(f"filtered_segment depth {center_depth:.2f}m")
-                """
+            if len(full_line_segment) >= MIN_LINE_LENGTH:
+                vertical_lines.append(full_line_segment)
+                depth_of_each_lines.append(center_depth)
+                # Draw vertical_lines in green
+                pt1 = tuple(map(int, full_line_segment[0][:2]))
+                pt2 = tuple(map(int, full_line_segment[-1][:2]))
+                cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
+                #print(f"filtered_segment depth {center_depth:.2f}m")
+            """
         
         
         # there were some problem with stable_lines calculation. it was not working properly. so commenting it out for now
@@ -134,7 +147,8 @@ def color_image_based_frame_detection(detected_plane, color_image, depth_frame, 
                 #pt1 = tuple(map(int, line_pts[0][:2]))
                 #pt2 = tuple(map(int, line_pts[-1][:2]))
                 #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
-
+        timer.get_duration("color_image_based_frame_detection line processing")
+        timer2 = get_duration_seconds()
         #print(len(vertical_lines))
         paired_lines = filter_vertical_lines_glass_contact(
             vertical_lines, depth_of_each_lines, depth_frame, glass_width_cm=40, center_frame_width_cm=30
@@ -167,7 +181,7 @@ def color_image_based_frame_detection(detected_plane, color_image, depth_frame, 
             #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
 
-        roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_frame, color_image, detected_plane)
+        roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image, detected_plane)
 
         #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
         
@@ -204,7 +218,8 @@ def color_image_based_frame_detection(detected_plane, color_image, depth_frame, 
             roi_polygon_left = roi_polygon_left_list[idx]
             roi_polygon_right = roi_polygon_right_list[idx]
             mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
-
+            
+            timer2.get_duration("color_image_based_frame_detection pairing and roi processing")
             return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, edges
         else:
             return None, None, 0, None

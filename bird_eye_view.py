@@ -169,6 +169,6 @@ def check_passable_birdeye(points_above_floor,
         #Near/far are inverted because OpenCV shows row 0 at the top. Flip the BEV image vertically before imshow.
         cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
         cv2.imshow(plotname+"BEV", bev_vis_display)
-        cv2.waitKey(1)
+        
 
     return max_clearance_m, passable, occ_map

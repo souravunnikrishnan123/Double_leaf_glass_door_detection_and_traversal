@@ -7,9 +7,7 @@ import pyrealsense2 as rs
 from confidence_score_calculation import calculate_confidence_scores 
 from cluster_and_merge_depth_based_lines import cluster_and_merge_lines
 from find_frame_line_pair import filter_vertical_lines_glass_contact
-from get_z_depth import get_z_depth
 from roi import process_filtered_lines
-from door_status import detect_door_state
 from sort_lines_by_y import sort_lines_by_y
 from get_depth_based_lines_using_sobel_and_hough_lines import get_depth_based_lines_using_sobel_and_hough_lines 
 
@@ -17,56 +15,7 @@ from duration import get_duration_seconds
 
 confidence_history = deque()
 
-"""
 
-def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
-    
-    #Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
-    #using get_z_depth for accurate Z-axis depth.
-    
-    if abs(x1 - x2) > abs(y1 - y2):
-        print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
-        return None
-
-    y_start = min(y1, y2)
-    y_end = max(y1, y2)
-    x_center = int((x1 + x2) / 2)
-
-
-    # List to store valid Z-depths for each ROI
-    z_depths1, z_depths2 = [], []
-
-    # Iterate through the height of the line to sample points for ROI 1
-    for y in range(y_start, y_end):
-        for x_offset in range(-roi_width, 0):
-            x_pixel = x_center + x_offset
-            z = get_z_depth(depth_frame, x_pixel, y)
-            if z is not None:
-                z_depths1.append(z)
-
-    # Iterate through the height of the line to sample points for ROI 2
-    for y in range(y_start, y_end):
-        for x_offset in range(1, roi_width + 1):
-            x_pixel = x_center + x_offset
-            z = get_z_depth(depth_frame, x_pixel, y)
-            if z is not None:
-                z_depths2.append(z)
-
-    # Compute medians
-    med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
-    med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
-
-    # Apply your filtering logic
-    if med_z_depth1 == 0 and med_z_depth2 == 0:
-        return None
-    elif med_z_depth1 == 0:
-        return med_z_depth2
-    elif med_z_depth2 == 0:
-        return med_z_depth1
-    else:
-        return min(med_z_depth1, med_z_depth2)
-    
-    """  
 
 def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
     """
@@ -125,7 +74,7 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , detected_plane, PHYSICAL_GRADIENT_THRESHOLD=0.25):
+def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25):
 
     timer1 = get_duration_seconds()
 
@@ -178,6 +127,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+    
     timer2.get_duration("depth_based_edge_detection line processing")
     timer3 = get_duration_seconds()
     merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
@@ -215,7 +165,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             pt2 = tuple(map(int, right_line[-1][:2]))
             cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
 
-    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image, detected_plane)
+    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image)
 
 
     if filtered_pairs: 
@@ -224,8 +174,9 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
             #correct frame line pair will be close to the center of detected ransac door plane
             # 1. Compute the center x of the detected plane (average of its 4 corners)
-            plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
-        
+            #plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
+            plane_center_x = color_image.shape[1] // 2 #since wer are stopping about 2m far from glass door plane. the center of entire view would be almost same as the center of glass door plane
+            #this is to avoid dependancy to glass detection algorithm
             # 2. Find the pair whose center is closest to the plane center
             min_dist = float('inf')
             best_pair = None

@@ -19,8 +19,8 @@ from color_image_based_frame_detection import color_image_based_frame_detection
 MIN_DEPTH = 0.3  # Minimum depth (in meters)
 MAX_DEPTH = 6.0  # Maximum depth (in meters)
 
-MIN_DEPTH_DEPTH_EDGE_DETECTION = 1.8  # Minimum depth for edge detection (in meters)
-MAX_DEPTH_DEPTH_EDGE_DETECTION = 2.5  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
+MIN_DEPTH_DEPTH_EDGE_DETECTION = 1.0  # Minimum depth for edge detection (in meters)
+MAX_DEPTH_DEPTH_EDGE_DETECTION = 4.0  # Maximum depth for edge detection (in meters). Because the algo works best in this range. if the glass is open, or closed if the object is beyonod 3m, then its okay we get the depth as zero. anyway we want to find large depth gradient
 
 DEPTH_RANGE = (1.7, 2.3)  # in meters
 
@@ -108,14 +108,14 @@ try:
             # Only proceed if around 2 m (add ± tolerance)
             if abs(distance - 2.0) < 0.3:
 
-                roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image, mean_z_depth_to_frame_based_on_depth_image, sobel_vis_color = depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE,detected_plane, PHYSICAL_GRADIENT_THRESHOLD)
+                roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image, mean_z_depth_to_frame_based_on_depth_image, sobel_vis_color = depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image_for_depth_line, MIN_DEPTH_DEPTH_EDGE_DETECTION, MAX_DEPTH_DEPTH_EDGE_DETECTION, DEPTH_RANGE, PHYSICAL_GRADIENT_THRESHOLD)
 
-                roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image, edges = color_image_based_frame_detection(depth_image_in_meters, detected_plane, color_image, depth_frame, DEPTH_RANGE)
+                roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image, mean_z_depth_to_frame_based_on_color_image, edges = color_image_based_frame_detection(depth_image_in_meters, color_image, depth_frame, DEPTH_RANGE)
 
-                door_state_based_on_color_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image,found_vertical_planes,
+                door_state_based_on_color_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image, roi_polygon_left_based_on_color_image, roi_polygon_right_based_on_color_image,
                 roi_width=240, margin=10, threshold=0.05, z_door_depth = mean_z_depth_to_frame_based_on_color_image, plotname = "door_state_based_on_color_image")
 
-                door_state_based_on_depth_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image_for_depth_line, roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image,found_vertical_planes,
+                door_state_based_on_depth_image = detect_door_state(depth_image_in_meters,fx, fy, cx, cy, color_image_for_depth_line, roi_polygon_left_based_on_depth_image, roi_polygon_right_based_on_depth_image,
                 roi_width=240, margin=10, threshold=0.05, z_door_depth = mean_z_depth_to_frame_based_on_depth_image, plotname = "door_state_based_on_depth_image")
 
 

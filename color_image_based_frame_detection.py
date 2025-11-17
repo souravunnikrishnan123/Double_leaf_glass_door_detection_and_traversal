@@ -13,11 +13,11 @@ from duration import get_duration_seconds
 
 
 
-def color_image_based_frame_detection(depth_image_in_meters, detected_plane, color_image, depth_frame, DEPTH_RANGE):
+def color_image_based_frame_detection(depth_image_in_meters, color_image, depth_frame, DEPTH_RANGE):
     # Detect vertical lines in color image using Canny + Hough
     vertical_lines = []
     depth_of_each_lines = []
-    lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 1.0)
+    lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 0.5)
 
     timer = get_duration_seconds()
 
@@ -72,7 +72,7 @@ def color_image_based_frame_detection(depth_image_in_meters, detected_plane, col
             
             cv2.line(color_image, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
 
-            
+        
             # Use first and last points of filtered segment
             start_fwd = filtered_segment[-1] # take only x and y coordinate. donot take depth
             start_back = filtered_segment[0]
@@ -98,6 +98,8 @@ def color_image_based_frame_detection(depth_image_in_meters, detected_plane, col
             # Combine all
             full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
             
+            # For simplicity, just use filtered_segment as full_line_segment for now
+            full_line_segment = filtered_segment
             
 
             if len(full_line_segment) >= 2:
@@ -181,7 +183,7 @@ def color_image_based_frame_detection(depth_image_in_meters, detected_plane, col
             #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
 
-        roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image, detected_plane)
+        roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image)
 
         #Filter for the leftmost pair (lowest average x of left line). this is temporary logic to avoid getting the lines near to the tv in the PC lab being detected as door frame lines. need to improve it
         
@@ -191,8 +193,9 @@ def color_image_based_frame_detection(depth_image_in_meters, detected_plane, col
                 #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
                 #correct frame line pair will be close to the center of detected ransac door plane
                 # 1. Compute the center x of the detected plane (average of its 4 corners)
-                plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
-            
+                #plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
+                plane_center_x = color_image.shape[1] // 2 #since wer are stopping about 2m far from glass door plane. the center of entire view would be almost same as the center of glass door plane
+                #this is to avoid dependancy to glass detection algorithm
                 # 2. Find the pair whose center is closest to the plane center
                 min_dist = float('inf')
                 best_pair = None

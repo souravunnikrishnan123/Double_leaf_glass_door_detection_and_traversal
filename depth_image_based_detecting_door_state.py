@@ -13,7 +13,7 @@ class depth_image_based_detecting_door_state(BaseState):
         if ctx.roi_left_depth_based is None or ctx.roi_right_depth_based is None:
             return None  # Stay in the current state if ROIs are not available
 
-        door_state = detect_door_state(ctx.depth_image_in_meters,ctx.fx, ctx.fy, ctx.cx, ctx.cy, ctx.color_image_depth_based, ctx.roi_left_depth_based, ctx.roi_right_depth_based, ctx.found_vertical_planes,
+        door_state = detect_door_state(ctx.depth_image_in_meters,ctx.fx, ctx.fy, ctx.cx, ctx.cy, ctx.color_image_depth_based, ctx.roi_left_depth_based, ctx.roi_right_depth_based,
             roi_width=240, margin=10, threshold=0.05, z_door_depth=ctx.door_depth_m_depth_based, plotname = "door_state_based_on_depth_image")
 
         if door_state is not None:

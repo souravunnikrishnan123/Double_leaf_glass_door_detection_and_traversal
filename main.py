@@ -13,7 +13,7 @@ from parallel_detection_state import parallel_detection_state
 
 
 def main():
-    pipeline, config, align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door/grey_door_opening_night_with_flat_wall_on_both_sides_with_reflections-001.bag")
+    pipeline, config, align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_from_IAS_lab_side.bag")
 
     try:
 

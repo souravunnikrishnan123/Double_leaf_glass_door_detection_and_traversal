@@ -1,7 +1,7 @@
 import cv2
 import numpy as np 
 
-def get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH=0.3, MAX_DEPTH=6.0, PHYSICAL_GRADIENT_THRESHOLD=0.02):
+def get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH=1.0, MAX_DEPTH=4.0, PHYSICAL_GRADIENT_THRESHOLD=0.02):
 
     intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
     fx, fy = intrinsics.fx, intrinsics.fy

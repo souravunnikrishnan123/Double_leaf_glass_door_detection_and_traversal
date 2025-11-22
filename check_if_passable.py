@@ -26,17 +26,19 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
             cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=(0, 255, 0), thickness=2)
     except Exception:
         pass
-    subsample =2 # to speed up processing. but donot set to high value like 4. 
+    #  Define Z extents relative to door
+    z_min, z_max = 0.05, door_depth + 1.5  # meters
+    subsample =1 # to speed up processing. but donot set to high value like 4. 
     #because for for door status checking it was okay as we were trying to find points on the door frame which are big objects. but now for passabiity we need to 
     #detect small objects on the ground which may get missed if we use high subsampling value.
-    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=5, min_depth = 0.1, subsample=subsample,roi_polygon = roi_polygon)
+    valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=z_max, min_depth = z_min, subsample=subsample,roi_polygon = roi_polygon)
+
 
     if len(valid_points) == 0:
         return 0.0
     
-    # Ensure numpy arrays
-    points_np = np.asarray(valid_points)
-    uv = np.asarray(uv)
+
+    mask_below_robot_eye_level = valid_points[:,1] > 0.0  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
 
     """
     # 1) Image-local denoise + hole-fix: close tiny holes in validity, then median
@@ -78,19 +80,22 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     valid_depth_mask = (d_img > 0) & (~np.isnan(d_img)) & (~np.isnan(d_med))
     diff_mask = np.abs(d_img - d_med) <= depth_dev_thresh
-    combined_mask = np.zeros(len(points_np), dtype=bool)
+    combined_mask = np.zeros(len(valid_points), dtype=bool)
     combined_mask[valid_mask] = valid_depth_mask & diff_mask
 
     if not combined_mask.any():
         return 0.0
 
-    points_1_depth_gradient = points_np[combined_mask]
+    points_1_depth_gradient = valid_points[combined_mask]
     uv_1_depth_gradient = uv[combined_mask]
 
     timer1.get_duration("check_if_passable: depth gradient filter")
     """
-    points_1_depth_gradient = valid_points
-    uv_1_depth_gradient = uv
+    points_above_robot_eye_level = valid_points[~mask_below_robot_eye_level]  # keep points above 0m (assuming camera is mounted at ~0.5-0.6m height) 
+    uv_above_robot_eye_level = uv[~mask_below_robot_eye_level]
+
+    points_1_depth_gradient = valid_points[mask_below_robot_eye_level]
+    uv_1_depth_gradient = uv[mask_below_robot_eye_level]    
 
     timer3 = get_duration_seconds()
     #ransac
@@ -150,11 +155,6 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         return 0.0
     """
 
-    
-    
-
-    mask_below_robot_eye_level = points_3_nofloor[:,1] > 0.0  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
-
 
 
     
@@ -162,7 +162,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     timer4 = get_duration_seconds()
     # 4) Keep points whose normals are close to camera Z axis (door plane direction)
     pc_nf = o3d.geometry.PointCloud()
-    pc_nf.points = o3d.utility.Vector3dVector(points_3_nofloor[mask_below_robot_eye_level])
+    pc_nf.points = o3d.utility.Vector3dVector(points_3_nofloor)
     try:
         pc_nf.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.15, max_nn=40))
         pc_nf.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
@@ -177,7 +177,9 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     else:
         ny_thr = 0.7
         vertical_mask = np.abs(normals[:, 1]) < ny_thr
-
+        points_4_normal = points_3_nofloor[vertical_mask]
+        uv_4_normal = uv_3_nofloor[vertical_mask]  
+        """
         idx_above = np.where(~mask_below_robot_eye_level)[0]
         idx_below = np.where(mask_below_robot_eye_level)[0] # where normal filtering was applied
 
@@ -197,15 +199,17 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         keep_idx = np.sort(keep_idx)
         points_4_normal = points_3_nofloor[keep_idx]
         uv_4_normal = uv_3_nofloor[keep_idx]    
+        """
 
     timer4.get_duration("check_if_passable: normal filtering")
 
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
     timer2 = get_duration_seconds()
+    print(f"number of points before S3O {len(points_4_normal)}")
     try:
         pc_clean = o3d.geometry.PointCloud()
         pc_clean.points = o3d.utility.Vector3dVector(points_4_normal)
-        pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=25, std_ratio=1.3)
+        pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=50, std_ratio=1)
         ind = np.array(ind, dtype=int)
         if ind.size == 0:
             return 0.0
@@ -220,7 +224,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         return 0.0
     timer2.get_duration("check_if_passable: 3D outlier removal")
 
-
+    print(f"number of points before CC {len(points_2_3d_outlier_removal)}")
         # --- Remove small patches in image space (connected components) ---
     timer5 = get_duration_seconds()
     try:
@@ -230,13 +234,13 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
         area_scale = subsample * subsample  # compensate for subsampling
         # Depth-aware params
-        base_area_at_1m = 560  # px required at ~1m; tune 80–140
+        base_area_at_1m = 1400  # px required at ~1m; tune 80–140
         base_area_at_1m /= area_scale
         min_z = 0.1           # clamp near
         max_z = 4.0            # clamp far
         near_z = 0.8           # anything closer is "near field"
-        min_area_near = 80     # px required for near-field small obstacles
-        min_area_near = max(3, int(min_area_near / area_scale))
+        min_area_near = 250     # px required for near-field small obstacles
+        min_area_near = max(6, int(min_area_near / area_scale))
 
         # Build 1px mask (no morphology and vectorized)
 
@@ -247,9 +251,11 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         )
         mask = np.zeros((H, W), np.uint8)
         mask[uv_int[valid_uv, 1], uv_int[valid_uv, 0]] = 255
+        #kernel_size = max(7, subsample*2+1)
+        kernel_size = subsample
         #“fill” the sparse mask a bit to restore local connectivity  due to subsampling
         #Use subsample itself as the kernel size so it scales automatically
-        mask = cv2.dilate(mask, np.ones((subsample+1, subsample+1), np.uint8), iterations=1)
+        mask = cv2.dilate(mask, np.ones((kernel_size, kernel_size), np.uint8), iterations=1)
 
         num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
 
@@ -273,7 +279,31 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         areas = stats[unique_lbls, cv2.CC_STAT_AREA]
 
         keep_mask = np.zeros(len(lbl_values), dtype=bool)
+  
         for i, lbl in enumerate(unique_lbls):
+            """
+            # Create mask for this component
+            comp_mask = (labels == lbl).astype(np.uint8)
+
+            # Create a visualization copy
+            vis = color_image.copy()
+
+            # Colorize the component (green overlay)
+            vis[comp_mask == 1] = (0, 0, 255)   # set component pixels to red
+
+            # Optionally, dim background to highlight the component better
+            background_mask = (comp_mask == 0)
+            vis[background_mask] = (vis[background_mask] * 0.3).astype(np.uint8)
+
+            # Add label text
+            x, y, w, h, area = stats[lbl]
+            cv2.putText(vis, f"ID:{lbl}, area:{area}", (x, y - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+
+            cv2.imshow(f"Component {lbl}", vis)
+            """
+            
+
             label_mask = inverse_idx == i
             area_px = areas[i]
             z_vals = pts_valid[label_mask, 2]
@@ -292,26 +322,56 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     except Exception:
         # fall back without filtering on any error
         uv_5_remove_patches = uv_2_3d_outlier_removal
-        points_5_remove_patches = points_4_normal     
+        points_5_remove_patches = points_2_3d_outlier_removal     
     timer5.get_duration("check_if_passable: remove small patches")
+    print(f"number of points after CC {len(points_5_remove_patches)}")
 
-    x_vals = points_np[:, 0]
+    final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
+    final_uv = np.vstack([uv_5_remove_patches, uv_above_robot_eye_level])
+    """
+    #will preserve order. for plottin and bev order doesnt matter
+    idx_above = np.where(~mask_below_robot_eye_level)[0]
+    idx_below = np.where(mask_below_robot_eye_level)[0] # where normal filtering was applied
+
+    after_filter_mask = np.isin(idx_below, np.where(np.isin(valid_points, points_5_remove_patches).all(axis=1))[0])
+
+    filtered_idx_below = idx_below[after_filter_mask]
+    
+    # keep all idx_above plus filtered subset of idx_below
+    if filtered_idx_below.size == 0 and idx_above.size == 0:
+        return 0.0
+
+    keep_idx = (
+        filtered_idx_below if idx_above.size == 0
+        else (idx_above if filtered_idx_below.size == 0
+                else np.concatenate([idx_above, filtered_idx_below]))
+    )
+
+    # Preserve original order (optional)
+    keep_idx = np.sort(keep_idx)
+    final_points = valid_points[keep_idx]
+    final_uv = uv[keep_idx] 
+    """
+
+
+    x_vals = valid_points[:, 0]
     # Robust percentiles to reject outliers, then pad slightly
-    x_min = float(np.percentile(x_vals, 5))
-    x_max = float(np.percentile(x_vals, 95))
+    x_min = float(np.percentile(x_vals, 1))
+    x_max = float(np.percentile(x_vals, 99))
 
     timer.get_duration("check_if_passable: main passability check")
     timer6 = get_duration_seconds()
     # Check passability using bird-eye view grid
     clearance_m, passable, occ_map = check_passable_birdeye(
-    points_5_remove_patches,
+    valid_points,
     door_depth,
     x_min,
-    x_max,  
-    uv_pts=uv_5_remove_patches,         # matching uv coordinates for the 3D points
+    x_max,
+    z_min,
+    z_max,        
     grid_res=0.02,
-    required_clearance=0.45,
-    max_obstacle_height=-2.0,      # tune for your robot / camera mounting
+    required_clearance=0.45,     # tune for your robot / camera mounting
+    max_obstacle_height=-1.5,
     plotname=plotname
 
 )
@@ -337,11 +397,12 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
                     color_image[py[valid_mask], px[valid_mask]] = color
             """
             for uv_set, color in [
-                (uv, (0, 255, 0)),     # raw points: black
+                (uv, (0, 255, 0)),     # raw points: green
                 (uv_3_nofloor, (255, 0, 255)), # after statistical outlier removal: magenta
                 (uv_4_normal, (0, 165, 255)), # floor removed: orange
                 (uv_2_3d_outlier_removal, (255, 0, 0)),    # normals filtered: blue
-                (uv_5_remove_patches, (0, 255, 255))    # final kept (CC + size): yellow
+                (uv_5_remove_patches, (0, 0, 255)),    # final kept (CC + size): yellow
+                (final_uv, (0, 255, 255))    # final kept (CC + size): cyan
             ]:
                 if uv_set.size > 0:
                     px = np.round(uv_set[:, 0]).astype(int)
@@ -356,7 +417,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         pass
     timer7.get_duration("check_if_passable: visualization of final points")
 
-    point_cloud_vertical_ratio = len(points_5_remove_patches)/len(valid_points)
+    point_cloud_vertical_ratio = len(final_points)/len(valid_points)
     cv2.putText(color_image, f"Passable ratio: {point_cloud_vertical_ratio:.3f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
     cv2.imshow(plotname, color_image)
 

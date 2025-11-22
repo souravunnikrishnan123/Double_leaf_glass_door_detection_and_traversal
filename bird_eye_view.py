@@ -6,7 +6,8 @@ def check_passable_birdeye(points_above_floor,
                            door_depth,
                             x_min,
                            x_max,
-                           uv_pts=None,
+                           z_min,
+                           z_max,
                            grid_res=0.02,
                            required_clearance=0.45,
                            max_obstacle_height=-1.5,
@@ -49,23 +50,10 @@ def check_passable_birdeye(points_above_floor,
     low_height_mask = points_above_floor[:, 1] >= max_obstacle_height
     points_filtered = points_above_floor[low_height_mask]
 
-    # If uv_pts provided, filter them in the same way so indices match
-    if uv_pts is not None:
-        uv_pts = np.asarray(uv_pts)
-        if uv_pts.shape[0] == len(points_above_floor):
-            uv_filtered = uv_pts[low_height_mask]
-        else:
-            # mismatch: can't reliably use uv for ROI extraction; null out uv_filtered
-            uv_filtered = None
-    else:
-        uv_filtered = None
 
     if len(points_filtered) == 0:
         return 0.0, False, None
 
-
-    # 4) Define Z extents relative to door
-    z_min, z_max = 0.1, door_depth + 1.5  # meters
 
     # 5) Filter points to the horizontal (X) and depth (Z) window we will consider
     mask_roi_space = (
@@ -83,6 +71,7 @@ def check_passable_birdeye(points_above_floor,
     x = roi_points[:, 0]  # X-axis = horizontal axis (left-right direction relative to camera)
     z = roi_points[:, 2]  # Z-axis = forward direction (depth away from camera)
 
+
     # Compute the number of grid cells in X and Z based on desired resolution
     # e.g. if x_min=-0.5, x_max=0.5 and grid_res=0.02 → x_bins = 50
     x_bins = max(1, int(np.ceil((x_max - x_min) / grid_res)))
@@ -95,15 +84,27 @@ def check_passable_birdeye(points_above_floor,
     # 8) Rasterize points into grid cells
     # Convert each 3D point’s X,Z position into a BEV grid index
     occ_mask = np.zeros((z_bins, x_bins), dtype=np.uint8)
-    xi = np.clip(((x - x_min) / grid_res).astype(int), 0, x_bins - 1)
-    zi = np.clip(((z - z_min) / grid_res).astype(int), 0, z_bins - 1)
+    #xi = np.clip(((x - x_min) / grid_res).astype(int), 0, x_bins - 1)
+    #zi = np.clip(((z - z_min) / grid_res).astype(int), 0, z_bins - 1)
+
+    xi = ((x - x_min) / grid_res)
+    zi = ((z - z_min) / grid_res)
+
+    # floor manually to avoid rounding-up distortions
+    xi = np.floor(xi).astype(int)
+    zi = np.floor(zi).astype(int)
+
+    # clamp
+    xi = np.clip(xi, 0, x_bins - 1)
+    zi = np.clip(zi, 0, z_bins - 1)
 
     # Mark those grid cells as occupied (1)
     occ_mask[zi, xi] = 1
 
     # 9) Morphological cleanup (remove tiny holes/noise)
+    
     occ_mask = cv2.morphologyEx(occ_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
-
+    #occ_mask = cv2.dilate(occ_mask, np.ones((3, 3), np.uint8), iterations=1)
     occ_map[occ_mask == 1] = 2  # occupied
 
     # 9) Raycast-style free space: for each X column, mark rows from sensor (near) up to nearest occupied as free
@@ -165,10 +166,13 @@ def check_passable_birdeye(points_above_floor,
         
         # display with near at bottom, far at top (flip vertically for OpenCV)
         bev_vis_display = cv2.flip(bev_vis_resized, 0)
+        #bev_vis_display = bev_vis_resized
+
         # display with axes in meters (extent = [x_min, x_max, z_min, z_max])
         #Near/far are inverted because OpenCV shows row 0 at the top. Flip the BEV image vertically before imshow.
         cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
         cv2.imshow(plotname+"BEV", bev_vis_display)
+
         
 
     return max_clearance_m, passable, occ_map

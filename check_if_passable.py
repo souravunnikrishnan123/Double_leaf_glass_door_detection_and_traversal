@@ -7,6 +7,8 @@ from bird_eye_view import check_passable_birdeye
 
 
 
+
+
 def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, plotname="passable"):
     """
     Check how much of ROI depth matches door reference depth.
@@ -28,7 +30,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         pass
     #  Define Z extents relative to door
     z_min, z_max = 0.05, door_depth + 1.5  # meters
-    subsample =1 # to speed up processing. but donot set to high value like 4. 
+    subsample =2 # to speed up processing. but donot set to high value like 4. 
     #because for for door status checking it was okay as we were trying to find points on the door frame which are big objects. but now for passabiity we need to 
     #detect small objects on the ground which may get missed if we use high subsampling value.
     valid_points, uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=z_max, min_depth = z_min, subsample=subsample,roi_polygon = roi_polygon)
@@ -40,57 +42,6 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     mask_below_robot_eye_level = valid_points[:,1] > 0.0  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
 
-    """
-    # 1) Image-local denoise + hole-fix: close tiny holes in validity, then median
-    try:
-        depth_img = depth_image_in_meters.astype(np.float32)
-
-        # Close small holes in the valid-depth mask
-        #Inpaint only tiny holes (by area), not big gaps.
-        valid = (depth_img > 0).astype(np.uint8) * 255
-        kernel = np.ones((3, 3), np.uint8)
-        valid_closed = cv2.morphologyEx(valid, cv2.MORPH_CLOSE, kernel, iterations=1)
-
-        # Inpaint only newly "filled" hole pixels (prevents biasing valid depths)
-        hole_mask = ((valid_closed > 0) & (valid == 0)).astype(np.uint8) * 255
-        if np.any(hole_mask):
-            # Inpaint supports 8U/32F; we use 32F meters
-            depth_img = cv2.inpaint(depth_img, hole_mask, 3.0, cv2.INPAINT_NS)
-
-        # Median filter to suppress spikes while preserving edges
-        depth_med = cv2.medianBlur(depth_img, 5)
-    except Exception:
-        depth_med = depth_image_in_meters
-
-    # Image-local median filter to reject specular / spike depths
-    depth_dev_thresh = 0.12  # meters; tune as needed
-
-    # Round UVs, clip to valid image bounds
-    uv_int = np.round(uv).astype(int)
-    valid_mask = (
-        (uv_int[:, 0] >= 0) & (uv_int[:, 0] < W) &
-        (uv_int[:, 1] >= 0) & (uv_int[:, 1] < H)
-    )
-
-    u = uv_int[:, 0][valid_mask]
-    v = uv_int[:, 1][valid_mask]
-
-    d_img = depth_image_in_meters[v, u]
-    d_med = depth_med[v, u]
-
-    valid_depth_mask = (d_img > 0) & (~np.isnan(d_img)) & (~np.isnan(d_med))
-    diff_mask = np.abs(d_img - d_med) <= depth_dev_thresh
-    combined_mask = np.zeros(len(valid_points), dtype=bool)
-    combined_mask[valid_mask] = valid_depth_mask & diff_mask
-
-    if not combined_mask.any():
-        return 0.0
-
-    points_1_depth_gradient = valid_points[combined_mask]
-    uv_1_depth_gradient = uv[combined_mask]
-
-    timer1.get_duration("check_if_passable: depth gradient filter")
-    """
     points_above_robot_eye_level = valid_points[~mask_below_robot_eye_level]  # keep points above 0m (assuming camera is mounted at ~0.5-0.6m height) 
     uv_above_robot_eye_level = uv[~mask_below_robot_eye_level]
 
@@ -126,13 +77,14 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
             floor_inliers = np.array(inliers, dtype=int)
             break
     
-    
+    floor_height = None
     if floor_inliers is not None and floor_inliers.size > 0:
         #take the largest horizontal plane as floor
         keep_mask = np.ones(points_1_depth_gradient.shape[0], dtype=bool)
         keep_mask[floor_inliers] = False
         points_3_nofloor = points_1_depth_gradient[keep_mask]
         uv_3_nofloor = uv_1_depth_gradient[keep_mask]
+        floor_height = float(np.mean(points_1_depth_gradient[floor_inliers, 1]))
     else:
         points_3_nofloor = points_1_depth_gradient
         uv_3_nofloor = uv_1_depth_gradient
@@ -140,6 +92,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     timer3.get_duration("check_if_passable: floor removal")
     
+    print(f"Detected floor height at y={floor_height:.3f} meters")
     """
     mask_below_robot_eye_level_for_floor_points_removal = points_1_depth_gradient[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
     
@@ -237,11 +190,13 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         base_area_at_1m = 1400  # px required at ~1m; tune 80–140
         base_area_at_1m /= area_scale
         min_z = 0.1           # clamp near
-        max_z = 4.0            # clamp far
-        near_z = 0.8           # anything closer is "near field"
-        min_area_near = 250     # px required for near-field small obstacles
+        max_z = 4.0            # clamp far. 
+        near_z = 0.6           # anything closer is "near field"
+        min_area_near = 640     # px required for near-field small obstacles
         min_area_near = max(6, int(min_area_near / area_scale))
-
+        minimum_area_far = 600 # absolute minimum area to filter noise
+        minimum_area_far = max(6, int(minimum_area_far / area_scale))
+    
         # Build 1px mask (no morphology and vectorized)
 
         uv_int = np.round(uv_2_3d_outlier_removal).astype(int)
@@ -282,6 +237,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
   
         for i, lbl in enumerate(unique_lbls):
             """
+            ####        visualization of connected components   #####
             # Create mask for this component
             comp_mask = (labels == lbl).astype(np.uint8)
 
@@ -301,6 +257,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
             cv2.imshow(f"Component {lbl}", vis)
+            ####    visualization of connected components  end  ####    
             """
             
 
@@ -312,7 +269,24 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
                 continue
             z_med = np.median(z_vals)
             z_eff = np.clip(z_med, min_z, max_z)
-            area_thresh = base_area_at_1m / (z_eff * z_eff)
+
+            y_vals = pts_valid[label_mask, 1]
+            y_vals = y_vals[~np.isnan(y_vals)]
+            if y_vals.size == 0:
+                continue
+            y_med = np.median(y_vals)
+            if floor_height is not None and y_med > floor_height + 0.1:
+                continue  # points below camera level along the robot Y axis give positive values.
+            #so if y value more than the floor y value itself means, it is a noisy point( basically a point below floor level which is impossible). so remove such components.
+
+            
+            #there could be floor noisy points due to reflection which have high z value but small area. so these should be removed.
+            #depths above 3.5m are removed during back projection itself.but there can be noisy floor points with depth less than 3.5m but higher than actual floor depth.
+            z_mad = np.median(np.abs(z_vals - np.median(z_vals)))# more reliable way of std deviation
+            if z_mad > (0.30 + 0.05 * (area_px / 100)): # allow slightly more variance for larger components:  # obstacle or valid points will be having continous depths. if it has standard deviation above 0.3 means its noisy
+                continue  # skip component with wildly varying depth
+            #area_thresh = base_area_at_1m / (z_eff * z_eff)
+            area_thresh = minimum_area_far
             if (z_eff < near_z and area_px >= min_area_near) or (area_px >= area_thresh):
                 keep_mask[label_mask] = True
 
@@ -356,25 +330,28 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     x_vals = valid_points[:, 0]
     # Robust percentiles to reject outliers, then pad slightly
-    x_min = float(np.percentile(x_vals, 1))
-    x_max = float(np.percentile(x_vals, 99))
+    x_min = float(np.percentile(x_vals, 5))
+    x_max = float(np.percentile(x_vals, 95))
+
+
 
     timer.get_duration("check_if_passable: main passability check")
     timer6 = get_duration_seconds()
     # Check passability using bird-eye view grid
     clearance_m, passable, occ_map = check_passable_birdeye(
-    valid_points,
+    final_points,
     door_depth,
     x_min,
     x_max,
     z_min,
     z_max,        
-    grid_res=0.02,
+    grid_res=0.01,
     required_clearance=0.45,     # tune for your robot / camera mounting
     max_obstacle_height=-1.5,
     plotname=plotname
 
 )
+
     timer6.get_duration("check_if_passable: BEV passability check")
     
     timer7 = get_duration_seconds()

@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+import rospy
+import numpy as np
+from Frame_data import BaseState, FrameContext
+from door_status import detect_door_state
+
+class depth_image_based_detecting_door_state(BaseState):
+    def __init__(self):
+        super().__init__("depth_image_based_detecting_door_state")
+
+    def do_action(self, ctx: FrameContext):
+        # Analyze the door state using the ROI and depth information
+        # Update ctx.door_state_label and ctx.passable_ratio accordingly
+
+        if ctx.roi_left_depth_based is None or ctx.roi_right_depth_based is None:
+            return None  # Stay in the current state if ROIs are not available
+
+        door_state = detect_door_state(ctx.depth_image_in_meters,ctx.fx, ctx.fy, ctx.cx, ctx.cy, ctx.color_image_depth_based, ctx.roi_left_depth_based, ctx.roi_right_depth_based,
+            roi_width=240, margin=10, threshold=0.05, z_door_depth=ctx.door_depth_m_depth_based, plotname = "door_state_based_on_depth_image")
+
+        if door_state is not None:
+            ctx.door_state_depth_based = door_state
+            return door_state
+            
+        return None  # Stay in the current state if door state cannot be determined

@@ -22,6 +22,7 @@ def color_image_based_frame_detection(depth_image_in_meters, color_image, depth_
     lines, edges = get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 0.5)
 
     timer = get_duration_seconds()
+    timer.start("color_image_based_frame_detection line processing")
 
     if lines is not None:
         x1_np = lines[:, 0, 0]
@@ -151,8 +152,8 @@ def color_image_based_frame_detection(depth_image_in_meters, color_image, depth_
                 #pt1 = tuple(map(int, line_pts[0][:2]))
                 #pt2 = tuple(map(int, line_pts[-1][:2]))
                 #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
-        timer.get_duration("color_image_based_frame_detection line processing")
-        timer2 = get_duration_seconds()
+        timer.stop("color_image_based_frame_detection line processing")
+        timer.start("color_image_based_frame_detection pairing and roi processing")
         #print(len(vertical_lines))
         paired_lines = filter_vertical_lines_glass_contact(
             vertical_lines, depth_of_each_lines, depth_frame, glass_width_cm=40, center_frame_width_cm=30
@@ -224,7 +225,7 @@ def color_image_based_frame_detection(depth_image_in_meters, color_image, depth_
             roi_polygon_right = roi_polygon_right_list[idx]
             mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
             
-            timer2.get_duration("color_image_based_frame_detection pairing and roi processing")
+            timer.stop("color_image_based_frame_detection pairing and roi processing")
             return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, edges
         else:
             return None, None, 0, None

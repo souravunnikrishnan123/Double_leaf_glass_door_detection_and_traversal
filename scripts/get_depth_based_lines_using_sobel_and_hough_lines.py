@@ -60,7 +60,7 @@ def get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH=1.0
 
     # Overlay depth edges in red
     sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
-    cv2.imshow("Sobel + Depth Edges", sobel_vis_color)
+
 
     # Hough Transform on depth-based vertical edges
     depth_lines = cv2.HoughLinesP(depth_edges, 1, np.pi / 180, threshold=100,

@@ -96,6 +96,7 @@ try:
         # if yes, then proceed with line detection and frame detection
         result , detected_plane, found_vertical_planes = detect_glass_door_plane(color_image_for_ransac, depth_image_in_meters, fx, fy, cx, cy)
         #cv2.imshow("ransac", color_image_for_ransac)
+
         #print(result)
 
         edges = None

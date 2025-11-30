@@ -63,9 +63,9 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
     scale_factor = min(scale_w, scale_h)
 
     stacked_resized = cv2.resize(stacked, None, fx=scale_factor, fy=scale_factor)
-    cv2.imshow(window_name, stacked_resized)
-
-    cv2.setMouseCallback(window_name, click_event, param=(depth_frame, scale_factor))
+    # Disabled window display for headless-safe operation
+    # cv2.imshow(window_name, stacked_resized)
+    # cv2.setMouseCallback(window_name, click_event, param=(depth_frame, scale_factor))
 
 
 

@@ -6,6 +6,7 @@ from duration import get_duration_seconds
 
 def get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 1.0):
     timer = get_duration_seconds()
+    timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
     H = color_image.shape[0]
     W = color_image.shape[1]
 
@@ -44,5 +45,5 @@ def get_rgb_based_lines_using_canny_and_hough_lines(color_image, scale = 1.0):
     lines[..., :4] = (lines[..., :4] / scale).astype(int)
     edges = cv2.resize(edges, (W, H), interpolation=cv2.INTER_NEAREST)
 
-    timer.get_duration("get_rgb_based_lines_using_canny_and_hough_lines")
+    timer.stop("get_rgb_based_lines_using_canny_and_hough_lines")
     return lines, edges

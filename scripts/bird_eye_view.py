@@ -144,8 +144,10 @@ def check_passable_birdeye(points_above_floor,
     max_clearance_m = max_clear_cells * grid_res
     passable = max_clearance_m >= required_clearance
 
+    bev_vis_display = None
     # 13) visualization (optional)
     if plotname:
+        
         bev_vis = np.zeros((z_bins, x_bins, 3), dtype=np.uint8)
         bev_vis[occ_map == 2] = (0, 0, 255)     # red occupied
         bev_vis[occ_map == 1] = (0, 255, 0)     # green free
@@ -172,9 +174,9 @@ def check_passable_birdeye(points_above_floor,
 
         # display with axes in meters (extent = [x_min, x_max, z_min, z_max])
         #Near/far are inverted because OpenCV shows row 0 at the top. Flip the BEV image vertically before imshow.
-        cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
-        cv2.imshow(plotname+"BEV", bev_vis_display)
+        #cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
+        #cv2.imshow(plotname+"BEV", bev_vis_display)
 
         
 
-    return max_clearance_m, passable, occ_map
+    return max_clearance_m, passable, bev_vis_display

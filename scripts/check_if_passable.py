@@ -11,15 +11,18 @@ from bird_eye_view import check_passable_birdeye
 
 
 
-def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, plotname="passable"):
+def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, keyword="color"):
     """
     Check how much of ROI depth matches door reference depth.
     """
-    timer = get_duration_seconds()
-    H, W = depth_image_in_meters.shape
+    
 
-    timer1 = get_duration_seconds()
+    timer_full = get_duration_seconds()
+    H, W = depth_image_in_meters.shape
+    timer_full.start(f"check_if_passable--> main passability check {keyword}")
+    timer = get_duration_seconds()
     # Visualization: translucent ROI fill + outline
+    timer.start(f"check_if_passable--> backprojection {keyword}")
     try:
         if color_image is not None:
             overlay = color_image.copy()
@@ -39,7 +42,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
 
     if len(valid_points) == 0:
-        return 0.0
+        return 0.0, None, None
     
 
     mask_below_robot_eye_level = valid_points[:,1] > 0.0  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
@@ -49,8 +52,8 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
     points_1_depth_gradient = valid_points[mask_below_robot_eye_level]
     uv_1_depth_gradient = uv[mask_below_robot_eye_level]    
-
-    timer3 = get_duration_seconds()
+    timer.stop(f"check_if_passable--> backprojection {keyword}")
+    timer.start(f"check_if_passable--> floor removal {keyword}")
     #ransac
     max_planes = 3
     ransac_n=3
@@ -92,7 +95,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         uv_3_nofloor = uv_1_depth_gradient
 
 
-    timer3.get_duration("check_if_passable: floor removal")
+    timer.stop(f"check_if_passable--> floor removal {keyword}")
     
     print(f"Detected floor height at y={floor_height:.3f} meters")
     """
@@ -107,14 +110,14 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     points_3_nofloor = points_1_depth_gradient[non_floor_mask]
     uv_3_nofloor = uv_1_depth_gradient[non_floor_mask]
     if points_3_nofloor.shape[0] == 0:
-        return 0.0
+        return 0.0, None, None
     """
 
 
 
     
 
-    timer4 = get_duration_seconds()
+    timer.start(f"check_if_passable--> normal filtering {keyword}")
     # 4) Keep points whose normals are close to camera Z axis (door plane direction)
     pc_nf = o3d.geometry.PointCloud()
     pc_nf.points = o3d.utility.Vector3dVector(points_3_nofloor)
@@ -142,7 +145,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         
         # keep all idx_above plus filtered subset of idx_below
         if filtered_idx_below.size == 0 and idx_above.size == 0:
-            return 0.0
+            return 0.0, None, None
 
         keep_idx = (
             filtered_idx_below if idx_above.size == 0
@@ -156,10 +159,10 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         uv_4_normal = uv_3_nofloor[keep_idx]    
         """
 
-    timer4.get_duration("check_if_passable: normal filtering")
+    timer.stop(f"check_if_passable--> normal filtering {keyword}")
 
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
-    timer2 = get_duration_seconds()
+    timer.start(f"check_if_passable--> 3D outlier removal {keyword}")
     print(f"number of points before S3O {len(points_4_normal)}")
     try:
         pc_clean = o3d.geometry.PointCloud()
@@ -167,7 +170,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=50, std_ratio=1)
         ind = np.array(ind, dtype=int)
         if ind.size == 0:
-            return 0.0
+            return 0.0, None, None
         points_2_3d_outlier_removal = points_4_normal[ind]
         uv_2_3d_outlier_removal = uv_4_normal[ind]
     except Exception:
@@ -176,12 +179,12 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         pass
 
     if points_2_3d_outlier_removal.shape[0] == 0:
-        return 0.0
-    timer2.get_duration("check_if_passable: 3D outlier removal")
+        return 0.0, None, None
+    timer.stop(f"check_if_passable--> 3D outlier removal {keyword}")
 
     print(f"number of points before CC {len(points_2_3d_outlier_removal)}")
         # --- Remove small patches in image space (connected components) ---
-    timer5 = get_duration_seconds()
+    timer.start(f"check_if_passable--> connected components {keyword}")
     try:
         # Defaults so visualization doesn't disappear if nothing is filtered
         uv_5_remove_patches = uv_2_3d_outlier_removal
@@ -217,7 +220,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
 
         if num <= 1:
-            return 0.0  # only background
+            return 0.0, None, None  # only background
         
 # Vectorized mapping: label lookup per UV pixel
         lbl_values = labels[
@@ -299,7 +302,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         # fall back without filtering on any error
         uv_5_remove_patches = uv_2_3d_outlier_removal
         points_5_remove_patches = points_2_3d_outlier_removal     
-    timer5.get_duration("check_if_passable: remove small patches")
+    timer.stop(f"check_if_passable--> connected components {keyword}")
     print(f"number of points after CC {len(points_5_remove_patches)}")
 
     final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
@@ -315,7 +318,7 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     
     # keep all idx_above plus filtered subset of idx_below
     if filtered_idx_below.size == 0 and idx_above.size == 0:
-        return 0.0
+        return 0.0, None, None
 
     keep_idx = (
         filtered_idx_below if idx_above.size == 0
@@ -337,10 +340,10 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
 
 
 
-    timer.get_duration("check_if_passable: main passability check")
-    timer6 = get_duration_seconds()
+    timer_full.stop(f"check_if_passable--> main passability check {keyword}")
+    timer.start(f"check_if_passable--> BEV passability check {keyword}")
     # Check passability using bird-eye view grid
-    clearance_m, passable, occ_map = check_passable_birdeye(
+    clearance_m, passable, bird_eye_view = check_passable_birdeye(
     final_points,
     door_depth,
     x_min,
@@ -350,13 +353,13 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
     grid_res=0.01,
     required_clearance=0.45,     # tune for your robot / camera mounting
     max_obstacle_height=-1.5,
-    plotname=plotname
+    plotname=keyword
 
 )
 
-    timer6.get_duration("check_if_passable: BEV passability check")
+    timer.stop(f"check_if_passable--> BEV passability check {keyword}")
     
-    timer7 = get_duration_seconds()
+    timer.start(f"check_if_passable--> visualization of final points {keyword}")
     #  mark kept points on the image for debugging
     try:
         if color_image is not None:
@@ -394,15 +397,15 @@ def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         
     except Exception:
         pass
-    timer7.get_duration("check_if_passable: visualization of final points")
+    timer.stop(f"check_if_passable--> visualization of final points {keyword}")
 
     point_cloud_vertical_ratio = len(final_points)/len(valid_points)
     cv2.putText(color_image, f"Passable ratio: {point_cloud_vertical_ratio:.3f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
-    cv2.imshow(plotname, color_image)
+
 
 
     
     print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
-    return point_cloud_vertical_ratio
+    return point_cloud_vertical_ratio, color_image, bird_eye_view
 
     

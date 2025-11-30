@@ -78,15 +78,17 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
 def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25):
 
-    timer1 = get_duration_seconds()
+    timer = get_duration_seconds()
+    timer.start("depth_based_edge_detection preprocessing")
 
     valid_lines = []
     depth_of_valid_lines = []
 
     depth_lines, sobel_vis_color = get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH, MAX_DEPTH, PHYSICAL_GRADIENT_THRESHOLD)
 
-    timer1.get_duration("depth_based_edge_detection preprocessing")
-    timer2 = get_duration_seconds()
+    timer.stop("depth_based_edge_detection preprocessing")
+
+    timer.start("depth_based_edge_detection line processing")
 
     if depth_lines is not None:
         x1_np = depth_lines[:, 0, 0]
@@ -130,8 +132,8 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
     
-    timer2.get_duration("depth_based_edge_detection line processing")
-    timer3 = get_duration_seconds()
+    timer.stop("depth_based_edge_detection line processing")
+    timer.start("depth_based_edge_detection pairing and roi processing")
     merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
 
     MIN_LINE_LENGTH = 50
@@ -207,7 +209,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
         roi_polygon_right = roi_polygon_right_list[idx]
         mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
 
-        timer3.get_duration("depth_based_edge_detection pairing and roi processing")
+        timer.stop("depth_based_edge_detection pairing and roi processing")
         return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, sobel_vis_color
     else:
         return None, None, 0, None

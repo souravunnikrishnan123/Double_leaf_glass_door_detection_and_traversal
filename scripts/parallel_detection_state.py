@@ -49,7 +49,7 @@ class parallel_detection_state(BaseState):
             show_stacked_visualization(
                 ctx.color_image_depth_based, MIN_DEPTH=1.8, MAX_DEPTH=2.5, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame, window_name="depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
             )
-            cv2.waitKey(1)
+            #cv2.waitKey(1)
 
 
         # If both branches produced a door_state, proceed to combine

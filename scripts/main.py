@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import rospy
-import cv2
 import numpy as np
 from std_msgs.msg import String
 from sensor_msgs.msg import Image, CameraInfo
@@ -23,6 +22,7 @@ from searching_door_plane_state import searching_door_plane_state
 from combine_door_state import combine_door_state
 from parallel_detection_state import parallel_detection_state
 from ros_frame_adapter import DepthFrameAdapter
+from duration import get_duration_seconds
 
 
 class DoorDetectionNode:
@@ -49,12 +49,18 @@ class DoorDetectionNode:
         self.viz_color_pub = rospy.Publisher("~viz/color_depth_edges", Image, queue_size=1)
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
+        self.viz_bird_eye_pub_color = rospy.Publisher("~viz/bird_eye_view_color", Image, queue_size=1)
+        self.viz_bird_eye_pub_depth = rospy.Publisher("~viz/bird_eye_view_depth", Image, queue_size=1)
+        self.viz_passability_pub_depth = rospy.Publisher("~viz/passability_view_depth", Image, queue_size=1)
+        self.viz_passability_pub_color = rospy.Publisher("~viz/passability_view_color", Image, queue_size=1)
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
         color_sub = message_filters.Subscriber(color_topic, Image)
         depth_sub = message_filters.Subscriber(depth_topic, Image)
         self.latest_info = None
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
+        #camera intrinsics will be cached on first receipt
+        self.fx = self.fy = self.cx = self.cy = None
 
         ats = message_filters.ApproximateTimeSynchronizer(
             [color_sub, depth_sub], queue_size=queue_size, slop=slop
@@ -78,18 +84,23 @@ class DoorDetectionNode:
         return depth_mm, depth_m
 
     def _info_cb(self, info_msg: CameraInfo):
-        self.latest_info = info_msg
+        if self.latest_info is None:
+            self.latest_info = info_msg
+            K = info_msg.K
+            self.fx, self.fy = K[0], K[4]
+            self.cx, self.cy = K[2], K[5]
+            rospy.loginfo("Camera intrinsics received and stored.")
+
 
     def callback(self, color_msg: Image, depth_msg: Image):
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
-        info_msg = self.latest_info
-        if info_msg is None:
-            rospy.logwarn_throttle(5.0, "Waiting for CameraInfo...")
+        if self.fx is None:
+            rospy.logwarn_throttle(5.0, "Waiting for CameraInfo (only needed once)...")
             return
-        K = info_msg.K
-        fx, fy, cx, cy = K[0], K[4], K[2], K[5]
+
+        fx, fy, cx, cy = self.fx, self.fy, self.cx, self.cy
 
         depth_frame_adapter = DepthFrameAdapter(depth_mm, fx, fy, cx, cy)
 
@@ -111,7 +122,11 @@ class DoorDetectionNode:
             ctx.fx, ctx.fy, ctx.cx, ctx.cy = fx, fy, cx, cy
             ctx.depth_frame = depth_frame_adapter
 
+        
         self.sm.update(self.sm.ctx)
+       
+
+        
 
         label = self.sm.ctx.door_state_label
         if label is not None:
@@ -126,12 +141,21 @@ class DoorDetectionNode:
             if self.sm.ctx.viz_depth_stack is not None:
                 self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
             # plane overlay: use base color image (with plane outlines drawn)
-            if self.sm.ctx.color_image is not None:
-                self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.color_image, encoding="bgr8"))
+            if self.sm.ctx.viz_plane_overlay is not None:
+                self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_plane_overlay, encoding="bgr8"))
+            if self.sm.ctx.bird_eye_view_color is not None:
+                self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color, encoding="bgr8"))
+            if self.sm.ctx.bird_eye_view_depth is not None:
+                self.viz_bird_eye_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_depth, encoding="bgr8"))
+            if self.sm.ctx.passability_view_color is not None:
+                self.viz_passability_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_color, encoding="bgr8"))
+            if self.sm.ctx.passability_view_depth is not None:
+                self.viz_passability_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_depth, encoding="bgr8"))
+
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")
 
-        cv2.waitKey(1)
+        #cv2.waitKey(1)
 
 
 def main():

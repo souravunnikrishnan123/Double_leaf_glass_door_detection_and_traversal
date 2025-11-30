@@ -139,15 +139,16 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
 
     return roi_polygon
 
-def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, color = (0, 255, 0)):
+def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, color = (0, 255, 0), keyword="color"):
     """
     Check how much of ROI depth matches door reference depth.
     """
     timer = get_duration_seconds()
+    timer.start(f"check_side_roi_against_door {keyword}")
     H, W = depth_image_in_meters.shape
     
     filtered_points, filtered_uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=door_depth * 20, min_depth=door_depth * 0.9, subsample=4, roi_polygon = roi_polygon)
-
+    
     if len(filtered_points) == 0:
         return 0.0
 
@@ -181,9 +182,9 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
     fraction_close = close_points.shape[0] / filtered_points.shape[0]
 
     #print(f"Fraction close: {fraction_close:.3f}")
-    timer.get_duration("check_side_roi_against_door")
+    timer.stop(f"check_side_roi_against_door {keyword}")
     
-    timer2 = get_duration_seconds()
+    timer.start(f"check_side_roi_against_door--> visualization {keyword}")
     # Visualization
     if color_image is not None:
         # Draw ROI polygon
@@ -207,7 +208,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
         #color_image[uv_removed[valid_removed][:, 1], uv_removed[valid_removed][:, 0]] = (0, 255, 0)
 
 
-    timer2.get_duration("check_side_roi_against_door: visualization")                 
+    timer.stop(f"check_side_roi_against_door--> visualization {keyword}")                 
     return fraction_close
 
 
@@ -221,6 +222,12 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     """
     color_image_for_passable_check = color_image.copy()
 
+    if "color" in plotname:
+        keyword = "color"
+    elif "depth" in plotname:
+        keyword = "depth"
+    else:
+        keyword = "unknown"
 
     # Step 2: build ROIs
 
@@ -231,8 +238,8 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
 
 
     # Step 3: check depth consistency
-    left_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_left_offset, z_door_depth, color=(255, 0, 255))
-    right_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_right_offset, z_door_depth, color=(0, 255, 255))
+    left_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_left_offset, z_door_depth, color=(255, 0, 255),keyword=keyword)
+    right_match = check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_right_offset, z_door_depth, color=(0, 255, 255),keyword=keyword)
 
     print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
 
@@ -251,17 +258,18 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
 
 
     
-
+    color_image_roi = None
+    bird_eye_view = None
     if door_state == "Open (on left side)":
         roi_polygon_left_corners = extract_roi_corners(roi_left_offset)
         roi_left_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_left_corners, color_image.shape[0])
-        passable_fraction  = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, plotname=plotname)
+        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, keyword)
     
     
     elif door_state == "Open (on right side)":
         roi_polygon_right_corners = extract_roi_corners(roi_right_offset)
         roi_right_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_right_corners, color_image.shape[0])
-        passable_fraction = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, plotname=plotname)
+        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, keyword)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),
@@ -272,6 +280,6 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     cv2.putText(color_image, f"Right match: {right_match:.2f}", (30, 210),
         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-    return door_state
+    return door_state, color_image_roi, bird_eye_view
 
 

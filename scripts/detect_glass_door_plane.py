@@ -6,7 +6,7 @@ import open3d as o3d
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, draw_plane_outline_on_image, find_vertical_planes, ransac_plane_from_points, highlight_planes_on_image
 from evaluate_detected_ransac_planes import evaluate_plane_candidate
-from plots import debug_visualize
+
 
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import rospy
 from Frame_data import BaseState, FrameContext
 from typing import Optional
 from color_image_based_door_frame_detection_state import color_image_based_door_frame_detection_state
@@ -7,7 +6,6 @@ from color_image_based_detecting_door_state import color_image_based_detecting_d
 from depth_image_based_door_frame_detection_state import depth_image_based_door_frame_detection_state
 from depth_image_based_detecting_door_state import depth_image_based_detecting_door_state
 from visualization_utils import show_stacked_visualization, build_stacked_visualization
-import cv2
 import rospy
 
 

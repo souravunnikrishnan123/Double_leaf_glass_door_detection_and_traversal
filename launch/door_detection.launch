@@ -10,5 +10,39 @@
     <param name="camera_info_topic" value="$(arg camera_info_topic)" />
     <param name="queue_size" value="30" />
     <param name="sync_slop" value="0.2" />
+    <rosparam ns="color_image_based_door_detector">
+      depth_range: [1.7, 2.3]
+      scale: 0.5
+      canny:
+        lower_factor: 0.7
+        upper_factor: 2.0
+      blur:
+        ksize: 3
+        sigma: 0.8
+      hough:
+        threshold: 100
+        min_line_length: 100
+        max_line_gap: 20
+    </rosparam>
+    <rosparam ns="depth_image_based_door_detector">
+      MIN_DEPTH: 1.0
+      MAX_DEPTH: 4.0
+      DEPTH_RANGE: [1.7, 2.3]
+      PHYSICAL_GRADIENT_THRESHOLD: 0.25
+      scale: 0.5
+      hough:
+        threshold: 100
+        min_line_length: 100
+        max_line_gap: 30
+      bilateral:
+        d: 5
+        sigma_color: 50
+        sigma_space: 75
+      sobel:
+        ksize: 3
+      adaptive:
+        k_factor: 2.0
+        fallback_threshold: 0.1
+    </rosparam>
   </node>
 </launch>

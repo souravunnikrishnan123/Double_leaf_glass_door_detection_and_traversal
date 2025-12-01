@@ -2,27 +2,10 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import numpy as np
+import rospy
 
-# OpenCV is used by the underlying functions for visualization overlays
-import cv2  # noqa: F401
-
-# Reuse the existing functional implementation under the hood
 from depth_based_detection import depth_based_edge_detection
 
-
-@dataclass
-class DepthDetectorConfig:
-    MIN_DEPTH: float = 1.0
-    MAX_DEPTH: float = 4.0
-    DEPTH_RANGE: Tuple[float, float] = (1.7, 2.3)
-    PHYSICAL_GRADIENT_THRESHOLD: float = 0.25
-
-    # Parameters below exist in the functional pipeline but are currently
-    # internal to helper functions; kept here for future consolidation.
-    MIN_LINE_LENGTH: int = 50
-    cluster_x_thresh: int = 10
-    glass_width_cm: int = 40
-    center_frame_width_cm: int = 30
 
 
 @dataclass
@@ -39,9 +22,31 @@ class DepthDoorDetector:
     Coordinates per-frame processing and encapsulates runtime configuration.
     """
 
-    def __init__(self, config: DepthDetectorConfig):
-        self.config = config
-        # Future: add temporal buffers or caches if needed
+    def __init__(self):
+        ns = "depth_image_based_door_detector"
+        self.MIN_DEPTH = rospy.get_param(f"{ns}/MIN_DEPTH", 1.0)
+        self.MAX_DEPTH = rospy.get_param(f"{ns}/MAX_DEPTH", 4.0)
+        self.DEPTH_RANGE = rospy.get_param(f"{ns}/DEPTH_RANGE", [1.7, 2.3])
+        self.PHYSICAL_GRADIENT_THRESHOLD = rospy.get_param(f"{ns}/PHYSICAL_GRADIENT_THRESHOLD", 0.25)
+        self.scale = rospy.get_param(f"{ns}/scale", 0.5)
+        self.hough = {
+            "threshold": rospy.get_param(f"{ns}/hough/threshold", 100),
+            "min_line_length": rospy.get_param(f"{ns}/hough/min_line_length", 100),
+            "max_line_gap": rospy.get_param(f"{ns}/hough/max_line_gap", 30),
+        }
+        self.bilateral = {
+            "d": rospy.get_param(f"{ns}/bilateral/d", 5),
+            "sigma_color": rospy.get_param(f"{ns}/bilateral/sigma_color", 50),
+            "sigma_space": rospy.get_param(f"{ns}/bilateral/sigma_space", 75),
+        }
+        self.sobel = {
+            "ksize": rospy.get_param(f"{ns}/sobel/ksize", 3),
+        }
+        self.adaptive = {
+            "k_factor": rospy.get_param(f"{ns}/adaptive/k_factor", 2.0),
+            "fallback_threshold": rospy.get_param(f"{ns}/adaptive/fallback_threshold", 0.1),
+        }
+
 
     def process_frame(self, ctx) -> DepthDetectionResult:
         """
@@ -53,10 +58,15 @@ class DepthDoorDetector:
             ctx.depth_frame,
             ctx.depth_image_in_meters,
             ctx.color_image_depth_based,
-            MIN_DEPTH=self.config.MIN_DEPTH,
-            MAX_DEPTH=self.config.MAX_DEPTH,
-            DEPTH_RANGE=self.config.DEPTH_RANGE,
-            PHYSICAL_GRADIENT_THRESHOLD=self.config.PHYSICAL_GRADIENT_THRESHOLD,
+            MIN_DEPTH=self.MIN_DEPTH,
+            MAX_DEPTH=self.MAX_DEPTH,
+            DEPTH_RANGE=self.DEPTH_RANGE,
+            PHYSICAL_GRADIENT_THRESHOLD=self.PHYSICAL_GRADIENT_THRESHOLD,
+            scale=self.scale,
+            hough_params=self.hough,
+            bilateral_params=self.bilateral,
+            sobel_params=self.sobel,
+            adaptive_params=self.adaptive,
         )
 
         door_depth_m = float(mean_z) if mean_z is not None else None

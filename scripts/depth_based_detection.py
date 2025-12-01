@@ -6,12 +6,10 @@ import cv2
 import numpy as np 
 import pyrealsense2 as rs
 
-from confidence_score_calculation import calculate_confidence_scores 
+
 from cluster_and_merge_depth_based_lines import cluster_and_merge_lines
-from find_frame_line_pair import filter_vertical_lines_glass_contact
-from roi import process_filtered_lines
-from sort_lines_by_y import sort_lines_by_y
 from get_depth_based_lines_using_sobel_and_hough_lines import get_depth_based_lines_using_sobel_and_hough_lines 
+from find_glass_frame_lines import left_right_roi_and_door_depth
 
 from duration import get_duration_seconds
 
@@ -19,7 +17,7 @@ confidence_history = deque()
 
 
 
-def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
+def robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=10):
     """
     Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
     using get_z_depth for accurate Z-axis depth.
@@ -27,8 +25,8 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
     if abs(x1 - x2) > abs(y1 - y2):
         print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
         return None
-    depth_m = np.asanyarray(depth_frame.get_data()).astype(np.float32) / 1000.0
-    H, W = depth_m.shape
+    
+    H, W = depth_image_in_meters.shape
 
     y_start, y_end = sorted((y1, y2))
     y_start= max(0, y_start)
@@ -48,8 +46,8 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
     x_right_roi_end = min(W, x_center + roi_width + 1)
 
     # List to store valid Z-depths for each ROI
-    z_depths1 = depth_m[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
-    z_depths2 = depth_m[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
+    z_depths1 = depth_image_in_meters[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
+    z_depths2 = depth_image_in_meters[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
 
     z_depths1 = z_depths1.ravel() #to convert to 1D array
     z_depths2 = z_depths2.ravel() #to convert to 1D array
@@ -76,7 +74,8 @@ def robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=10):
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD=0.25):
+def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD,
+                               scale=0.5, hough_params=None, bilateral_params=None, sobel_params=None, adaptive_params=None):
 
     timer = get_duration_seconds()
     timer.start("depth_based_edge_detection preprocessing")
@@ -84,7 +83,17 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
     valid_lines = []
     depth_of_valid_lines = []
 
-    depth_lines, sobel_vis_color = get_depth_based_lines_using_sobel_and_hough_lines(depth_frame, MIN_DEPTH, MAX_DEPTH, PHYSICAL_GRADIENT_THRESHOLD)
+    depth_lines, sobel_vis_color = get_depth_based_lines_using_sobel_and_hough_lines(
+        depth_image_in_meters,
+        MIN_DEPTH,
+        MAX_DEPTH,
+        PHYSICAL_GRADIENT_THRESHOLD,
+        scale=scale,
+        hough_params=hough_params,
+        bilateral_params=bilateral_params,
+        sobel_params=sobel_params,
+        adaptive_params=adaptive_params,
+    )
 
     timer.stop("depth_based_edge_detection preprocessing")
 
@@ -110,10 +119,10 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             # Keep only near-vertical lines
             #if 80 < abs(angle) < 100:
             # Estimate Z-depth of the line robustly
-            d = robust_line_z_roi(depth_frame, x1, y1, x2, y2, roi_width=20)
+            d = robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=20)
             cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
-            x_m = int((x1 + x2) / 2)
-            y_m = int((y1 + y2) / 2)
+            #x_m = int((x1 + x2) / 2)
+            #y_m = int((y1 + y2) / 2)
             
             # Limit area for left and right
             #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
@@ -128,88 +137,33 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 depth_of_valid_lines.append(d)
                 # show the midpoint used for normals
                 cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
-                cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
+                #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
     
-    timer.stop("depth_based_edge_detection line processing")
-    timer.start("depth_based_edge_detection pairing and roi processing")
-    merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
+        merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
 
-    MIN_LINE_LENGTH = 50
-    filtered_merged_lines = []
-    filtered_merged_lines_depths = []
+        MIN_LINE_LENGTH = 50
+        filtered_merged_lines = []
+        filtered_merged_lines_depths = []
 
-    for line, depth in zip(merged_lines, merged_lines_depths):
-        x1, y1, x2, y2 = line
-        if abs(y2 - y1) >= MIN_LINE_LENGTH:
-            filtered_merged_lines.append(((x1, y1), (x2, y2)))
-            filtered_merged_lines_depths.append(depth)
+        for line, depth in zip(merged_lines, merged_lines_depths):
+            x1, y1, x2, y2 = line
+            if abs(y2 - y1) >= MIN_LINE_LENGTH:
+                filtered_merged_lines.append(((x1, y1), (x2, y2)))
+                filtered_merged_lines_depths.append(depth)
 
-    paired_lines = filter_vertical_lines_glass_contact(
-                        filtered_merged_lines, filtered_merged_lines_depths, depth_frame, glass_width_cm=40, center_frame_width_cm=30
-                    )
+        timer.stop("depth_based_edge_detection line processing")
 
-    # Adjust all pairs so each line's points are sorted by y. so that gradient can be calculated correctly
-    paired_lines_sorted = [
-        (sort_lines_by_y(left_line), sort_lines_by_y(right_line), left_depth, right_depth)
-        for left_line, right_line, left_depth, right_depth in paired_lines]
+
+        roi_left, roi_right, mean_z = left_right_roi_and_door_depth( 
+            depth_image_in_meters,
+            color_image,
+            depth_frame,
+            filtered_merged_lines,
+            filtered_merged_lines_depths,
+            keyword="depth"
+        )
+        return roi_left, roi_right, mean_z, sobel_vis_color
     
-
-    # Visualize paired lines (glass frame candidates)
-    for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
-        # Draw left line in red
-        if len(left_line) >= 2:
-            pt1 = tuple(map(int, left_line[0][:2]))
-            pt2 = tuple(map(int, left_line[-1][:2]))
-            cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
-        # Draw right line in cyan
-        if len(right_line) >= 2:
-            pt1 = tuple(map(int, right_line[0][:2]))
-            pt2 = tuple(map(int, right_line[-1][:2]))
-            cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
-
-    roi_polygon_left_list, roi_polygon_right_list, filtered_pairs , mean_z_depth_along_frame_lines_list = process_filtered_lines(paired_lines_sorted, depth_image_in_meters, color_image)
-
-
-    if filtered_pairs: 
-        if len(filtered_pairs) > 1:# more than one pair detected as glass frame. 
-            #in this case we need to filter out the correct frame line at the center. if we are getting more than one glass -frame candidate means, mostly it is due to the glass area in the  inward opening door 
-            #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
-            #correct frame line pair will be close to the center of detected ransac door plane
-            # 1. Compute the center x of the detected plane (average of its 4 corners)
-            #plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
-            plane_center_x = color_image.shape[1] // 2 #since wer are stopping about 2m far from glass door plane. the center of entire view would be almost same as the center of glass door plane
-            #this is to avoid dependancy to glass detection algorithm
-            # 2. Find the pair whose center is closest to the plane center
-            min_dist = float('inf')
-            best_pair = None
-            best_idx = None
-            for i, (left_line, right_line, left_depth, right_depth) in enumerate(filtered_pairs):
-                # Compute mean x of left and right line
-                left_x = np.mean([pt[0] for pt in left_line])
-                right_x = np.mean([pt[0] for pt in right_line])
-                pair_center_x = (left_x + right_x) / 2
-                dist = abs(pair_center_x - plane_center_x)
-                if dist < min_dist:
-                    min_dist = dist
-                    best_pair = (left_line, right_line)
-                    best_idx = i
-            
-            idx = best_idx
-
-        else:# filtered pairs has only one pair.
-            best_pair = filtered_pairs[0]
-            idx = 0
-
-
-        final_left_frame_line = best_pair[0]
-        final_right_frame_line = best_pair[1]
-        roi_polygon_left = roi_polygon_left_list[idx]
-        roi_polygon_right = roi_polygon_right_list[idx]
-        mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
-
-        timer.stop("depth_based_edge_detection pairing and roi processing")
-        return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines, sobel_vis_color
-    else:
-        return None, None, 0, None
+    return None, None, 0, None

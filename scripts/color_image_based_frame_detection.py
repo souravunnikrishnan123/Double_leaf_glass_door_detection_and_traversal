@@ -6,7 +6,7 @@ import numpy as np
 
 
 
-from rgb_based_line_detected import get_rgb_based_lines_using_canny_and_hough_lines
+from get_color_based_lines_using_canny_and_hough_lines import get_rgb_based_lines_using_canny_and_hough_lines
 from post_processing_of_detected_vertical_lines import get_median_depth_along_detected_line, extrapolate_along_line_segment
 from duration import get_duration_seconds
 from find_glass_frame_lines import left_right_roi_and_door_depth

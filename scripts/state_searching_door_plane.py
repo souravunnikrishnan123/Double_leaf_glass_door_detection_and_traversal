@@ -21,5 +21,8 @@ class searching_door_plane_state(BaseState):
             distance = result["distance_m"]
             if abs(distance - 2.0) < 0.3:
                 return "parallel_detection_state"
+            else:
+                return "start_movement_to_reach_within_distance_range_to_door_plane"
+        else:
+            return "no_door_plane_detected_state"
             
-        return None

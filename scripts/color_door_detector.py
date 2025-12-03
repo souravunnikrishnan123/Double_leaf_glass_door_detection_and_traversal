@@ -4,8 +4,7 @@ from typing import Optional, Tuple
 import numpy as np
 import rospy
 
-# OpenCV imported because underlying functions draw overlays
-import cv2  # noqa: F401
+
 
 from color_image_based_frame_detection import color_image_based_frame_detection
 

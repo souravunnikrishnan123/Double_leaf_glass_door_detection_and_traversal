@@ -260,16 +260,16 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     
     color_image_roi = None
     bird_eye_view = None
+    roi_open_side = None
     if door_state == "Open (on left side)":
-        roi_polygon_left_corners = extract_roi_corners(roi_left_offset)
-        roi_left_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_left_corners, color_image.shape[0])
-        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_left_offset_full_height, z_door_depth, keyword)
-    
-    
+        roi_open_side = roi_left_offset
     elif door_state == "Open (on right side)":
-        roi_polygon_right_corners = extract_roi_corners(roi_right_offset)
-        roi_right_offset_full_height = extend_roi_polygon_to_full_height(roi_polygon_right_corners, color_image.shape[0])
-        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_right_offset_full_height, z_door_depth, keyword)
+        roi_open_side = roi_right_offset
+
+    if roi_open_side is not None:
+        roi_open_side_corners = extract_roi_corners(roi_open_side)
+        roi_open_side_full_height = extend_roi_polygon_to_full_height(roi_open_side_corners, color_image.shape[0])
+        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_open_side_full_height, z_door_depth, keyword)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

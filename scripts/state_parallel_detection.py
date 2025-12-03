@@ -24,11 +24,17 @@ class parallel_detection_state(BaseState):
         nxt_c = self.color_frame_detection_state.do_action(ctx)
         if nxt_c == "color_image_based_detecting_door_state":
             self.color_detecting_door_state.do_action(ctx)
+        elif nxt_c == "no_mid_door_frame_detected_state":
+            #check bev based detection with full image
+            pass  # could log or handle no detection case here
 
         # Advance depth branch
         nxt_d = self.depth_frame_detection_state.do_action(ctx)
         if nxt_d == "depth_image_based_detecting_door_state":
             self.depth_detecting_door_state.do_action(ctx)
+        elif nxt_d == "no_mid_door_frame_detected_state":
+            #check bev based detection with full image
+            pass  # could log or handle no detection case here
 
 
         # Build stacked visualizations for publishing

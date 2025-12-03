@@ -19,6 +19,7 @@ class color_image_based_door_frame_detection_state(BaseState):
 
         if result.roi_left is not None and result.roi_right is not None:
             return "color_image_based_detecting_door_state"
+        else:
+            return "no_mid_door_frame_detected_state"
 
-        return None  # Stay in the current state if frame detection fails
         

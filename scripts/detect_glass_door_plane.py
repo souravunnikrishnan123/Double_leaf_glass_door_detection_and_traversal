@@ -15,7 +15,6 @@ from evaluate_detected_ransac_planes import evaluate_plane_candidate
 # ---------------------------------------------------------
 def detect_glass_door_plane(color_image, depth_image_in_meters,
                             fx, fy, cx, cy,
-                            hole_fraction_threshold=0.05,       # fraction of holes expected in glass
                             max_inlier_density=1.0,            # inliers / ROI nonzero pixels
                             max_depth_consider=4.0,
                             min_depth_consider=1.0,
@@ -174,7 +173,7 @@ def detect_glass_door_plane(color_image, depth_image_in_meters,
     
     is_door = False
 
-    if fraction_of_holes_in_plane >= hole_fraction_threshold or inlier_density <= max_inlier_density:
+    if inlier_density <= max_inlier_density:
         is_door = True
 
     result = {

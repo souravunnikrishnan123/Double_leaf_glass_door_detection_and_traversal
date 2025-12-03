@@ -15,12 +15,12 @@ _scripts_path = os.path.join(_pkg_path, 'scripts')
 if _scripts_path not in sys.path:
     sys.path.insert(0, _scripts_path)
 
-from base_state_machine_classes import StateMachine
+from state_machine_base_classes import StateMachine
 from Frame_data import FrameContext
-from idle_state import idle_state
-from searching_door_plane_state import searching_door_plane_state
-from combine_door_state import combine_door_state
-from parallel_detection_state import parallel_detection_state
+from state_idle import idle_state
+from state_searching_door_plane import searching_door_plane_state
+from state_combine_door import combine_door_state
+from state_parallel_detection import parallel_detection_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
 

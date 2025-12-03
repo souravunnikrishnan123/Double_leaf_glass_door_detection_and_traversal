@@ -75,7 +75,7 @@ def robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=10):
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
 def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD,
-                               scale=0.5, hough_params=None, bilateral_params=None, sobel_params=None, adaptive_params=None):
+                               scale, hough_params, bilateral_params, sobel_params, adaptive_params, roi_width_for_depth_estimation, merging ,angle_threshold, door_geometry ):
 
     timer = get_duration_seconds()
     timer.start("depth_based_edge_detection preprocessing")
@@ -88,11 +88,11 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
         MIN_DEPTH,
         MAX_DEPTH,
         PHYSICAL_GRADIENT_THRESHOLD,
-        scale=scale,
-        hough_params=hough_params,
-        bilateral_params=bilateral_params,
-        sobel_params=sobel_params,
-        adaptive_params=adaptive_params,
+        scale,
+        hough_params,
+        bilateral_params,
+        sobel_params,
+        adaptive_params
     )
 
     timer.stop("depth_based_edge_detection preprocessing")
@@ -106,7 +106,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
         y2_np = depth_lines[:, 0, 3]
 
         angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)  # radians. 78°–102°
-        vertical_mask = (np.abs(np.cos(angles)) < 0.2)  # near-vertical
+        vertical_mask = (np.abs(np.cos(angles)) < angle_threshold)  # near-vertical
         depth_lines = depth_lines[vertical_mask]  # only has near-vertical lines
 
 
@@ -119,7 +119,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             # Keep only near-vertical lines
             #if 80 < abs(angle) < 100:
             # Estimate Z-depth of the line robustly
-            d = robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=20)
+            d = robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=roi_width_for_depth_estimation)
             cv2.line(color_image, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
             #x_m = int((x1 + x2) / 2)
             #y_m = int((y1 + y2) / 2)
@@ -141,15 +141,15 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
     
-        merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=10)  # only merging lines that are vertical, valid, and within depth range
+        merged_lines, merged_lines_depths = cluster_and_merge_lines(valid_lines, depth_of_valid_lines, x_thresh=merging["x_threshold_to_merge_lines"])  # only merging lines that are vertical, valid, and within depth range
 
-        MIN_LINE_LENGTH = 50
+        
         filtered_merged_lines = []
         filtered_merged_lines_depths = []
 
         for line, depth in zip(merged_lines, merged_lines_depths):
             x1, y1, x2, y2 = line
-            if abs(y2 - y1) >= MIN_LINE_LENGTH:
+            if abs(y2 - y1) >= merging["MIN_LINE_LENGTH_after_merging"]:
                 filtered_merged_lines.append(((x1, y1), (x2, y2)))
                 filtered_merged_lines_depths.append(depth)
 
@@ -162,6 +162,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
             depth_frame,
             filtered_merged_lines,
             filtered_merged_lines_depths,
+            door_geometry,
             keyword="depth"
         )
         return roi_left, roi_right, mean_z, sobel_vis_color

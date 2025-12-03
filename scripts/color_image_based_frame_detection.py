@@ -19,9 +19,13 @@ def color_image_based_frame_detection(
     depth_frame,
     DEPTH_RANGE,
     scale,
-    canny_params=None,
-    blur_params=None,
-    hough_params=None,
+    canny_params,
+    blur_params,
+    hough_params,
+    min_num_of_valid_depths_for_depth_estimation,
+    extrapolation,
+    angle_threshold,
+    door_geometry
 ):
     # Detect vertical lines in color image using Canny + Hough
     vertical_lines = []
@@ -40,7 +44,7 @@ def color_image_based_frame_detection(
         y2_np = lines[:, 0, 3]
 
         angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)  # radians. 78°–102°
-        vertical_mask = (np.abs(np.cos(angles)) < 0.2)  # near-vertical
+        vertical_mask = (np.abs(np.cos(angles)) < angle_threshold)  # near-vertical
         lines = lines[vertical_mask]  # only has near-vertical lines
 
 
@@ -69,7 +73,7 @@ def color_image_based_frame_detection(
             ) 
             """
 
-            center_depth = get_median_depth_along_detected_line(depth_image_in_meters, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths=10)
+            center_depth = get_median_depth_along_detected_line(depth_image_in_meters, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths=min_num_of_valid_depths_for_depth_estimation)
             # Compute median depth and center
             
             if center_depth is None:
@@ -99,12 +103,12 @@ def color_image_based_frame_detection(
             # Extrapolate forward
             
             extrapolated_forward = extrapolate_along_line_segment(
-                depth_image_in_meters, start_fwd, (dx, dy), center_depth, gradient_threshold=0.1, window=5
+                depth_image_in_meters, start_fwd, (dx, dy), center_depth, gradient_threshold=extrapolation["gradient_threshold_for_extrapolation"], window=extrapolation["window_size_for_extrapolation"]
             )
 
             # Extrapolate backward
             extrapolated_backward = extrapolate_along_line_segment(
-                depth_image_in_meters, start_back, (-dx, -dy), center_depth, gradient_threshold=0.1, window=5
+                depth_image_in_meters, start_back, (-dx, -dy), center_depth, gradient_threshold=extrapolation["gradient_threshold_for_extrapolation"], window=extrapolation["window_size_for_extrapolation"]
             )
 
             # Combine all
@@ -169,6 +173,7 @@ def color_image_based_frame_detection(
             depth_frame,
             vertical_lines,
             depth_of_each_lines,
+            door_geometry,
             keyword="color"
         )
         return roi_left, roi_right, mean_z, edges

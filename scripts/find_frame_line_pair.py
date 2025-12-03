@@ -4,7 +4,7 @@ import numpy as np
 
 
 
-def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame, glass_width_cm,center_frame_width_cm ):
+def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame, glass_width_cm, center_frame_width_cm):
     """
     Filters vertical lines that are likely in contact with a glass pane.
 
@@ -21,11 +21,13 @@ def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame,
     Returns:
         filtered: list of lines that likely represent frame-glass boundary
     """
+    if not lines:
+        return []
+    
     intr = depth_frame.profile.as_video_stream_profile().intrinsics
     fx = intr.fx  # in pixels
 
-    if not lines:
-        return []
+    
     
     
     # Sort lines left to right based on x coordinate avg. as there can be a a lot of same coordinate for a line, it can cause bias. hence it is better to take mean to sort the line
@@ -56,12 +58,13 @@ def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame,
 
     for i, line in enumerate(lines):
 
-        # Convert depth to centimeters
-        depth_cm = depth_of_each_lines[i] * 100
-
-        # Compute how many pixels `glass_width_cm` maps to at this depth using focal length
+        # Convert depth to centimeters and compute pixel gaps using focal length
+        depth_cm = depth_of_each_lines[i] * 100.0
+        if depth_cm <= 0:
+            # Skip invalid depths gracefully
+            continue
         required_pixel_gap = (glass_width_cm / depth_cm) * fx
-        frame_pixel_gap = (center_frame_width_cm / depth_cm) * fx 
+        frame_pixel_gap = (center_frame_width_cm / depth_cm) * fx
         #print(fx)
         #print(frame_pixel_gap)
 

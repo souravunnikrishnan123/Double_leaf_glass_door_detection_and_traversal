@@ -42,6 +42,19 @@ class ColorDoorDetector:
             "min_line_length": rospy.get_param(f"{ns}/hough/min_line_length", 100),
             "max_line_gap": rospy.get_param(f"{ns}/hough/max_line_gap", 20),
         }
+        self.angle_threshold = rospy.get_param(f"{ns}/angle_threshold", 0.2)
+        self.min_num_of_valid_depths_for_depth_estimation = rospy.get_param(f"{ns}/min_num_of_valid_depths_for_depth_estimation", 5)
+        self.extrapolation = {
+            "gradient_threshold_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/gradient_threshold_for_extrapolation", 0.1),
+            "window_size_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/window_size_for_extrapolation", 5),
+        }
+        self.door_geometry = {
+            "glass_width_cm": rospy.get_param(f"/door_geometry/glass_width_cm", 40),
+            "center_frame_width_cm": rospy.get_param(f"/door_geometry/center_frame_width_cm", 30),
+            "roi_width": rospy.get_param(f"/door_geometry/roi_width", 240),
+            "min_depth": rospy.get_param(f"/door_geometry/min_depth", 1.7),
+            "correction_factor": rospy.get_param(f"/door_geometry/correction_factor", 1.1),
+        }
 
     def process_frame(self, ctx) -> ColorDetectionResult:
         roi_left, roi_right, mean_z, edges = color_image_based_frame_detection(
@@ -53,6 +66,10 @@ class ColorDoorDetector:
             canny_params=self.canny,
             blur_params=self.blur,
             hough_params=self.hough,
+            min_num_of_valid_depths_for_depth_estimation=self.min_num_of_valid_depths_for_depth_estimation,
+            extrapolation=self.extrapolation,
+            angle_threshold=self.angle_threshold,
+            door_geometry=self.door_geometry
         )
 
         door_depth_m = float(mean_z) if mean_z is not None else None

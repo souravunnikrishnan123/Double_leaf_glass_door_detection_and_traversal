@@ -1,0 +1,27 @@
+get_rgb_based_lines_using_canny_and_hough_lines: 0.097295
+color_image_based_frame_detection line processing: 0.018085
+color_image_based_frame_detection pairing and roi processing: 0.018435
+check_side_roi_against_door color: 0.014647
+check_side_roi_against_door--> visualization color: 0.001600
+check_if_passable--> backprojection color: 0.005762
+check_if_passable--> floor removal color: 0.036969
+check_if_passable--> normal filtering color: 0.003038
+check_if_passable--> 3D outlier removal color: 0.001670
+check_if_passable--> connected components color: 0.002397
+check_if_passable--> main passability check color: 0.052321
+check_if_passable--> BEV passability check color: 0.003717
+check_if_passable--> visualization of final points color: 0.003072
+depth_based_edge_detection preprocessing: 0.014538
+depth_based_edge_detection line processing: 0.002317
+depth_based_edge_detection pairing and roi processing: 0.017330
+check_side_roi_against_door depth: 0.012348
+check_side_roi_against_door--> visualization depth: 0.001593
+check_if_passable--> backprojection depth: 0.006278
+check_if_passable--> floor removal depth: 0.034726
+check_if_passable--> normal filtering depth: 0.002689
+check_if_passable--> 3D outlier removal depth: 0.001465
+check_if_passable--> connected components depth: 0.003067
+check_if_passable--> main passability check depth: 0.050850
+check_if_passable--> BEV passability check depth: 0.004755
+check_if_passable--> visualization of final points depth: 0.001463
+depth_image_based_frame_detection pairing and roi processing: 0.003680

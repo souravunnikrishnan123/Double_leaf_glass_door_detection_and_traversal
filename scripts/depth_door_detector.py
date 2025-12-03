@@ -46,6 +46,19 @@ class DepthDoorDetector:
             "k_factor": rospy.get_param(f"{ns}/adaptive/k_factor", 2.0),
             "fallback_threshold": rospy.get_param(f"{ns}/adaptive/fallback_threshold", 0.1),
         }
+        self.angle_threshold = rospy.get_param(f"{ns}/angle_threshold", 0.2)
+        self.roi_width_for_depth_estimation = rospy.get_param(f"{ns}/roi_width_for_depth_estimation", 10)
+        self.merge_lines = {
+            "x_threshold_to_merge_lines": rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10),
+            "MIN_LINE_LENGTH_after_merging": rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50),
+        }
+        self.door_geometry = {
+            "glass_width_cm": rospy.get_param(f"/door_geometry/glass_width_cm", 40),
+            "center_frame_width_cm": rospy.get_param(f"/door_geometry/center_frame_width_cm", 30),
+            "roi_width": rospy.get_param(f"/door_geometry/roi_width", 240),
+            "min_depth": rospy.get_param(f"/door_geometry/min_depth", 1.7),
+            "correction_factor": rospy.get_param(f"/door_geometry/correction_factor", 1.1),
+        }
 
 
     def process_frame(self, ctx) -> DepthDetectionResult:
@@ -67,6 +80,10 @@ class DepthDoorDetector:
             bilateral_params=self.bilateral,
             sobel_params=self.sobel,
             adaptive_params=self.adaptive,
+            roi_width_for_depth_estimation=self.roi_width_for_depth_estimation,
+            merging = self.merge_lines,
+            angle_threshold= self.angle_threshold,
+            door_geometry = self.door_geometry
         )
 
         door_depth_m = float(mean_z) if mean_z is not None else None

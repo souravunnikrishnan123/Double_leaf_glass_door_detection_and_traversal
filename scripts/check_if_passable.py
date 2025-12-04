@@ -420,17 +420,3 @@ class BirdsEyePassabilityPipeline:
 
         print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
         return point_cloud_vertical_ratio, color_image, bird_eye_view
-
-
-
-
-
-def check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, keyword="color"):
-    """
-    Check how much of ROI depth matches door reference depth.
-    """
-    pipeline = BirdsEyePassabilityPipeline(keyword=keyword)
-    return pipeline.run(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth)
-
-
-    

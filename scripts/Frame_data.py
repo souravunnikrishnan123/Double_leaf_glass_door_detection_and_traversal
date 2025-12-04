@@ -43,10 +43,10 @@ class FrameContext:
     viz_color_stack: Optional[np.ndarray] = None
     viz_depth_stack: Optional[np.ndarray] = None
     viz_plane_overlay: Optional[np.ndarray] = None
-    bird_eye_view_color: Optional[np.ndarray] = None
-    bird_eye_view_depth: Optional[np.ndarray] = None
-    passability_view_color: Optional[np.ndarray] = None
-    passability_view_depth: Optional[np.ndarray] = None
+    bird_eye_view_color_based: Optional[np.ndarray] = None
+    bird_eye_view_depth_based: Optional[np.ndarray] = None
+    passability_view_color_based: Optional[np.ndarray] = None
+    passability_view_depth_based: Optional[np.ndarray] = None
 
 
 

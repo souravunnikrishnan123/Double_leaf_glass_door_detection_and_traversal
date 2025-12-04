@@ -5,15 +5,15 @@ import numpy as np
 import pyrealsense2 as rs 
 import open3d as o3d
 from duration import get_duration_seconds
-from check_if_passable import check_if_passable
+
 
 from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points, ransac_plane_from_points
+from check_if_passable import BirdsEyePassabilityPipeline
 
 
 
 
-
-def offset_roi_polygon(roi_polygon, side="left", margin=10):
+def offset_roi_polygon(roi_polygon, margin, side="left"):
     """
     Offset the ROI polygon horizontally by margin.
     For left ROI, shift left; for right ROI, shift right.
@@ -216,25 +216,19 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
 
 
 def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_polygon_left, roi_polygon_right,
-                      roi_width=40, margin=10, threshold=0.05, z_door_depth=None, plotname = "door_state_based_on_color_image"):
+                      roi_width=40, margin=10, threshold=0.05, z_door_depth=None, keyword = "color"):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
     """
     color_image_for_passable_check = color_image.copy()
 
-    if "color" in plotname:
-        keyword = "color"
-    elif "depth" in plotname:
-        keyword = "depth"
-    else:
-        keyword = "unknown"
 
     # Step 2: build ROIs
 
     #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to
     #include the vertical door frame line pixels in the ROI for depth checking to know the status of door( especially when the detected RGB houghline are not at the frame end but slightly inward)
-    roi_left_offset = offset_roi_polygon(roi_polygon_left, side="left", margin=10)
-    roi_right_offset = offset_roi_polygon(roi_polygon_right, side="right", margin=10)
+    roi_left_offset = offset_roi_polygon(roi_polygon_left, margin, side="left")
+    roi_right_offset = offset_roi_polygon(roi_polygon_right, margin, side="right")
 
 
     # Step 3: check depth consistency
@@ -269,7 +263,9 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
     if roi_open_side is not None:
         roi_open_side_corners = extract_roi_corners(roi_open_side)
         roi_open_side_full_height = extend_roi_polygon_to_full_height(roi_open_side_corners, color_image.shape[0])
-        passable_fraction, color_image_roi, bird_eye_view = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_passable_check, roi_open_side_full_height, z_door_depth, keyword)
+
+        pipeline = BirdsEyePassabilityPipeline(keyword=keyword)
+        point_cloud_vertical_ratio, color_image_roi, bird_eye_view = pipeline.run(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_open_side_full_height, z_door_depth)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

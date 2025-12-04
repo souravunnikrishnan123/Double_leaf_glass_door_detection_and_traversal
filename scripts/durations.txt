@@ -1,6 +1,6 @@
-get_rgb_based_lines_using_canny_and_hough_lines: 0.120831
-color_image_based_frame_detection line processing: 0.027839
-color_image_based_frame_detection pairing and roi processing: 0.023931
+get_rgb_based_lines_using_canny_and_hough_lines: 0.121044
+color_image_based_frame_detection line processing: 0.023098
+color_image_based_frame_detection pairing and roi processing: 0.009424
 check_side_roi_against_door color: 0.020064
 check_side_roi_against_door--> visualization color: 0.003983
 check_if_passable--> backprojection color: 0.008339
@@ -11,8 +11,8 @@ check_if_passable--> connected components color: 0.003906
 check_if_passable--> main passability check color: 0.065622
 check_if_passable--> BEV passability check color: 0.004060
 check_if_passable--> visualization of final points color: 0.001464
-depth_based_edge_detection preprocessing: 0.020446
-depth_based_edge_detection line processing: 0.005434
+depth_based_edge_detection preprocessing: 0.017459
+depth_based_edge_detection line processing: 0.006013
 depth_based_edge_detection pairing and roi processing: 0.017330
 check_side_roi_against_door depth: 0.015595
 check_side_roi_against_door--> visualization depth: 0.002377
@@ -24,4 +24,24 @@ check_if_passable--> connected components depth: 0.005766
 check_if_passable--> main passability check depth: 0.075530
 check_if_passable--> BEV passability check depth: 0.004184
 check_if_passable--> visualization of final points depth: 0.001662
-depth_image_based_frame_detection pairing and roi processing: 0.007031
+depth_image_based_frame_detection pairing and roi processing: 0.007969
+check_side_roi_against_door color_based: 0.019603
+check_side_roi_against_door--> visualization color_based: 0.003002
+check_if_passable--> backprojection color_based: 0.009279
+check_if_passable--> floor removal color_based: 0.039457
+check_if_passable--> normal filtering color_based: 0.003799
+check_if_passable--> 3D outlier removal color_based: 0.001712
+check_if_passable--> connected components color_based: 0.005465
+check_if_passable--> main passability check color_based: 0.063147
+check_if_passable--> BEV passability check color_based: 0.005380
+check_if_passable--> visualization of final points color_based: 0.002918
+check_side_roi_against_door depth_based: 0.031766
+check_side_roi_against_door--> visualization depth_based: 0.002189
+check_if_passable--> backprojection depth_based: 0.018206
+check_if_passable--> floor removal depth_based: 0.158923
+check_if_passable--> normal filtering depth_based: 0.018373
+check_if_passable--> 3D outlier removal depth_based: 0.002894
+check_if_passable--> connected components depth_based: 0.039779
+check_if_passable--> main passability check depth_based: 0.246166
+check_if_passable--> BEV passability check depth_based: 0.015017
+check_if_passable--> visualization of final points depth_based: 0.004075

@@ -2,9 +2,8 @@
 from Frame_data import BaseState, FrameContext
 from typing import Optional
 from state_substate_color_image_based_door_frame_detection import color_image_based_door_frame_detection_state
-from state_substate_color_image_based_detecting_door_status import color_image_based_detecting_door_state
+from state_detecting_door_status import detecting_door_status
 from state_substate_depth_image_based_door_frame_detection import depth_image_based_door_frame_detection_state
-from state_substate_depth_image_based_detecting_door_status import depth_image_based_detecting_door_state
 from visualization_utils import show_stacked_visualization, build_stacked_visualization
 import rospy
 
@@ -15,15 +14,16 @@ class parallel_detection_state(BaseState):
         # child current states
         self.color_frame_detection_state = color_image_based_door_frame_detection_state()#only need to create state object once.
         self.depth_frame_detection_state = depth_image_based_door_frame_detection_state()#only need to create state object once.
-        self.color_detecting_door_state = color_image_based_detecting_door_state()
-        self.depth_detecting_door_state = depth_image_based_detecting_door_state()
+        self.detecting_door_status_based_on_color = detecting_door_status()
+        self.detecting_door_status_based_on_depth = detecting_door_status()
+
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
         # Advance color branch
    
         nxt_c = self.color_frame_detection_state.do_action(ctx)
         if nxt_c == "color_image_based_detecting_door_state":
-            self.color_detecting_door_state.do_action(ctx)
+            self.detecting_door_status_based_on_color.do_action(ctx, keyword="color_based")
         elif nxt_c == "no_mid_door_frame_detected_state":
             #check bev based detection with full image
             pass  # could log or handle no detection case here
@@ -31,7 +31,7 @@ class parallel_detection_state(BaseState):
         # Advance depth branch
         nxt_d = self.depth_frame_detection_state.do_action(ctx)
         if nxt_d == "depth_image_based_detecting_door_state":
-            self.depth_detecting_door_state.do_action(ctx)
+            self.detecting_door_status_based_on_depth.do_action(ctx, keyword="depth_based")
         elif nxt_d == "no_mid_door_frame_detected_state":
             #check bev based detection with full image
             pass  # could log or handle no detection case here

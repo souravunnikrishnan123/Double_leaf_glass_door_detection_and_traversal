@@ -24,7 +24,7 @@ class ColorDoorDetector:
     """
 
     def __init__(self):
-        ns = "color_image_based_door_detector"
+        ns = "~color_image_based_door_detector"
         self.DEPTH_RANGE = rospy.get_param(f"{ns}/depth_range", [1.7, 2.3])
         self.scale = rospy.get_param(f"{ns}/scale", 1.0)
         # Optional tunables for image processing

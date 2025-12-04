@@ -215,8 +215,11 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
 
 
 
-def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_polygon_left, roi_polygon_right,
-                      roi_width=40, margin=10, threshold=0.05, z_door_depth=None, keyword = "color"):
+def detect_door_state(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,
+                      roi_width, margin, threshold, z_door_depth, keyword,
+                      back_proj_params,
+            filter_points_params,
+            bev_params):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
     """
@@ -264,8 +267,11 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy,color_image, roi_pol
         roi_open_side_corners = extract_roi_corners(roi_open_side)
         roi_open_side_full_height = extend_roi_polygon_to_full_height(roi_open_side_corners, color_image.shape[0])
 
-        pipeline = BirdsEyePassabilityPipeline(keyword=keyword)
-        point_cloud_vertical_ratio, color_image_roi, bird_eye_view = pipeline.run(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_open_side_full_height, z_door_depth)
+        # Initialize pipeline with optional params
+        pipeline = BirdsEyePassabilityPipeline(keyword, back_proj_params, filter_points_params, bev_params)
+        # Apply pipeline parameters if provided
+        point_cloud_vertical_ratio, color_image_roi, bird_eye_view = pipeline.run(
+        depth_image_in_meters, fx, fy, cx, cy, color_image, roi_open_side_full_height, z_door_depth)
 
     # Overlay decision text
     cv2.putText(color_image, f"Door State: {door_state}", (30, 130),

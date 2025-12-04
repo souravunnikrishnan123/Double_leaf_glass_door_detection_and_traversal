@@ -63,5 +63,38 @@
       min_depth: 1.7
       correction_factor: 1.1
     </rosparam>
+    <rosparam ns="door_status_detector">
+      roi_width: 240
+      margin: 10
+      threshold: 0.05
+      bev_params:
+        grid_res: 0.01
+        required_clearance: 0.45
+        max_obstacle_height: -1.5
+      back_proj_params:
+        subsample: 2
+      filter_points_params:
+        ransac:
+          max_planes: 3
+          n: 3
+          distance_threshold: 0.02
+          num_iterations: 50
+          min_inliers: 50
+          horizontal_tol: 0.3
+        normal_filter:
+          radius: 0.15
+          max_nn: 40
+          ny_thr: 0.7
+        outlier:
+          nb_neighbors: 50
+          std_ratio: 1.0
+        cc_filter:
+          near_z: 0.6
+          min_area_near: 640
+          minimum_area_far: 600
+          base_area_at_1m: 1400
+          min_z: 0.1
+          max_z: 4.0
+    </rosparam>
   </node>
 </launch>

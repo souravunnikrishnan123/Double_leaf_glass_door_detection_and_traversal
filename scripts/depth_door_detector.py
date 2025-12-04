@@ -23,7 +23,7 @@ class DepthDoorDetector:
     """
 
     def __init__(self):
-        ns = "depth_image_based_door_detector"
+        ns = "~depth_image_based_door_detector"
         self.MIN_DEPTH = rospy.get_param(f"{ns}/MIN_DEPTH", 1.0)
         self.MAX_DEPTH = rospy.get_param(f"{ns}/MAX_DEPTH", 4.0)
         self.DEPTH_RANGE = rospy.get_param(f"{ns}/DEPTH_RANGE", [1.7, 2.3])
@@ -52,12 +52,14 @@ class DepthDoorDetector:
             "x_threshold_to_merge_lines": rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10),
             "MIN_LINE_LENGTH_after_merging": rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50),
         }
+        # door_geometry is loaded at top-level under the node; use private ns for consistency
+        gns = "~door_geometry"
         self.door_geometry = {
-            "glass_width_cm": rospy.get_param(f"/door_geometry/glass_width_cm", 40),
-            "center_frame_width_cm": rospy.get_param(f"/door_geometry/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param(f"/door_geometry/roi_width", 240),
-            "min_depth": rospy.get_param(f"/door_geometry/min_depth", 1.7),
-            "correction_factor": rospy.get_param(f"/door_geometry/correction_factor", 1.1),
+            "glass_width_cm": rospy.get_param(f"{gns}/glass_width_cm", 40),
+            "center_frame_width_cm": rospy.get_param(f"{gns}/center_frame_width_cm", 30),
+            "roi_width": rospy.get_param(f"{gns}/roi_width", 240),
+            "min_depth": rospy.get_param(f"{gns}/min_depth", 1.7),
+            "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
         }
 
 

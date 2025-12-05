@@ -59,7 +59,7 @@ class ColorDoorDetector:
         roi_left, roi_right, mean_z, edges = color_image_based_frame_detection(
             ctx.depth_image_in_meters,
             ctx.color_image_color_based,
-            ctx.depth_frame,
+            ctx.fx,
             DEPTH_RANGE=self.DEPTH_RANGE,
             scale=self.scale,
             canny_params=self.canny,

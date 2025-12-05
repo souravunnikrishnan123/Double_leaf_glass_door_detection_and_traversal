@@ -16,7 +16,7 @@ from find_glass_frame_lines import left_right_roi_and_door_depth
 def color_image_based_frame_detection(
     depth_image_in_meters,
     color_image,
-    depth_frame,
+    fx,
     DEPTH_RANGE,
     scale,
     canny_params,
@@ -55,9 +55,7 @@ def color_image_based_frame_detection(
             #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
             #if 80 < abs(angle) < 100:  # near-vertical
             cv2.line(color_image, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
-            image_height = color_image.shape[0]
-            y_top = 0
-            y_bottom = image_height - 1
+
 
             #center_depth = get_median_depth_window(depth_frame, x_center, y_center, window=10)
             #if center_depth is None:
@@ -170,7 +168,7 @@ def color_image_based_frame_detection(
         roi_left, roi_right, mean_z = left_right_roi_and_door_depth(
             depth_image_in_meters,
             color_image,
-            depth_frame,
+            fx,
             vertical_lines,
             depth_of_each_lines,
             door_geometry,

@@ -70,9 +70,9 @@ class DepthDoorDetector:
         returns a structured `DepthDetectionResult` for downstream use.
         """
         roi_left, roi_right, mean_z, sobel_vis_color = depth_based_edge_detection(
-            ctx.depth_frame,
             ctx.depth_image_in_meters,
             ctx.color_image_depth_based,
+            ctx.fx,
             MIN_DEPTH=self.MIN_DEPTH,
             MAX_DEPTH=self.MAX_DEPTH,
             DEPTH_RANGE=self.DEPTH_RANGE,
@@ -85,7 +85,7 @@ class DepthDoorDetector:
             roi_width_for_depth_estimation=self.roi_width_for_depth_estimation,
             merging = self.merge_lines,
             angle_threshold= self.angle_threshold,
-            door_geometry = self.door_geometry
+            door_geometry = self.door_geometry,
         )
 
         door_depth_m = float(mean_z) if mean_z is not None else None

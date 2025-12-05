@@ -44,6 +44,7 @@ class parallel_detection_state(BaseState):
         ctx.viz_color_stack = build_stacked_visualization(
             ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame
         )
+
         ctx.viz_depth_stack = build_stacked_visualization(
             ctx.color_image_depth_based, MIN_DEPTH=1.8, MAX_DEPTH=2.5, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
         )

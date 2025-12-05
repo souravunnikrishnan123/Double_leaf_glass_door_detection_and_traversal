@@ -48,7 +48,7 @@ class DoorDetectionNode:
         # Publishers
         self.state_pub = rospy.Publisher("~door_state", String, queue_size=10)
         self.debug_pub = rospy.Publisher("~debug_image", Image, queue_size=1)
-        self.viz_color_pub = rospy.Publisher("~viz/color_depth_edges", Image, queue_size=1)
+        self.viz_color_pub = rospy.Publisher("~viz/color_branch", Image, queue_size=1)
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
         self.viz_bird_eye_pub_color = rospy.Publisher("~viz/bird_eye_view_color", Image, queue_size=1)

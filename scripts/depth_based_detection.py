@@ -74,8 +74,8 @@ def robust_line_z_roi(depth_image_in_meters, x1, y1, x2, y2, roi_width=10):
 
 
 # -------------------- STEP 2: DEPTH GRADIENT + HOUGH (Z-Depth) --------------------
-def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD,
-                               scale, hough_params, bilateral_params, sobel_params, adaptive_params, roi_width_for_depth_estimation, merging ,angle_threshold, door_geometry ):
+def depth_based_edge_detection( depth_image_in_meters, color_image, fx, MIN_DEPTH, MAX_DEPTH, DEPTH_RANGE , PHYSICAL_GRADIENT_THRESHOLD,
+                               scale, hough_params, bilateral_params, sobel_params, adaptive_params, roi_width_for_depth_estimation, merging ,angle_threshold, door_geometry):
 
     timer = get_duration_seconds()
     timer.start("depth_based_edge_detection preprocessing")
@@ -159,7 +159,7 @@ def depth_based_edge_detection(depth_frame, depth_image_in_meters, color_image, 
         roi_left, roi_right, mean_z = left_right_roi_and_door_depth( 
             depth_image_in_meters,
             color_image,
-            depth_frame,
+            fx,
             filtered_merged_lines,
             filtered_merged_lines_depths,
             door_geometry,

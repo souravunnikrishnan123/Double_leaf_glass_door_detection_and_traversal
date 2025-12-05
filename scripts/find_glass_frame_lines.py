@@ -3,7 +3,7 @@ import numpy as np
 from duration import get_duration_seconds
 
 
-def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame, glass_width_cm, center_frame_width_cm):
+def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, fx, glass_width_cm, center_frame_width_cm):
     """
     Filters vertical lines that are likely in contact with a glass pane.
 
@@ -13,8 +13,7 @@ def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame,
 
     Args:
         lines: list of tuples (x_center, y_top, y_bottom, center_depth)
-        depth_frame: RealSense depth frame for accurate distance lookup
-        fx: focal length in pixels (from intrinsics)
+            fx: focal length in pixels (from intrinsics)
         glass_width_cm: minimum distance (in cm) we expect between the frame and its neighbor
         
     Returns:
@@ -22,9 +21,6 @@ def filter_vertical_lines_glass_contact(lines, depth_of_each_lines, depth_frame,
     """
     if not lines:
         return []
-    
-    intr = depth_frame.profile.as_video_stream_profile().intrinsics
-    fx = intr.fx  # in pixels
 
     
     
@@ -248,14 +244,12 @@ def process_filtered_lines(filtered_lines, depth_image_in_meters, color_image, r
 
     Args:
         filtered_lines: list of tuples [(left_line_points, right_line_points), ...]
-        depth_frame: RealSense depth frame
         color_image: BGR image for visualization
 
     Returns:
         (avg_z_left_roi_list, avg_z_right_roi_list)
     """
 
-    
 
 
     avg_z_left_roi_list = []
@@ -273,8 +267,9 @@ def process_filtered_lines(filtered_lines, depth_image_in_meters, color_image, r
                        np.max([pt[1] for pt in detected_plane]) if (detected_plane is not None and len(detected_plane) > 0) else depth_image_in_meters.shape[0] - 1
                         )
         """
-        y_bottom = depth_image_in_meters.shape[0] - 1
+        y_bottom = color_image.shape[0] - 1
         y_top = 0
+
 
         extrapolated_left_line_points = extrapolate_line_to_y_range(left_line_points, y_top, y_bottom)
         extrapolated_right_line_points = extrapolate_line_to_y_range(right_line_points, y_top, y_bottom)
@@ -317,7 +312,7 @@ def process_filtered_lines(filtered_lines, depth_image_in_meters, color_image, r
             valid_roi_polygon_right_list.append(roi_polygon_right)
             mean_z_depth_along_frame_lines_list.append(mean_z_depth_along_frame_lines)
 
-
+            
             # Draw ROIs if available
             if roi_polygon_left is not None:
                 cv2.polylines(color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
@@ -378,7 +373,7 @@ def process_filtered_lines(filtered_lines, depth_image_in_meters, color_image, r
 def left_right_roi_and_door_depth(
     depth_image_in_meters,
     color_image,
-    depth_frame,
+    fx,
     lines,
     depth_of_each_lines,
     door_geometry,
@@ -388,14 +383,16 @@ def left_right_roi_and_door_depth(
     timer.start(f"{keyword}_image_based_frame_detection pairing and roi processing")
 
     paired_lines = filter_vertical_lines_glass_contact(
-        lines, depth_of_each_lines, depth_frame, door_geometry["glass_width_cm"], door_geometry["center_frame_width_cm"]
+        lines, depth_of_each_lines, fx, door_geometry["glass_width_cm"], door_geometry["center_frame_width_cm"]
     )
     
     # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
+    
     paired_lines_sorted = [
         (sort_lines_by_y(left_line), sort_lines_by_y(right_line), left_depth, right_depth)
         for left_line, right_line, left_depth, right_depth in paired_lines]
     
+
 
     # Visualize paired lines (glass frame candidates)
     for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
@@ -409,6 +406,8 @@ def left_right_roi_and_door_depth(
             pt1 = tuple(map(int, right_line[0][:2]))
             pt2 = tuple(map(int, right_line[-1][:2]))
             cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+
+    
 
 
 

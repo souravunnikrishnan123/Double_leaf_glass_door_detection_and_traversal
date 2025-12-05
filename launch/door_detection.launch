@@ -12,7 +12,7 @@
     <param name="sync_slop" value="0.2" />
     <rosparam ns="color_image_based_door_detector">
       depth_range: [1.7, 2.3]
-      scale: 0.5
+      scale: 1.0
       canny:
         lower_factor: 0.7
         upper_factor: 2.0
@@ -36,7 +36,7 @@
       MAX_DEPTH: 4.0
       DEPTH_RANGE: [1.7, 2.3]
       PHYSICAL_GRADIENT_THRESHOLD: 0.25
-      scale: 0.5
+      scale: 1.0
       hough:
         threshold: 100
         min_line_length: 100

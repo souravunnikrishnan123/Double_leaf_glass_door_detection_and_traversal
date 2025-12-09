@@ -58,7 +58,7 @@
       sobel:
         ksize: 3
       adaptive:
-        k_factor: 2.0
+        k_factor: 1.0
         fallback_threshold: 0.1
       angle_threshold: 0.2
       roi_width_for_depth_estimation: 10

@@ -5,7 +5,11 @@ import numpy as np
 import rospy
 import cv2
 
-from depth_based_detection import depth_based_edge_detection
+
+from duration import get_duration_seconds
+from find_glass_frame_lines import GlassFrameLineProcessor
+from post_processing_of_detected_vertical_lines import cluster_and_merge_lines
+from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
 
 
 
@@ -62,6 +66,65 @@ class DepthDoorDetector:
             "min_depth": rospy.get_param(f"{gns}/min_depth", 1.7),
             "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
         }
+        self.line_filter = LineFilter()
+        self.edge_detector = EdgeDetector()
+        self.line_detector = HoughPLineDetector()
+        self.preprocessor = Preprocessor()
+        self.glass_frame_detector = GlassFrameLineProcessor()
+
+
+    def robust_line_z_roi(self,depth_image_in_meters, x1, y1, x2, y2, roi_width=10):
+        """
+        Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
+        using get_z_depth for accurate Z-axis depth.
+        """
+        if abs(x1 - x2) > abs(y1 - y2):
+            print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
+            return None
+        
+        H, W = depth_image_in_meters.shape
+
+        y_start, y_end = sorted((y1, y2))
+        y_start= max(0, y_start)
+        y_end = min(H, y_end)
+
+        if y_end <= y_start:
+            return None
+        
+        ys = np.arange(y_start, y_end)
+
+        x_center = int((x1 + x2) / 2)
+
+        x_left_roi_start = max(0, x_center - roi_width)
+        x_left_roi_end = min(W, x_center)
+
+        x_right_roi_start = max(0, x_center + 1)
+        x_right_roi_end = min(W, x_center + roi_width + 1)
+
+        # List to store valid Z-depths for each ROI
+        z_depths1 = depth_image_in_meters[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
+        z_depths2 = depth_image_in_meters[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
+
+        z_depths1 = z_depths1.ravel() #to convert to 1D array
+        z_depths2 = z_depths2.ravel() #to convert to 1D array
+
+        z_depths1 = z_depths1[np.isfinite(z_depths1) & (z_depths1 > 0)]
+        z_depths2 = z_depths2[np.isfinite(z_depths2) & (z_depths2 > 0)]
+
+
+        # Compute medians
+        med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
+        med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
+
+        # Apply your filtering logic
+        if med_z_depth1 == 0 and med_z_depth2 == 0:
+            return None
+        elif med_z_depth1 == 0:
+            return med_z_depth2
+        elif med_z_depth2 == 0:
+            return med_z_depth1
+        else:
+            return min(med_z_depth1, med_z_depth2)
 
 
     def process_frame(self, ctx) -> DepthDetectionResult:
@@ -74,24 +137,106 @@ class DepthDoorDetector:
         # If aligned depth resolution differs from RGB, resize the color image to depth size
         # so line and ROI coordinates derived from depth map align correctly.
 
-        roi_left, roi_right, mean_z, sobel_vis_color = depth_based_edge_detection(
-            ctx.depth_image_in_meters,
-            ctx.color_image_depth_based,
-            ctx.fx,
-            MIN_DEPTH=self.MIN_DEPTH,
-            MAX_DEPTH=self.MAX_DEPTH,
-            DEPTH_RANGE=self.DEPTH_RANGE,
-            PHYSICAL_GRADIENT_THRESHOLD=self.PHYSICAL_GRADIENT_THRESHOLD,
-            scale=self.scale,
-            hough_params=self.hough,
-            bilateral_params=self.bilateral,
-            sobel_params=self.sobel,
-            adaptive_params=self.adaptive,
-            roi_width_for_depth_estimation=self.roi_width_for_depth_estimation,
-            merging = self.merge_lines,
-            angle_threshold= self.angle_threshold,
-            door_geometry = self.door_geometry,
-        )
+        timer = get_duration_seconds()
+        timer.start("depth_based_edge_detection preprocessing")
+
+        valid_lines = []
+        depth_of_valid_lines = []
+        H = ctx.depth_image_in_meters.shape[0]
+        W = ctx.depth_image_in_meters.shape[1]
+
+        depth_image_in_meters = ctx.depth_image_in_meters.astype(np.float32, copy=False)
+
+
+        depth_scaled = self.preprocessor.resize_by_scale(depth_image_in_meters, self.scale)
+        filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)
+            
+        # Gradient along X (detect vertical edges in depth)
+        depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel)
+        
+        # Apply mask (keep only valid + relevant regions)
+        # After computing depth_scaled
+        mask_ds = (depth_scaled > self.DEPTH_RANGE[0]) & (depth_scaled < self.DEPTH_RANGE[1])
+        depth_grad_x[~mask_ds] = 0
+        valid_grad_vals = depth_grad_x[mask_ds]  #Only gradients at valid depth pixels are used to compute the threshold
+        depth_edges = self.edge_detector.adaptive_threshold(depth_grad_x, valid_grad_vals, self.adaptive)
+        
+        # Normalize for visualization (convert to 8-bit image)
+        sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        # Convert Sobel visualization to color (BGR)
+        sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
+
+
+        #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
+        # but if there are depth hole within the frame, the depth gradient will be high, that case is not covered here
+        physical_mask = (depth_grad_x > self.PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
+        depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
+
+        # Overlay depth edges in red
+        sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
+
+        depth_lines = self.line_detector.detect(depth_edges, self.hough, self.scale)
+        sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
+        
+
+        timer.stop("depth_based_edge_detection preprocessing")
+
+        timer.start("depth_based_edge_detection line processing")
+        
+        if depth_lines is not None:
+            depth_lines = self.line_filter.angle_filter(depth_lines, self.angle_threshold)
+
+
+            for line in depth_lines:
+                x1, y1, x2, y2 = line[0]
+
+                # Compute line angle
+                #angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+
+                # Keep only near-vertical lines
+                #if 80 < abs(angle) < 100:
+                # Estimate Z-depth of the line robustly
+                d = self.robust_line_z_roi(ctx.depth_image_in_meters, x1, y1, x2, y2, roi_width= self.roi_width_for_depth_estimation)
+                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
+                #x_m = int((x1 + x2) / 2)
+                #y_m = int((y1 + y2) / 2)
+                
+                # Limit area for left and right
+                #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
+                #right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
+
+
+                # Draw only if within specified depth range
+                #if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
+                if (d is not None and self.DEPTH_RANGE[0] <= d <= self.DEPTH_RANGE[1]):
+                    
+                    valid_lines.append((x1, y1, x2, y2))
+                    depth_of_valid_lines.append(d)
+                    # show the midpoint used for normals
+                    cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
+                    #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
+                    # optional annotate depth
+                    #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+        
+            merged_lines, merged_lines_depths = cluster_and_merge_lines(ctx.color_image_depth_based, valid_lines, depth_of_valid_lines, x_thresh=self.merge_lines["x_threshold_to_merge_lines"], min_merged_line_length = self.merge_lines["MIN_LINE_LENGTH_after_merging"])  # only merging lines that are vertical, valid, and within depth range
+
+            
+
+            timer.stop("depth_based_edge_detection line processing")
+
+            roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(
+                ctx.depth_image_in_meters,
+                ctx.color_image_depth_based,
+                ctx.fx,
+                merged_lines,
+                merged_lines_depths,
+                self.door_geometry,
+                keyword="depth"
+            )
+        else:
+            roi_left = None
+            roi_right = None
+            mean_z = None
 
         door_depth_m = float(mean_z) if mean_z is not None else None
 

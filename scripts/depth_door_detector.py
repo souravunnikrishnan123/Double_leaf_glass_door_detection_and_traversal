@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 import numpy as np
 import rospy
+import cv2
 
 from depth_based_detection import depth_based_edge_detection
 
@@ -69,6 +70,10 @@ class DepthDoorDetector:
         Updates `ctx.*` fields to preserve the current contract and
         returns a structured `DepthDetectionResult` for downstream use.
         """
+        # Ensure the color image used for depth overlays matches the depth resolution.
+        # If aligned depth resolution differs from RGB, resize the color image to depth size
+        # so line and ROI coordinates derived from depth map align correctly.
+
         roi_left, roi_right, mean_z, sobel_vis_color = depth_based_edge_detection(
             ctx.depth_image_in_meters,
             ctx.color_image_depth_based,

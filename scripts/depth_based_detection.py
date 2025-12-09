@@ -98,7 +98,7 @@ def depth_based_edge_detection( depth_image_in_meters, color_image, fx, MIN_DEPT
     timer.stop("depth_based_edge_detection preprocessing")
 
     timer.start("depth_based_edge_detection line processing")
-
+    
     if depth_lines is not None:
         x1_np = depth_lines[:, 0, 0]
         y1_np = depth_lines[:, 0, 1]
@@ -146,12 +146,15 @@ def depth_based_edge_detection( depth_image_in_meters, color_image, fx, MIN_DEPT
         
         filtered_merged_lines = []
         filtered_merged_lines_depths = []
-
+        
         for line, depth in zip(merged_lines, merged_lines_depths):
             x1, y1, x2, y2 = line
             if abs(y2 - y1) >= merging["MIN_LINE_LENGTH_after_merging"]:
                 filtered_merged_lines.append(((x1, y1), (x2, y2)))
+                cv2.line(color_image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # green for filtered merged lines
                 filtered_merged_lines_depths.append(depth)
+        
+        
 
         timer.stop("depth_based_edge_detection line processing")
 

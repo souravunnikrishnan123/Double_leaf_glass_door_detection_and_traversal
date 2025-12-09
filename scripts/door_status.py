@@ -216,10 +216,7 @@ def check_side_roi_against_door(depth_image_in_meters, fx, fy, cx, cy, color_ima
 
 
 def detect_door_state(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon_left, roi_polygon_right,
-                      roi_width, margin, threshold, z_door_depth, keyword,
-                      back_proj_params,
-            filter_points_params,
-            bev_params):
+                      roi_width, margin, threshold, z_door_depth, keyword):
     """
     Decide OPEN/CLOSED based on ROIs and door depth reference.
     """
@@ -268,7 +265,7 @@ def detect_door_state(depth_image_in_meters, fx, fy, cx, cy, color_image, roi_po
         roi_open_side_full_height = extend_roi_polygon_to_full_height(roi_open_side_corners, color_image.shape[0])
 
         # Initialize pipeline with optional params
-        pipeline = BirdsEyePassabilityPipeline(keyword, back_proj_params, filter_points_params, bev_params)
+        pipeline = BirdsEyePassabilityPipeline(keyword)
         # Apply pipeline parameters if provided
         point_cloud_vertical_ratio, color_image_roi, bird_eye_view = pipeline.run(
         depth_image_in_meters, fx, fy, cx, cy, color_image, roi_open_side_full_height, z_door_depth)

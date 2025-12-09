@@ -1,9 +1,19 @@
 <launch>
   <!-- Remap these as needed to your camera topics -->
+  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_from_IAS_lab_side.bag"/>
+
+    <!-- Topics published by bag bridge -->
   <arg name="color_topic" default="/camera/color/image_raw" />
   <arg name="depth_topic" default="/camera/aligned_depth_to_color/image_raw" />
   <arg name="camera_info_topic" default="/camera/color/camera_info" />
 
+
+  <!-- Start the realsense bag bridge (reads bag via librealsense + publishes aligned depth) -->
+  <node pkg="robodog_glass_door_detection" type="realsense_bag_bridge.py" name="realsense_bag_bridge" output="screen">
+    <param name="bag" value="$(arg bag_file)" />
+    <!-- Make sure the bridge publishes the topics named below (see code) -->
+  </node>
+  
   <node pkg="robodog_glass_door_detection" type="main.py" name="glass_door_detection" output="screen">
     <param name="color_topic" value="$(arg color_topic)" />
     <param name="depth_topic" value="$(arg depth_topic)" />
@@ -12,7 +22,7 @@
     <param name="sync_slop" value="0.2" />
     <rosparam ns="color_image_based_door_detector">
       depth_range: [1.7, 2.3]
-      scale: 1.0
+      scale: 0.5
       canny:
         lower_factor: 0.7
         upper_factor: 2.0
@@ -36,7 +46,7 @@
       MAX_DEPTH: 4.0
       DEPTH_RANGE: [1.7, 2.3]
       PHYSICAL_GRADIENT_THRESHOLD: 0.25
-      scale: 1.0
+      scale: 0.5
       hough:
         threshold: 100
         min_line_length: 100

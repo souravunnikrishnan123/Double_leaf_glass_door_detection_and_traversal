@@ -27,7 +27,7 @@ def get_depth_based_lines_using_sobel_and_hough_lines(
     #final_mask = valid_mask & roi_mask
     depth_image_in_meters = depth_image_in_meters.astype(np.float32, copy=False)
 
-
+    print(f"scale: {scale}")
     orig_h, orig_w = depth_image_in_meters.shape
     # 3) Downsample depth image and mask
     if scale != 1.0:

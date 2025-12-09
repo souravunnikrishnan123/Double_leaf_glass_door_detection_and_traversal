@@ -8,6 +8,7 @@ import message_filters
 import os
 import sys
 import rospkg
+import cv2
 
 # Ensure Python can import modules from this package's scripts directory
 _pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
@@ -24,6 +25,8 @@ from state_parallel_detection import parallel_detection_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
 from state_no_door_plane_detected_state import create_full_view_bird_eye_view_state
+from setup_realsense_pipeline import setup_realsense_pipeline
+from visualization_utils import  show_stacked_visualization
 
 
 class DoorDetectionNode:
@@ -126,6 +129,7 @@ class DoorDetectionNode:
 
         
         self.sm.update(self.sm.ctx)
+
        
 
         
@@ -158,7 +162,6 @@ class DoorDetectionNode:
             rospy.logdebug(f"Viz publish exception: {e}")
 
         #cv2.waitKey(1)
-
 
 def main():
     node = DoorDetectionNode()

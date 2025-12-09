@@ -379,6 +379,8 @@ def left_right_roi_and_door_depth(
     door_geometry,
     keyword
 ):
+    
+
     timer = get_duration_seconds()
     timer.start(f"{keyword}_image_based_frame_detection pairing and roi processing")
 

@@ -54,10 +54,14 @@ class DoorDetectionNode:
         self.viz_color_pub = rospy.Publisher("~viz/color_branch", Image, queue_size=1)
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
+        
         self.viz_bird_eye_pub_color = rospy.Publisher("~viz/bird_eye_view_color", Image, queue_size=1)
         self.viz_bird_eye_pub_depth = rospy.Publisher("~viz/bird_eye_view_depth", Image, queue_size=1)
+        self.viz_bird_eye_pub_full_image = rospy.Publisher("~viz/bird_eye_view_full_image", Image, queue_size=1)
+        
         self.viz_passability_pub_depth = rospy.Publisher("~viz/passability_view_depth", Image, queue_size=1)
         self.viz_passability_pub_color = rospy.Publisher("~viz/passability_view_color", Image, queue_size=1)
+        self.viz_passability_pub_full_image = rospy.Publisher("~viz/passability_view_full_image", Image, queue_size=1)
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
         color_sub = message_filters.Subscriber(color_topic, Image)
@@ -153,11 +157,14 @@ class DoorDetectionNode:
                 self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color_based, encoding="bgr8"))
             if self.sm.ctx.bird_eye_view_depth_based is not None:
                 self.viz_bird_eye_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_depth_based, encoding="bgr8"))
+            if self.sm.ctx.bird_eye_view_full_image_view is not None:
+                self.viz_bird_eye_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_full_image_view, encoding="bgr8"))
             if self.sm.ctx.passability_view_color_based is not None:
                 self.viz_passability_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_color_based, encoding="bgr8"))
             if self.sm.ctx.passability_view_depth_based is not None:
                 self.viz_passability_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_depth_based, encoding="bgr8"))
-
+            if self.sm.ctx.passability_view_full_image_view is not None:
+                self.viz_passability_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_full_image_view, encoding="bgr8"))
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")
 

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Optional, Tuple
 import cv2
-
+import open3d as o3d
 
 class Preprocessor:
 
@@ -121,3 +121,6 @@ class HoughPLineDetector:
             # bring back to original scale
             lines[..., :4] = np.rint(lines[..., :4] / scale).astype(np.int32)
         return lines
+
+
+

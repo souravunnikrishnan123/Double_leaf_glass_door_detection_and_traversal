@@ -45,8 +45,11 @@ class FrameContext:
     viz_plane_overlay: Optional[np.ndarray] = None
     bird_eye_view_color_based: Optional[np.ndarray] = None
     bird_eye_view_depth_based: Optional[np.ndarray] = None
+    bird_eye_view_full_image_view : Optional[np.ndarray] = None
     passability_view_color_based: Optional[np.ndarray] = None
     passability_view_depth_based: Optional[np.ndarray] = None
+    passability_view_full_image_view : Optional[np.ndarray] = None
+
 
 
 

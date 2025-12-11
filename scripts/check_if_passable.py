@@ -112,29 +112,28 @@ class BirdsEyePassabilityPipeline:
         )
         return valid_points, uv, z_min, z_max
 
-    def split_eye_level(self, valid_points, uv):
-        mask_below_robot_eye_level = valid_points[:, 1] > 0.0
-        points_above_robot_eye_level = valid_points[~mask_below_robot_eye_level]
+    def split_eye_level(self, points, uv):
+        mask_below_robot_eye_level = points[:, 1] > 0.0
+        points_above_robot_eye_level = points[~mask_below_robot_eye_level]
         uv_above_robot_eye_level = uv[~mask_below_robot_eye_level]
-        points_1_depth_gradient = valid_points[mask_below_robot_eye_level]
-        uv_1_depth_gradient = uv[mask_below_robot_eye_level]
+        points_below_robot_eye_level = points[mask_below_robot_eye_level]
+        uv_below_robot_eye_level = uv[mask_below_robot_eye_level]
         return (
-            mask_below_robot_eye_level,
             points_above_robot_eye_level,
             uv_above_robot_eye_level,
-            points_1_depth_gradient,
-            uv_1_depth_gradient,
+            points_below_robot_eye_level,
+            uv_below_robot_eye_level,
         )
 
-    def remove_floor_ransac(self, points_1_depth_gradient, uv_1_depth_gradient):
+    def remove_floor_ransac(self, points, uv):
         #ransac
         floor_inliers = None
         for _ in range(self.max_planes):
-            if len(points_1_depth_gradient) < self.ransac_n:
+            if len(points) < self.ransac_n:
                 break
 
             pc = o3d.geometry.PointCloud()
-            pc.points = o3d.utility.Vector3dVector(points_1_depth_gradient)
+            pc.points = o3d.utility.Vector3dVector(points)
             plane_model, inliers = pc.segment_plane(
                 distance_threshold=self.distance_threshold,
                 ransac_n=self.ransac_n,
@@ -154,36 +153,36 @@ class BirdsEyePassabilityPipeline:
         floor_height = None
         if floor_inliers is not None and floor_inliers.size > 0:
             #take the largest horizontal plane as floor
-            keep_mask = np.ones(points_1_depth_gradient.shape[0], dtype=bool)
+            keep_mask = np.ones(points.shape[0], dtype=bool)
             keep_mask[floor_inliers] = False
-            points_3_nofloor = points_1_depth_gradient[keep_mask]
-            uv_3_nofloor = uv_1_depth_gradient[keep_mask]
-            floor_height = float(np.mean(points_1_depth_gradient[floor_inliers, 1]))
+            points_3_nofloor = points[keep_mask]
+            uv_3_nofloor = uv[keep_mask]
+            floor_height = float(np.mean(points[floor_inliers, 1]))
         else:
-            points_3_nofloor = points_1_depth_gradient
-            uv_3_nofloor = uv_1_depth_gradient
+            points_3_nofloor = points
+            uv_3_nofloor = uv
 
         print(f"Detected floor height at y={floor_height:.3f} meters")
         """
-        mask_below_robot_eye_level_for_floor_points_removal = points_1_depth_gradient[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
+        mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
         
-        points_for_percentile_calculation = points_1_depth_gradient[mask_below_robot_eye_level_for_floor_points_removal]
+        points_for_percentile_calculation = points[mask_below_robot_eye_level_for_floor_points_removal]
         # 3) Remove floor by percentile (top 98% in camera-frame Y)
         floor_height = float(np.percentile(points_for_percentile_calculation[:, 1], 98))
         margin = 0.03  # meters above floor
-        non_floor_mask = points_1_depth_gradient[:, 1] < (floor_height - margin)
+        non_floor_mask = points[:, 1] < (floor_height - margin)
         print(f"Detected floor height at y={floor_height:.3f} meters")
-        points_3_nofloor = points_1_depth_gradient[non_floor_mask]
-        uv_3_nofloor = uv_1_depth_gradient[non_floor_mask]
+        points_3_nofloor = points[non_floor_mask]
+        uv_3_nofloor = uv[non_floor_mask]
         if points_3_nofloor.shape[0] == 0:
             return 0.0, None, None
         """
         return points_3_nofloor, uv_3_nofloor, floor_height
 
-    def normal_filtering(self, points_3_nofloor, uv_3_nofloor):
+    def normal_filtering(self, points, uv):
         # 4) Keep points whose normals are close to camera Z axis (door plane direction)
         pc_nf = o3d.geometry.PointCloud()
-        pc_nf.points = o3d.utility.Vector3dVector(points_3_nofloor)
+        pc_nf.points = o3d.utility.Vector3dVector(points)
         try:
             pc_nf.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=self.radius, max_nn=self.max_nn))
             pc_nf.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
@@ -192,40 +191,40 @@ class BirdsEyePassabilityPipeline:
             normals = None
 
         if normals is None:
-            points_4_normal = points_3_nofloor
-            uv_4_normal = uv_3_nofloor
+            points_4_normal = points
+            uv_4_normal = uv
         else:
             vertical_mask = np.abs(normals[:, 1]) < self.ny_thr
-            points_4_normal = points_3_nofloor[vertical_mask]
-            uv_4_normal = uv_3_nofloor[vertical_mask]
+            points_4_normal = points[vertical_mask]
+            uv_4_normal = uv[vertical_mask]
         return points_4_normal, uv_4_normal
 
-    def outlier_removal(self, points_4_normal, uv_4_normal):
+    def outlier_removal(self, points, uv):
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
-        print(f"number of points before S3O {len(points_4_normal)}")
+        print(f"number of points before S3O {len(points)}")
         try:
             pc_clean = o3d.geometry.PointCloud()
-            pc_clean.points = o3d.utility.Vector3dVector(points_4_normal)
+            pc_clean.points = o3d.utility.Vector3dVector(points)
             pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=self.nb_neighbors, std_ratio=self.std_ratio)
             ind = np.array(ind, dtype=int)
             if ind.size == 0:
                 return np.empty((0, 3)), np.empty((0, 2))
-            points_2_3d_outlier_removal = points_4_normal[ind]
-            uv_2_3d_outlier_removal = uv_4_normal[ind]
+            points_2_3d_outlier_removal = points[ind]
+            uv_2_3d_outlier_removal = uv[ind]
         except Exception:
-            points_2_3d_outlier_removal = points_4_normal
-            uv_2_3d_outlier_removal = uv_4_normal
+            points_2_3d_outlier_removal = points
+            uv_2_3d_outlier_removal = uv
         if points_2_3d_outlier_removal.shape[0] == 0:
             return np.empty((0, 3)), np.empty((0, 2))
         return points_2_3d_outlier_removal, uv_2_3d_outlier_removal
 
-    def connected_components_filter(self, points_2_3d_outlier_removal, uv_2_3d_outlier_removal, W, H, floor_height):
-        print(f"number of points before CC {len(points_2_3d_outlier_removal)}")
+    def connected_components_filter(self, points, uv, W, H, floor_height):
+        print(f"number of points before CC {len(points)}")
         # --- Remove small patches in image space (connected components) ---
         try:
             # Defaults so visualization doesn't disappear if nothing is filtered
-            uv_5_remove_patches = uv_2_3d_outlier_removal
-            points_5_remove_patches = points_2_3d_outlier_removal
+            uv_5_remove_patches = uv
+            points_5_remove_patches = points
 
             area_scale = self.subsample * self.subsample  # compensate for subsampling
             # Depth-aware params
@@ -234,7 +233,7 @@ class BirdsEyePassabilityPipeline:
             minimum_area_far = max(6, int(self.minimum_area_far / area_scale))
 
             # Build 1px mask (no morphology and vectorized)
-            uv_int = np.round(uv_2_3d_outlier_removal).astype(int)
+            uv_int = np.round(uv).astype(int)
             valid_uv = (
                 (uv_int[:, 0] >= 0) & (uv_int[:, 0] < W) &
                 (uv_int[:, 1] >= 0) & (uv_int[:, 1] < H)
@@ -261,8 +260,8 @@ class BirdsEyePassabilityPipeline:
             # Filter out background (label 0)
             valid_labels = lbl_values > 0
             lbl_values = lbl_values[valid_labels]
-            uv_valid = uv_2_3d_outlier_removal[valid_uv][valid_labels]
-            pts_valid = points_2_3d_outlier_removal[valid_uv][valid_labels]
+            uv_valid = uv[valid_uv][valid_labels]
+            pts_valid = points[valid_uv][valid_labels]
 
             # Precompute per-component area and median depth
             unique_lbls, inverse_idx = np.unique(lbl_values, return_inverse=True)
@@ -327,8 +326,8 @@ class BirdsEyePassabilityPipeline:
                 points_5_remove_patches = pts_valid[keep_mask]
         except Exception:
             # fall back without filtering on any error
-            uv_5_remove_patches = uv_2_3d_outlier_removal
-            points_5_remove_patches = points_2_3d_outlier_removal
+            uv_5_remove_patches = uv
+            points_5_remove_patches = points
 
         print(f"number of points after CC {len(points_5_remove_patches)}")
         return points_5_remove_patches, uv_5_remove_patches
@@ -537,18 +536,17 @@ class BirdsEyePassabilityPipeline:
             return 0.0, None, None
 
         (
-            mask_below_robot_eye_level,
             points_above_robot_eye_level,
             uv_above_robot_eye_level,
-            points_1_depth_gradient,
-            uv_1_depth_gradient,
+            points_below_robot_eye_level,
+            uv_below_robot_eye_level,
         ) = self.split_eye_level(valid_points, uv)
 
         timer.stop(f"check_if_passable--> backprojection {self.keyword}")
 
         timer.start(f"check_if_passable--> floor removal {self.keyword}")
         points_3_nofloor, uv_3_nofloor, floor_height = self.remove_floor_ransac(
-            points_1_depth_gradient, uv_1_depth_gradient
+            points_below_robot_eye_level, uv_below_robot_eye_level
         )
         timer.stop(f"check_if_passable--> floor removal {self.keyword}")
 
@@ -572,31 +570,6 @@ class BirdsEyePassabilityPipeline:
 
         final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
         final_uv = np.vstack([uv_5_remove_patches, uv_above_robot_eye_level])
-        """
-        #will preserve order. for plottin and bev order doesnt matter
-        idx_above = np.where(~mask_below_robot_eye_level)[0]
-        idx_below = np.where(mask_below_robot_eye_level)[0] # where normal filtering was applied
-
-        after_filter_mask = np.isin(idx_below, np.where(np.isin(valid_points, points_5_remove_patches).all(axis=1))[0])
-
-        filtered_idx_below = idx_below[after_filter_mask]
-        
-        # keep all idx_above plus filtered subset of idx_below
-        if filtered_idx_below.size == 0 and idx_above.size == 0:
-            return 0.0, None, None
-
-        keep_idx = (
-            filtered_idx_below if idx_above.size == 0
-            else (idx_above if filtered_idx_below.size == 0
-                    else np.concatenate([idx_above, filtered_idx_below]))
-        )
-
-        # Preserve original order (optional)
-        keep_idx = np.sort(keep_idx)
-        final_points = valid_points[keep_idx]
-        final_uv = uv[keep_idx] 
-        """
-
 
         x_vals = valid_points[:, 0]
         x_min = float(np.percentile(x_vals, 5))
@@ -643,3 +616,4 @@ class BirdsEyePassabilityPipeline:
 
         print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
         return point_cloud_vertical_ratio, color_image, bird_eye_view
+/root/catkin_ws/src/robodog_glass_door_detection/scripts/check_if_passable.py

@@ -13,16 +13,15 @@ class combine_door_state(BaseState):
 
         # Simple fusion: agree -> that label; else prefer depth; fallback to color; else unknown
         if c is not None and d is not None and c == d:
-            final = c
+            final_door_state = c
         elif d is not None:
-            final = d
+            final_door_state = d
         elif c is not None:
-            final = c
+            final_door_state = c
         else:
-            final = "unknown"
+            final_door_state = "unknown"
 
-        ctx.door_state_label = final
-
+        ctx.door_state_label = final_door_state
         # Optionally: clear branch state for next cycle
         #ctx.roi_left_color_based = ctx.roi_right_color_based = None
         #ctx.roi_left_depth_based = ctx.roi_right_depth_based = None

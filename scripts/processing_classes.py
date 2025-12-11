@@ -50,11 +50,96 @@ class LineFilter:
         angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)
         vertical_mask = (np.abs(np.cos(angles)) < angle_threshold)
         return lines[vertical_mask]
-
+    
+    
     def is_depth_valid(self, center_depth: Optional[float], depth_range: Tuple[float, float]) -> bool:
         if center_depth is None:
             return False
         return depth_range[0] <= center_depth <= depth_range[1]
+
+
+    def get_median_depth_along_line(self, depth_image_in_meters, line, num_samples, min_num_of_valid_depths):
+        """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
+        x1, y1, x2, y2 = line[0]
+
+        H, W = depth_image_in_meters.shape
+
+
+        t = np.linspace(0, 1, num_samples, dtype=np.float32)
+        xs = np.rint(x1 + (x2 - x1) * t).astype(int)
+        ys = np.rint(y1 + (y2 - y1) * t).astype(int)
+
+        # --- Filter out-of-bounds ---
+        inb = (xs >= 0) & (xs < W) & (ys >= 0) & (ys < H)
+        if not inb.any():
+            return None
+
+        xs, ys = xs[inb], ys[inb]
+        d = depth_image_in_meters[ys, xs]
+
+        # --- Keep only valid depths (finite & positive) ---
+        valid = np.isfinite(d) & (d > 0)
+
+        d_valid = d[valid]
+
+        return float(np.median(d_valid)) if len(d_valid) >= min_num_of_valid_depths else None
+    
+
+    def get_median_depth_by_roi_around(self,depth_image_in_meters, line , roi_width):
+        """
+        Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
+        using get_z_depth for accurate Z-axis depth.
+        """
+        x1, y1, x2, y2 = line[0]
+        if abs(x1 - x2) > abs(y1 - y2):
+            print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
+            return None
+        
+        H, W = depth_image_in_meters.shape
+
+        y_start, y_end = sorted((y1, y2))
+        y_start= max(0, y_start)
+        y_end = min(H, y_end)
+
+        if y_end <= y_start:
+            return None
+        
+        ys = np.arange(y_start, y_end)
+
+        x_center = int((x1 + x2) / 2)
+
+        x_left_roi_start = max(0, x_center - roi_width)
+        x_left_roi_end = min(W, x_center)
+
+        x_right_roi_start = max(0, x_center + 1)
+        x_right_roi_end = min(W, x_center + roi_width + 1)
+
+        # List to store valid Z-depths for each ROI
+        z_depths1 = depth_image_in_meters[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
+        z_depths2 = depth_image_in_meters[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
+
+        z_depths1 = z_depths1.ravel() #to convert to 1D array
+        z_depths2 = z_depths2.ravel() #to convert to 1D array
+
+        z_depths1 = z_depths1[np.isfinite(z_depths1) & (z_depths1 > 0)]
+        z_depths2 = z_depths2[np.isfinite(z_depths2) & (z_depths2 > 0)]
+
+
+        # Compute medians
+        med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
+        med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
+
+        # Apply your filtering logic
+        if med_z_depth1 == 0 and med_z_depth2 == 0:
+            return None
+        elif med_z_depth1 == 0:
+            return med_z_depth2
+        elif med_z_depth2 == 0:
+            return med_z_depth1
+        else:
+            return min(med_z_depth1, med_z_depth2)
+
+
 
 
 class EdgeDetector:

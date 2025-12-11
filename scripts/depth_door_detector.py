@@ -73,59 +73,6 @@ class DepthDoorDetector:
         self.glass_frame_detector = GlassFrameLineProcessor()
 
 
-    def robust_line_z_roi(self,depth_image_in_meters, x1, y1, x2, y2, roi_width=10):
-        """
-        Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
-        using get_z_depth for accurate Z-axis depth.
-        """
-        if abs(x1 - x2) > abs(y1 - y2):
-            print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
-            return None
-        
-        H, W = depth_image_in_meters.shape
-
-        y_start, y_end = sorted((y1, y2))
-        y_start= max(0, y_start)
-        y_end = min(H, y_end)
-
-        if y_end <= y_start:
-            return None
-        
-        ys = np.arange(y_start, y_end)
-
-        x_center = int((x1 + x2) / 2)
-
-        x_left_roi_start = max(0, x_center - roi_width)
-        x_left_roi_end = min(W, x_center)
-
-        x_right_roi_start = max(0, x_center + 1)
-        x_right_roi_end = min(W, x_center + roi_width + 1)
-
-        # List to store valid Z-depths for each ROI
-        z_depths1 = depth_image_in_meters[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
-        z_depths2 = depth_image_in_meters[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
-
-        z_depths1 = z_depths1.ravel() #to convert to 1D array
-        z_depths2 = z_depths2.ravel() #to convert to 1D array
-
-        z_depths1 = z_depths1[np.isfinite(z_depths1) & (z_depths1 > 0)]
-        z_depths2 = z_depths2[np.isfinite(z_depths2) & (z_depths2 > 0)]
-
-
-        # Compute medians
-        med_z_depth1 = np.median(z_depths1) if len(z_depths1) > 0 else 0
-        med_z_depth2 = np.median(z_depths2) if len(z_depths2) > 0 else 0
-
-        # Apply your filtering logic
-        if med_z_depth1 == 0 and med_z_depth2 == 0:
-            return None
-        elif med_z_depth1 == 0:
-            return med_z_depth2
-        elif med_z_depth2 == 0:
-            return med_z_depth1
-        else:
-            return min(med_z_depth1, med_z_depth2)
-
 
     def process_frame(self, ctx) -> DepthDetectionResult:
         """
@@ -190,34 +137,21 @@ class DepthDoorDetector:
             for line in depth_lines:
                 x1, y1, x2, y2 = line[0]
 
-                # Compute line angle
-                #angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-
-                # Keep only near-vertical lines
-                #if 80 < abs(angle) < 100:
                 # Estimate Z-depth of the line robustly
-                d = self.robust_line_z_roi(ctx.depth_image_in_meters, x1, y1, x2, y2, roi_width= self.roi_width_for_depth_estimation)
+                line_depth = self.line_filter.get_median_depth_by_roi_around(ctx.depth_image_in_meters, line , self.roi_width_for_depth_estimation)
                 cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
-                #x_m = int((x1 + x2) / 2)
-                #y_m = int((y1 + y2) / 2)
-                
-                # Limit area for left and right
-                #left_condition = (left_x - margin_to_the_glass_side <= x_avg <= left_x + margin_to_the_frame_side)
-                #right_condition = (right_x - margin_to_the_frame_side <= x_avg <= right_x + margin_to_the_glass_side)
 
-
-                # Draw only if within specified depth range
-                #if (d is not None and DEPTH_RANGE[0] <= d <= DEPTH_RANGE[1] and (left_condition or right_condition)):
-                if (d is not None and self.DEPTH_RANGE[0] <= d <= self.DEPTH_RANGE[1]):
+                if not self.line_filter.is_depth_valid(line_depth, self.DEPTH_RANGE):
+                    continue
                     
-                    valid_lines.append((x1, y1, x2, y2))
-                    depth_of_valid_lines.append(d)
-                    # show the midpoint used for normals
-                    cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
-                    #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
-                    # optional annotate depth
-                    #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
-        
+                valid_lines.append((x1, y1, x2, y2))
+                depth_of_valid_lines.append(line_depth)
+                # show the midpoint used for normals
+                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
+                #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
+                # optional annotate depth
+                #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+    
             merged_lines, merged_lines_depths = cluster_and_merge_lines(ctx.color_image_depth_based, valid_lines, depth_of_valid_lines, x_thresh=self.merge_lines["x_threshold_to_merge_lines"], min_merged_line_length = self.merge_lines["MIN_LINE_LENGTH_after_merging"])  # only merging lines that are vertical, valid, and within depth range
 
             

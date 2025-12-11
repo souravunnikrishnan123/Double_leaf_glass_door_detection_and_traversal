@@ -72,32 +72,6 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
 
 
 
-def get_median_depth_along_detected_line(depth_image_in_meters, x1, y1, x2, y2, num_samples, min_num_of_valid_depths=10):
-    """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
-
-    H, W = depth_image_in_meters.shape
-
-
-    t = np.linspace(0, 1, num_samples, dtype=np.float32)
-    xs = np.rint(x1 + (x2 - x1) * t).astype(int)
-    ys = np.rint(y1 + (y2 - y1) * t).astype(int)
-
-    # --- Filter out-of-bounds ---
-    inb = (xs >= 0) & (xs < W) & (ys >= 0) & (ys < H)
-    if not inb.any():
-        return None
-
-    xs, ys = xs[inb], ys[inb]
-    d = depth_image_in_meters[ys, xs]
-
-    # --- Keep only valid depths (finite & positive) ---
-    valid = np.isfinite(d) & (d > 0)
-
-    d_valid = d[valid]
-
-    return float(np.median(d_valid)) if len(d_valid) >= min_num_of_valid_depths else None
-
-
 def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, min_merged_line_length ):
     """
     Cluster vertical lines by proximity in x-coordinate and merge into one line per cluster.

@@ -5,10 +5,10 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 import rospy
-from post_processing_of_detected_vertical_lines import get_median_depth_along_detected_line, extrapolate_along_line_segment
+from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment
 from duration import get_duration_seconds
 from find_glass_frame_lines import GlassFrameLineProcessor
-from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
+from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor, DepthToLineFinder
 
 
 
@@ -98,7 +98,7 @@ class ColorDoorDetector:
         self.line_filter = LineFilter()
         self.line_extender = LineExtender()
         self.glass_frame_detector = GlassFrameLineProcessor()
-
+        
 
     def process_frame(self, ctx) -> ColorDetectionResult:
         # Detect vertical lines in color image using Canny + Hough
@@ -150,12 +150,13 @@ class ColorDoorDetector:
                 ) 
                 """
 
-                center_depth = get_median_depth_along_detected_line(ctx.depth_image_in_meters, x1, y1, x2, y2, num_samples=num_samples, min_num_of_valid_depths = self.min_num_of_valid_depths_for_depth_estimation)
+                line_depth = self.line_filter.get_median_depth_along_line(ctx.depth_image_in_meters, line , num_samples, self.min_num_of_valid_depths_for_depth_estimation)
                 # Compute median depth and center
                 
-                if not self.line_filter.is_depth_valid(center_depth, (self.DEPTH_RANGE[0], self.DEPTH_RANGE[1])):
-                    continue
-                
+
+                if not self.line_filter.is_depth_valid(line_depth, self.DEPTH_RANGE):
+                    continue  # skip invalid depth lines
+
                 filtered_segment.append((x1, y1))
                 filtered_segment.append((x2, y2))
                 

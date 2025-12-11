@@ -15,6 +15,8 @@ class create_full_view_bird_eye_view_state(BaseState):
         pipeline_full_image = BirdsEyePassabilityPipeline(keyword)
         point_cloud_vertical_ratio, passability_view, bird_eye_view = pipeline_full_image.run(ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, ctx.color_image, full_image_roi, door_depth=2.0)
 
+
+
         # Persist visualizations in context
         setattr(ctx, f"passability_view_{keyword}", passability_view)
         setattr(ctx, f"bird_eye_view_{keyword}", bird_eye_view)

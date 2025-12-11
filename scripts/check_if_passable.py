@@ -616,4 +616,3 @@ class BirdsEyePassabilityPipeline:
 
         print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
         return point_cloud_vertical_ratio, color_image, bird_eye_view
-/root/catkin_ws/src/robodog_glass_door_detection/scripts/check_if_passable.py

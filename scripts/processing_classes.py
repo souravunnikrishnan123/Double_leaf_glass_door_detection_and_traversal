@@ -207,5 +207,57 @@ class HoughPLineDetector:
             lines[..., :4] = np.rint(lines[..., :4] / scale).astype(np.int32)
         return lines
 
+# ---------------------------------------------------------
+# Utility: backproject depth image to 3D points and uv coords
+# ---------------------------------------------------------
+def backproject_depth_to_points(
+    depth_image_in_meters,
+    fx, fy, cx, cy,
+    max_depth=5.0,min_depth = 0.5,
+    subsample=1,
+    roi_polygon=None
+):
+    """
+    Convert a depth image to 3D points and pixel coordinates, optionally within a polygonal ROI.
+    If roi_polygon is None, uses the whole image.
+    roi_polygon should be a Nx2 array/list of (x, y) pixel coordinates.
+    Returns:
+        points: (N, 3) array of 3D coordinates
+        uv: (N, 2) array of image pixel coordinates
+        mask: boolean 2D mask of valid pixels inside ROI
+    """
+    H, W = depth_image_in_meters.shape
+    mask = np.ones((H, W), dtype=np.uint8) * 255
+
+    if roi_polygon is not None:
+        mask[:] = 0
+        cv2.fillPoly(mask, [np.array(roi_polygon, dtype=np.int32)], 255)
+
+    # Find valid pixels inside ROI and with valid depth
+    valid_mask = (
+        (mask == 255)
+        & (depth_image_in_meters > min_depth)
+        & np.isfinite(depth_image_in_meters)
+        & (depth_image_in_meters < max_depth)
+    )
+
+    ys, xs = np.where(valid_mask)
+    if subsample > 1:
+        ys = ys[::subsample]
+        xs = xs[::subsample]
+
+    zs = depth_image_in_meters[ys, xs]
+    xs_f = xs.astype(np.float32)
+    ys_f = ys.astype(np.float32)
+
+    Xs = (xs_f - cx) * zs / fx
+    Ys = (ys_f - cy) * zs / fy
+    points = np.stack([Xs, Ys, zs], axis=-1)
+    uv = np.stack([xs, ys], axis=-1)
+
+    return points, uv, valid_mask
+
+
+
 
 

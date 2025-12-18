@@ -4,8 +4,9 @@ import time
 from collections import defaultdict, deque
 import os
 
+
 class get_duration_seconds():
-    def __init__(self, file_path="/root/catkin_ws/src/robodog_glass_door_detection/scripts/durations.txt"):
+    def __init__(self, file_path="/app/catkin_ws/src/robodog_glass_door_detection/scripts/durations.txt"):
         self.file_path = file_path
         self.start_times = {}
         self.durations = defaultdict(lambda: deque(maxlen=5))

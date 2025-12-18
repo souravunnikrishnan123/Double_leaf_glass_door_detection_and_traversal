@@ -19,6 +19,7 @@ Usage:
   rosrun <pkg> realsense_bag_bridge.py _bag:=/path/to/bag.bag
   or via roslaunch using the launch you posted.
 """
+import cv2
 import rospy
 import pyrealsense2 as rs
 import numpy as np
@@ -111,8 +112,14 @@ def main():
 
     align_to = rs.stream.color
     align = rs.align(align_to)
-
     rate = rospy.Rate(30.0)  # fallback loop rate
+    # -------------------------
+    # FPS REDUCTION CONTROL
+    # -------------------------
+    frame_skip = rospy.get_param("~frame_skip", 0)  
+    frame_counter = 0
+    resize_scale = rospy.get_param("~resize_scale", 1.0)
+
 
     try:
         while not rospy.is_shutdown():
@@ -142,12 +149,18 @@ def main():
                     rospy.loginfo("Sleeping 1s before next retry.")
                     time.sleep(1.0)
                     continue
+
+            frame_counter += 1
+            if frame_counter % (frame_skip + 1) != 0:
+                continue
             # Process alignment
             aligned_frames = align.process(frames)
 
             # Fetch color and depth frames
             color_frame = aligned_frames.get_color_frame()
             depth_frame = aligned_frames.get_depth_frame()
+
+            
 
             if not color_frame or not depth_frame:
                 rospy.logwarn_throttle(5.0, "No color or depth frame in this iteration")
@@ -157,6 +170,12 @@ def main():
             color_image = np.asanyarray(color_frame.get_data())  # typically RGB or BGR depending on bag
             depth_image = np.asanyarray(depth_frame.get_data())  # typically uint16 (mm) or float32 (m)
 
+
+            if resize_scale != 1.0:
+                new_w = int(color_image.shape[1] * resize_scale)
+                new_h = int(color_image.shape[0] * resize_scale)
+                color_image = cv2.resize(color_image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+                depth_image = cv2.resize(depth_image, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
             # Try to detect color encoding; many bags store color as RGB8 -> cv_bridge expects 'rgb8' or convert to bgr8
             # We'll publish as bgr8 for OpenCV compatibility. If color image is RGB, swap channels.
             # A quick heuristic: check number of channels
@@ -201,6 +220,7 @@ def main():
                 pub_color_info.publish(ci)
             except Exception as e:
                 rospy.logwarn_throttle(10.0, "Failed to build CameraInfo: %s", e)
+
 
             # Publish images
             pub_color.publish(color_msg)

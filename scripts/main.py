@@ -26,7 +26,7 @@ from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
 from state_no_door_plane_detected_state import create_full_view_bird_eye_view_state
 from setup_realsense_pipeline import setup_realsense_pipeline
-from visualization_utils import  show_stacked_visualization
+from visualization_utils import  show_stacked_visualization, setup_visualization_mode
 
 
 class DoorDetectionNode:
@@ -40,6 +40,10 @@ class DoorDetectionNode:
         slop = rospy.get_param("~sync_slop", 0.2)
 
         self.bridge = CvBridge()
+        # Global visualization toggle (default true)
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
+        # Setup cv2 drawing to no-op when disabled
+        setup_visualization_mode(self.enable_visualization)
         self.sm = StateMachine(ctx=None)
         self.sm.add_state(idle_state())
         self.sm.add_state(searching_door_plane_state())
@@ -143,28 +147,29 @@ class DoorDetectionNode:
             self.state_pub.publish(String(data=label))
 
         try:
-            dbg = self.sm.ctx.color_image_color_based
-            if dbg is not None:
-                self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding="bgr8"))
-            if self.sm.ctx.viz_color_stack is not None:
-                self.viz_color_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_color_stack, encoding="bgr8"))
-            if self.sm.ctx.viz_depth_stack is not None:
-                self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
-            # plane overlay: use base color image (with plane outlines drawn)
-            if self.sm.ctx.viz_plane_overlay is not None:
-                self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_plane_overlay, encoding="bgr8"))
-            if self.sm.ctx.bird_eye_view_color_based is not None:
-                self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color_based, encoding="bgr8"))
-            if self.sm.ctx.bird_eye_view_depth_based is not None:
-                self.viz_bird_eye_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_depth_based, encoding="bgr8"))
-            if self.sm.ctx.bird_eye_view_full_image_view is not None:
-                self.viz_bird_eye_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_full_image_view, encoding="bgr8"))
-            if self.sm.ctx.passability_view_color_based is not None:
-                self.viz_passability_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_color_based, encoding="bgr8"))
-            if self.sm.ctx.passability_view_depth_based is not None:
-                self.viz_passability_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_depth_based, encoding="bgr8"))
-            if self.sm.ctx.passability_view_full_image_view is not None:
-                self.viz_passability_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_full_image_view, encoding="bgr8"))
+            if self.enable_visualization:
+                dbg = self.sm.ctx.color_image_color_based
+                if dbg is not None:
+                    self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding="bgr8"))
+                if self.sm.ctx.viz_color_stack is not None:
+                    self.viz_color_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_color_stack, encoding="bgr8"))
+                if self.sm.ctx.viz_depth_stack is not None:
+                    self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
+                # plane overlay: use base color image (with plane outlines drawn)
+                if self.sm.ctx.viz_plane_overlay is not None:
+                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_plane_overlay, encoding="bgr8"))
+                if self.sm.ctx.bird_eye_view_color_based is not None:
+                    self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color_based, encoding="bgr8"))
+                if self.sm.ctx.bird_eye_view_depth_based is not None:
+                    self.viz_bird_eye_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_depth_based, encoding="bgr8"))
+                if self.sm.ctx.bird_eye_view_full_image_view is not None:
+                    self.viz_bird_eye_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_full_image_view, encoding="bgr8"))
+                if self.sm.ctx.passability_view_color_based is not None:
+                    self.viz_passability_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_color_based, encoding="bgr8"))
+                if self.sm.ctx.passability_view_depth_based is not None:
+                    self.viz_passability_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_depth_based, encoding="bgr8"))
+                if self.sm.ctx.passability_view_full_image_view is not None:
+                    self.viz_passability_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_full_image_view, encoding="bgr8"))
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")
 

@@ -8,7 +8,7 @@ import rospy
 from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment
 from duration import get_duration_seconds
 from find_glass_frame_lines import GlassFrameLineProcessor
-from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor, DepthToLineFinder
+from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
 
 
 
@@ -136,19 +136,10 @@ class ColorDoorDetector:
                 cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
 
 
-                #center_depth = get_median_depth_window(depth_frame, x_center, y_center, window=10)
-                #if center_depth is None:
-                    #center_depth = get_median_depth_along_line(depth_frame, x_center, y1, y2)
-
                 # Extract smooth portion along detected Hough line
                 pixel_length = math.hypot(x2 - x1, y2 - y1)
                 num_samples = int(pixel_length)
-                """
-                filtered_segment,center_depth = extract_smooth_line_segment_with_moving_avg(
-                    depth_frame, x1, y1, x2, y2,
-                    gradient_threshold=0.1, window=10, num_samples=num_samples
-                ) 
-                """
+
 
                 line_depth = self.line_filter.get_median_depth_along_line(ctx.depth_image_in_meters, line , num_samples, self.min_num_of_valid_depths_for_depth_estimation)
                 # Compute median depth and center
@@ -184,7 +175,7 @@ class ColorDoorDetector:
                     start_fwd,
                     start_back,
                     (dx, dy),
-                    center_depth,
+                    line_depth,
                     self.extrapolation["gradient_threshold_for_extrapolation"],
                     self.extrapolation["window_size_for_extrapolation"],
                 )
@@ -200,7 +191,7 @@ class ColorDoorDetector:
                     
                     cv2.line(ctx.color_image_color_based, full_line_segment[0], full_line_segment[-1], (0, 255, 0), 2)  # Green
                     vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(center_depth)
+                    depth_of_each_lines.append(line_depth)
                 
                 """
                 if len(filtered_segment) >= 2:
@@ -220,12 +211,12 @@ class ColorDoorDetector:
 
                 if len(full_line_segment) >= MIN_LINE_LENGTH:
                     vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(center_depth)
+                    depth_of_each_lines.append(line_depth)
                     # Draw vertical_lines in green
                     pt1 = tuple(map(int, full_line_segment[0][:2]))
                     pt2 = tuple(map(int, full_line_segment[-1][:2]))
                     cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
-                    #print(f"filtered_segment depth {center_depth:.2f}m")
+                    #print(f"filtered_segment depth {line_depth:.2f}m")
                 """
             
             

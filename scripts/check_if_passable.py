@@ -3,7 +3,7 @@ import rospy
 import cv2
 import numpy as np
 import open3d as o3d
-from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points
+from processing_classes import backproject_depth_to_points
 from duration import get_duration_seconds
 
 
@@ -15,8 +15,8 @@ class BirdsEyePassabilityPipeline:
     Each step mirrors the existing procedural blocks and preserves comments/behavior.
     """
 
-    def __init__(self, keyword):
-        self.keyword = keyword
+    def __init__(self):
+        self.keyword = None
         ns = "~door_status_detector"
 
 
@@ -162,7 +162,10 @@ class BirdsEyePassabilityPipeline:
             points_3_nofloor = points
             uv_3_nofloor = uv
 
-        print(f"Detected floor height at y={floor_height:.3f} meters")
+        if floor_height is None:
+            print("Detected floor height: None (RANSAC failed)")
+        else:
+            print(f"Detected floor height at y={floor_height:.3f} meters")
         """
         mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
         
@@ -519,7 +522,8 @@ class BirdsEyePassabilityPipeline:
         return max_clearance_m, passable, bev_vis_display
 
 
-    def run(self, depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth):
+    def run(self, depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, keyword):
+        self.keyword = keyword
         timer_full = get_duration_seconds()
         H, W = depth_image_in_meters.shape
         timer_full.start(f"check_if_passable--> main passability check {self.keyword}")
@@ -533,7 +537,7 @@ class BirdsEyePassabilityPipeline:
         )
 
         if len(valid_points) == 0:
-            return 0.0, None, None
+            return False, None, None
 
         (
             points_above_robot_eye_level,
@@ -559,7 +563,7 @@ class BirdsEyePassabilityPipeline:
             points_4_normal, uv_4_normal
         )
         if points_2_3d_outlier_removal.shape[0] == 0:
-            return 0.0, None, None
+            return False, None, None
         timer.stop(f"check_if_passable--> 3D outlier removal {self.keyword}")
 
         timer.start(f"check_if_passable--> connected components {self.keyword}")
@@ -578,7 +582,7 @@ class BirdsEyePassabilityPipeline:
         timer_full.stop(f"check_if_passable--> main passability check {self.keyword}")
 
         timer.start(f"check_if_passable--> BEV passability check {self.keyword}")
-        clearance_m, passable, bird_eye_view = self.check_passable_birdeye(
+        clearance_m, Passability_status, bird_eye_view = self.check_passable_birdeye(
             final_points,
             x_min,
             x_max,
@@ -603,16 +607,14 @@ class BirdsEyePassabilityPipeline:
         )
         timer.stop(f"check_if_passable--> visualization of final points {self.keyword}")
 
-        point_cloud_vertical_ratio = len(final_points) / len(valid_points)
+
         cv2.putText(
             color_image,
-            f"Passable ratio: {point_cloud_vertical_ratio:.3f}",
+            f"Passability status: {Passability_status}, clearance: {clearance_m:.2f} m",
             (10, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             (0, 200, 0),
             2,
         )
-
-        print(f"Point cloud vertical ratio: {point_cloud_vertical_ratio:.3f}")
-        return point_cloud_vertical_ratio, color_image, bird_eye_view
+        return Passability_status, color_image, bird_eye_view

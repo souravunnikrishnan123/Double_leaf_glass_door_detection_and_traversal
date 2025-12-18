@@ -24,5 +24,5 @@ class searching_door_plane_state(BaseState):
             else:
                 return "start_movement_to_reach_within_distance_range_to_door_plane"
         else:
-            return "create_full_view_bird_eye_view_state"
+            return None
             

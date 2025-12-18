@@ -1,6 +1,12 @@
 <launch>
   <!-- Remap these as needed to your camera topics -->
-  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_from_IAS_lab_side.bag"/>
+  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_from_PC_lab_side_far_from_door_plane_moving_towards_door_plane_opening.bag"/>
+
+  <!-- Debug toggle: run with debug:=true to enable VS Code attach -->
+  <arg name="debug" default="false"/>
+  <arg name="frame_skip" default="2"/>
+  <arg name="resize_scale" default="1.0"/>
+
 
     <!-- Topics published by bag bridge -->
   <arg name="color_topic" default="/camera/color/image_raw" />
@@ -11,15 +17,38 @@
   <!-- Start the realsense bag bridge (reads bag via librealsense + publishes aligned depth) -->
   <node pkg="robodog_glass_door_detection" type="realsense_bag_bridge.py" name="realsense_bag_bridge" output="screen">
     <param name="bag" value="$(arg bag_file)" />
+    <param name="frame_skip" value="$(arg frame_skip)" />
+    <param name="resize_scale" value="$(arg resize_scale)" />
     <!-- Make sure the bridge publishes the topics named below (see code) -->
   </node>
   
-  <node pkg="robodog_glass_door_detection" type="main.py" name="glass_door_detection" output="screen">
+  <node pkg="robodog_glass_door_detection" type="main.py" name="glass_door_detection" output="screen" launch-prefix="$(eval debug and 'python3 -m debugpy --listen 0.0.0.0:5678 --wait-for-client' or '')">
     <param name="color_topic" value="$(arg color_topic)" />
     <param name="depth_topic" value="$(arg depth_topic)" />
     <param name="camera_info_topic" value="$(arg camera_info_topic)" />
     <param name="queue_size" value="30" />
     <param name="sync_slop" value="0.2" />
+    <param name="enable_visualization" value="True" />
+    <rosparam ns="plane_detector">
+      voxel_size: 0.008
+      normal_radius: 0.03
+      normal_max_nn: 30
+      nx_thr: 0.30
+      ny_thr: 0.30
+      nz_min: 0.85
+      ransac:
+        distance_threshold: 0.03
+        n: 3
+        num_iterations: 100
+      vertical_tol: 0.1
+      min_inliers: 2000
+      max_planes: 1
+      outline:
+        lower_pct : 5
+        upper_pct : 95
+        min_width_m: 0.8
+        min_height_m: 0.5
+    </rosparam>
     <rosparam ns="color_image_based_door_detector">
       depth_range: [1.7, 2.3]
       scale: 0.5

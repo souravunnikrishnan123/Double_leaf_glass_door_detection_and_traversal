@@ -4,6 +4,27 @@ import cv2
 import numpy as np
 
 
+def _noop(*args, **kwargs):
+    # No operation for disabled visualization; return minimal defaults
+    return None
+
+def setup_visualization_mode(enable: bool):
+    """If visualization is disabled, replace heavy cv2 drawing calls with no-ops.
+    This avoids CPU overhead from drawing while keeping functionality intact.
+    """
+    if enable:
+        return
+    # Patch common drawing APIs to no-op
+    cv2.line = _noop
+    cv2.circle = _noop
+    cv2.rectangle = _noop
+    cv2.putText = _noop
+    cv2.polylines = _noop
+    cv2.drawContours = _noop
+    cv2.imshow = _noop
+    cv2.waitKey = _noop
+    # Functions that create images (like applyColorMap) remain unchanged
+
 
 def get_z_depth(depth_frame, x, y):
     # Return Z in meters directly; no deprojection needed for Z
@@ -41,6 +62,12 @@ def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_
 
 def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, window_name="Color | Depth | Edges+ Lines", screen_width=1920, screen_height=1080):
     """Display stacked visualization (legacy interactive window)."""
+    # Respect global visualization toggle; no functionality changes otherwise
+    try:
+        if not rospy.get_param("~enable_visualization", True):
+            return
+    except Exception:
+        pass
     depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
 
@@ -63,7 +90,6 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
     scale_factor = min(scale_w, scale_h)
 
     stacked_resized = cv2.resize(stacked, None, fx=scale_factor, fy=scale_factor)
-    # Disabled window display for headless-safe operation
     cv2.imshow(window_name, stacked_resized)
     # cv2.setMouseCallback(window_name, click_event, param=(depth_frame, scale_factor))
     cv2.waitKey(1)

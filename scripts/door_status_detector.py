@@ -10,7 +10,7 @@ import open3d as o3d
 from duration import get_duration_seconds
 
 
-from create_3d_points_and_detect_ransac_plane import backproject_depth_to_points
+from processing_classes import backproject_depth_to_points
 
 
 
@@ -116,9 +116,6 @@ class Door_Status_Detector:
 
     def detect(self, ctx):
 
-        if getattr(ctx, f"roi_left_{self.keyword}") is None or getattr(ctx, f"roi_right_{self.keyword}") is None:
-            return None
-
         """
         Decide OPEN/CLOSED based on ROIs and door depth reference.
         """
@@ -140,30 +137,21 @@ class Door_Status_Detector:
         right_consistent = right_match > self.threshold
 
         if left_consistent and right_consistent:
-            door_state = "Closed"
+            door_state = "closed"
         elif left_consistent and not right_consistent:
-            door_state = "Open (on right side)"
+            door_state = "open_right"
         elif not left_consistent and right_consistent:
-            door_state = "Open (on left side)"
+            door_state = "open_left"
         else:
-            door_state = "Open or Unknown"
+            door_state = "unknown"
 
 
-        
-        passability_view = None
-        bird_eye_view = None
+
         roi_open_side = None
-        if door_state == "Open (on left side)":
+        if door_state == "open_left":
             roi_open_side = roi_left_offset
-        elif door_state == "Open (on right side)":
+        elif door_state == "open_right":
             roi_open_side = roi_right_offset
-
-        if roi_open_side is not None:
-            # Initialize pipeline with optional params
-            pipeline = BirdsEyePassabilityPipeline(self.keyword)
-            # Apply pipeline parameters if provided
-            point_cloud_vertical_ratio, passability_view, bird_eye_view = pipeline.run(
-            ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, getattr(ctx, f"color_image_{self.keyword}"), roi_open_side, getattr(ctx, f"door_depth_m_{self.keyword}"))
 
         # Overlay decision text
         cv2.putText(getattr(ctx, f"color_image_{self.keyword}"), f"Door State: {door_state}", (30, 130),
@@ -173,15 +161,5 @@ class Door_Status_Detector:
             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
         cv2.putText(getattr(ctx, f"color_image_{self.keyword}"), f"Right match: {right_match:.2f}", (30, 210),
             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-
-
-
-        # Persist visualizations in context
-        setattr(ctx, f"passability_view_{self.keyword}", passability_view)
-        setattr(ctx, f"bird_eye_view_{self.keyword}", bird_eye_view)
-
-        if door_state is not None:
-            setattr(ctx, f"door_state_{self.keyword}", door_state)
-
-
-        return None  # Stay in the current state if door state cannot be determined
+        
+        return door_state, roi_open_side

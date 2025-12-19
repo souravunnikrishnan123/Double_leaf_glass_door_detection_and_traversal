@@ -213,8 +213,8 @@ class HoughPLineDetector:
 def backproject_depth_to_points(
     depth_image_in_meters,
     fx, fy, cx, cy,
-    max_depth=5.0,min_depth = 0.5,
-    subsample=1,
+    max_depth,min_depth,
+    subsample,
     roi_polygon=None
 ):
     """

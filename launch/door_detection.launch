@@ -30,6 +30,10 @@
     <param name="sync_slop" value="0.2" />
     <param name="enable_visualization" value="True" />
     <rosparam ns="plane_detector">
+      max_inlier_density: 0.5
+      max_depth_consider: 4.0
+      min_depth_consider: 1.0
+      subsample: 1
       voxel_size: 0.008
       normal_radius: 0.03
       normal_max_nn: 30
@@ -40,9 +44,9 @@
         distance_threshold: 0.03
         n: 3
         num_iterations: 100
-      vertical_tol: 0.1
-      min_inliers: 2000
-      max_planes: 1
+        vertical_tol: 0.1
+        min_inliers: 2000
+        max_planes: 2
       outline:
         lower_pct : 5
         upper_pct : 95

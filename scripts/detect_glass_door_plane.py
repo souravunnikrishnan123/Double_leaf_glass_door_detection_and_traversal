@@ -5,8 +5,85 @@ import numpy as np
 import open3d as o3d
 
 from processing_classes import backproject_depth_to_points
+from extra_functions import highlight_planes_on_image
 
 
+
+
+class TemporalPlaneTracker:
+    """
+    Tracks and stabilizes a single plane hypothesis over time using
+    angle/distance gating and exponential smoothing. Only reports
+    confirmed planes after sufficient consistent frames.
+    """
+    def __init__(self):
+        ns = "~plane_detector/temporal_smoothing"
+        self.alpha = rospy.get_param(f"{ns}/alpha", 0.3)
+        self.max_jump_deg = rospy.get_param(f"{ns}/max_jump_deg", 12.0)
+        self.max_jump_m = rospy.get_param(f"{ns}/max_jump_m", 0.4)
+        self.window = int(rospy.get_param(f"{ns}/window", 10))
+        self.confirm_k = int(rospy.get_param(f"{ns}/confirm_k", 6))
+        self.drop_k = int(rospy.get_param(f"{ns}/drop_k", 2))
+        self.n_s = None
+        self.d_s = None
+        self.history = []  # bool list of associated frames
+        self.confirmed = False
+
+    def _normalize(self, n):
+        norm = np.linalg.norm(n)
+        return n / (norm + 1e-12)
+
+    def _angle_deg(self, n1, n2):
+        if n1 is None or n2 is None:
+            return 180.0
+
+        c = np.clip(float(np.dot(n1, n2)), -1.0, 1.0)
+        return np.degrees(np.arccos(c))
+
+    def _push(self, val: bool):
+        self.history.append(bool(val))
+        if len(self.history) > self.window:
+            self.history.pop(0)
+
+    def _update_confirmed(self):
+        #counts the number of True in history. If >= confirm_k, set confirmed to True. If <= drop_k, set confirmed to False.
+        #self.history is a list of booleans. np.sum of False is 0, True is 1.
+        count_true = int(np.sum(self.history))
+        #hysteresis
+        if not self.confirmed and count_true >= self.confirm_k:
+            self.confirmed = True
+        elif self.confirmed and count_true <= self.drop_k:
+            self.confirmed = False
+
+    def update(self, n_t, d_t):
+        """Update with current plane unit normal and distance (meters)."""
+        if n_t is None or not np.isfinite(d_t):
+            self._push(False)
+            self._update_confirmed()
+            return self.confirmed, self.n_s, self.d_s
+
+        n_t = self._normalize(n_t)
+        d_t = float(d_t)
+
+        # initialize
+        if self.n_s is None:
+            self.n_s = n_t
+            self.d_s = d_t
+            self._push(True)
+            self._update_confirmed()
+            return self.confirmed, self.n_s, self.d_s
+
+        angle = self._angle_deg(self.n_s, n_t)
+        jump = abs(d_t - self.d_s)
+        associated = (angle <= self.max_jump_deg) and (jump <= self.max_jump_m)
+        self._push(associated)
+        if associated:
+            # EMA smoothing
+            n_blend = (1.0 - self.alpha) * self.n_s + self.alpha * n_t
+            self.n_s = self._normalize(n_blend)
+            self.d_s = (1.0 - self.alpha) * self.d_s + self.alpha * d_t
+        self._update_confirmed()
+        return self.confirmed, self.n_s, self.d_s
 
 
 
@@ -17,19 +94,23 @@ class PlaneDetector:
     """
     def __init__(self):
         ns = "~plane_detector"
-        self.max_inlier_density = rospy.get_param(f"{ns}/max_inlier_density", 1.0)
-        self.max_depth_consider = rospy.get_param(f"{ns}/max_depth_consider", 4.0)
-        self.min_depth_consider = rospy.get_param(f"{ns}/min_depth_consider", 1.0)
-        self.subsample = rospy.get_param(f"{ns}/subsample", 1) 
+        self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
+        #backprojection
+        self.max_depth_backprojection = rospy.get_param(f"{ns}/backproject/max_depth", 3.0)
+        self.min_depth_backprojection = rospy.get_param(f"{ns}/backproject/min_depth", 1.0)
+        self.subsample = rospy.get_param(f"{ns}/backproject/subsample", 1)
+        
+        #filter points
         # Downsampling
-        self.voxel_size = rospy.get_param(f"{ns}/voxel_size", 0.008)
+        self.voxel_size = rospy.get_param(f"{ns}/filter_points/voxel_size", 0.008)
         # Normal estimation
-        self.normal_radius = rospy.get_param(f"{ns}/normal_radius", 0.03)
-        self.normal_max_nn = rospy.get_param(f"{ns}/normal_max_nn", 30)
+        self.normal_radius = rospy.get_param(f"{ns}/filter_points/normal_radius", 0.03)
+        self.normal_max_nn = rospy.get_param(f"{ns}/filter_points/normal_max_nn", 30)
         # Normal filtering thresholds
-        self.nx_thr = rospy.get_param(f"{ns}/nx_thr", 0.30)
-        self.ny_thr = rospy.get_param(f"{ns}/ny_thr", 0.30)
-        self.nz_min = rospy.get_param(f"{ns}/nz_min", 0.85)
+        self.nx_thr = rospy.get_param(f"{ns}/filter_points/nx_thr", 0.30)
+        self.ny_thr = rospy.get_param(f"{ns}/filter_points/ny_thr", 0.30)
+        self.nz_min = rospy.get_param(f"{ns}/filter_points/nz_min", 0.85)
+        
         # RANSAC
         self.ransac_distance_threshold = rospy.get_param(f"{ns}/ransac/distance_threshold", 0.03)
         self.ransac_n = rospy.get_param(f"{ns}/ransac/n", 3)
@@ -42,6 +123,10 @@ class PlaneDetector:
         self.upper_pct = rospy.get_param(f"{ns}/outline/upper_pct", 95)
         self.min_width_m = rospy.get_param(f"{ns}/outline/min_width_m", 0.8)
         self.min_height_m = rospy.get_param(f"{ns}/outline/min_height_m", 0.5)
+        #
+        self.max_inlier_density = rospy.get_param(f"{ns}/max_inlier_density", 1.0)
+        # Temporal smoothing tracker
+        self.tracker = TemporalPlaneTracker()
 
 
     def find_vertical_planes(self,points):
@@ -96,8 +181,8 @@ class PlaneDetector:
 
     def draw_plane_outline_on_image(self, color_image, corners_3d, fx, fy, cx, cy):
         """
-        Draws a robust outline of the detected plane as a quadrilateral on the color image.
-        Uses percentiles to avoid outlier influence.
+        Draws a robust outline of the detected plane as a polygon on the color image.
+        Supports any number of valid projected corners (>= 3).
         """
 
         corners_uv = []
@@ -108,12 +193,11 @@ class PlaneDetector:
             v = int(round(y * fy / z + cy))
             corners_uv.append((u, v))
         
-        if len(corners_uv) == 4:
-            pts = np.array(corners_uv, dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(color_image, [pts], isClosed=True, color=(0,0,255), thickness=2)
-            return corners_uv  # Return the list of (u, v) tuples
 
-        return []  # Return empty if not enough valid corners
+        pts = np.array(corners_uv, dtype=np.int32).reshape((-1, 1, 2))
+        cv2.polylines(color_image, [pts], isClosed=True, color=(0,0,255), thickness=2)
+        return corners_uv  # Return the list of (u, v) tuples
+
 
 
     def voxel_downsample(self, points, uv):
@@ -201,51 +285,53 @@ class PlaneDetector:
         plane_norm = np.sqrt(a*a + b*b + c*c)
         distance_m = abs(d) / (plane_norm + 1e-12)
 
-        if depths_in_plane.size > 0:
-            depth_mean = np.mean(depths_in_plane)
-            depth_std = np.std(depths_in_plane)
-            normalized_std = depth_std / (depth_mean + 1e-9)
+        depth_mean = np.mean(depths_in_plane)
+        depth_std = np.std(depths_in_plane)
+        normalized_std = depth_std / (depth_mean + 1e-9)
 
-            print(f"Depth mean: {depth_mean:.3f} m, std: {depth_std:.3f} m, min: {depth_min_p_5:.3f} m, max: {depth_max_p_95:.3f} m, hole fraction: {fraction_of_holes_in_plane:.3f}, inlier density: {inlier_density:.3f}, distance to plane: {distance_m:.3f} m")
-            return {
-                "depth_mean": depth_mean,
-                "depth_std": depth_std,
-                "normalized_std": normalized_std,
-                "depth_min": depth_min_p_5,
-                "depth_max": depth_max_p_95,
-                "fraction_of_holes_in_plane": fraction_of_holes_in_plane,
-                "inlier_density": inlier_density,
-                "distance_m": distance_m
-            }
-        return None
+        print(f"Depth mean: {depth_mean:.3f} m, std: {depth_std:.3f} m, min: {depth_min_p_5:.3f} m, max: {depth_max_p_95:.3f} m, hole fraction: {fraction_of_holes_in_plane:.3f}, inlier density: {inlier_density:.3f}, distance to plane: {distance_m:.3f} m")
+        return {
+            "depth_mean": depth_mean,
+            "depth_std": depth_std,
+            "normalized_std": normalized_std,
+            "depth_min": depth_min_p_5,
+            "depth_max": depth_max_p_95,
+            "fraction_of_holes_in_plane": fraction_of_holes_in_plane,
+            "inlier_density": inlier_density,
+            "distance_m": distance_m
+        }
+
 
     def detect(self, color_image, depth_image_in_meters,
                fx, fy, cx, cy):
         
 
-        points, uv, valid_mask = backproject_depth_to_points(
+        all_points, uv, valid_mask = backproject_depth_to_points(
             depth_image_in_meters, fx, fy, cx, cy,
-            self.max_depth_consider, self.min_depth_consider,
+            self.max_depth_backprojection, self.min_depth_backprojection,
             self.subsample
         )
-        if points.shape[0] == 0:
-            return {"plane_model": None, "plane_metrics": None}
+        if all_points.shape[0] == 0:
+            return {"plane_model": None, "plane_metrics": None, "inlier_points": None,"had_candidates": False, "confirmed": False}
 
 
-        points_after_voxel_downsample, uv_after_voxel_downsample = self.voxel_downsample(points, uv)
-        
+        points_after_voxel_downsample, uv_after_voxel_downsample = self.voxel_downsample(all_points, uv)
+        #points_after_voxel_downsample, uv_after_voxel_downsample = all_points, uv
         points_after_normal_filtering, uv_after_normal_filtering = self.normal_filter(points_after_voxel_downsample, uv_after_voxel_downsample)
 
 
         # RANSAC vertical planes
         found_vertical_planes = self.find_vertical_planes(points_after_normal_filtering)
         if not found_vertical_planes:
-            return {"plane_model": None, "plane_metrics": None}
-        
+            return {"plane_model": None, "plane_metrics": None,"inlier_points": None, "had_candidates": False, "confirmed": False}
 
-        final_door_planes = []
+        highlight_planes_on_image(
+            color_image,uv_after_normal_filtering,
+            found_vertical_planes)
+        
+        # Build candidates with size gating; defer drawing until confirmed
+        candidates = []
         for plane_model, inlier_indices, inlier_points in found_vertical_planes:
-            #check the size of the plane and draw outline on image if the size is reasonable
             if inlier_indices.shape[0] == 0:
                 continue
 
@@ -253,37 +339,47 @@ class PlaneDetector:
             # if the plane is too small, skip drawing and continue
             if plane_corners_3d is None:
                 continue
-
-            plane_corners_2d = self.draw_plane_outline_on_image(
-                color_image, plane_corners_3d, fx, fy, cx, cy)
-            
-            #check if plane has 4 corners. this needs to be changed to any number of corners later  
-            if not plane_corners_2d:
+            a, b, c, d = plane_model
+            plane_norm = np.sqrt(a*a + b*b + c*c)
+            if plane_norm <= 1e-12:
                 continue
+            n = np.array([a, b, c], dtype=np.float32) / plane_norm
+            distance_m = abs(d) / plane_norm
+            candidates.append({
+                "plane_model": plane_model,
+                "inliers": inlier_indices,
+                "inlier_points": inlier_points,
+                "corners_3d": plane_corners_3d,
+                "normal": n,
+                "distance_m": float(distance_m),
+            })
 
-            mask = np.zeros(color_image.shape[:2], dtype=np.uint8)
-            plane_metrics = self.find_plane_metrics(
-                plane_model, depth_image_in_meters, inlier_indices, plane_corners_2d, mask)
-            
-            if plane_metrics is None:
-                continue
-            final_door_planes.append((plane_model,plane_metrics))
-            
-        if len(final_door_planes) == 0:
-            return {"plane_model": None, "plane_metrics": None}
-        
-        elif len(final_door_planes) > 1:
-            #Multiple door candidate planes found; take the one which is nearest to 2m depth"
-            final_door_planes.sort(key=lambda x: abs(x[1]["distance_m"] - 2.0))
-            final_plane_model, final_plane_metrics = final_door_planes[0]
-        else: #only one door candidate plane found
-            final_plane_model, final_plane_metrics = final_door_planes[0]
+        if not candidates:
+            return {"plane_model": None, "plane_metrics": None, "inlier_points": None,"had_candidates": False, "confirmed": False}
 
+        # Choose candidate closest to ~2m (existing heuristic)
+        candidates.sort(key=lambda c: abs(c["distance_m"] - self.reference_door_distance_m))
+        chosen = candidates[0]
 
+        # Update temporal tracker; only proceed once confirmed
+        confirmed, n_s, d_s = self.tracker.update(chosen["normal"], chosen["distance_m"])
+        if not confirmed:
+            return {"plane_model": None, "plane_metrics": None, "inlier_points": None, "had_candidates": True, "confirmed": False}
+
+        # Draw outline and compute metrics for confirmed plane. only after temporal smoothing.
+        plane_corners_2d = self.draw_plane_outline_on_image(
+            color_image, chosen["corners_3d"], fx, fy, cx, cy)
+
+        mask = np.zeros(color_image.shape[:2], dtype=np.uint8)
+        plane_metrics = self.find_plane_metrics(
+            chosen["plane_model"], depth_image_in_meters, chosen["inliers"], plane_corners_2d, mask)
 
         result = {
-            "plane_model": final_plane_model,
-            "plane_metrics": final_plane_metrics
+            "plane_model": chosen["plane_model"],
+            "plane_metrics": plane_metrics,
+            "inlier_points" : chosen["inlier_points"],
+            "had_candidates": True,
+            "confirmed": True
         }
 
         return result

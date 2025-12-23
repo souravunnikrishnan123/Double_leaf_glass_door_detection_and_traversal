@@ -126,12 +126,14 @@ class DoorDetectionNode:
             )
             self.sm.ctx.color_image_color_based = color_image.copy()
             self.sm.ctx.color_image_depth_based = color_image.copy()
+            self.sm.ctx.color_image_for_plane_detection = color_image.copy()
         else:
             ctx = self.sm.ctx
             ctx.depth_image_in_meters = depth_m
             ctx.color_image = color_image
             ctx.color_image_color_based = color_image.copy()
             ctx.color_image_depth_based = color_image.copy()
+            ctx.color_image_for_plane_detection = color_image.copy()
             ctx.fx, ctx.fy, ctx.cx, ctx.cy = fx, fy, cx, cy
             ctx.depth_frame = depth_frame_adapter
 
@@ -156,8 +158,8 @@ class DoorDetectionNode:
                 if self.sm.ctx.viz_depth_stack is not None:
                     self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
                 # plane overlay: use base color image (with plane outlines drawn)
-                if self.sm.ctx.viz_plane_overlay is not None:
-                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_plane_overlay, encoding="bgr8"))
+                if self.sm.ctx.color_image_for_plane_detection is not None:
+                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.color_image_for_plane_detection, encoding="bgr8"))
                 if self.sm.ctx.bird_eye_view_color_based is not None:
                     self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color_based, encoding="bgr8"))
                 if self.sm.ctx.bird_eye_view_depth_based is not None:

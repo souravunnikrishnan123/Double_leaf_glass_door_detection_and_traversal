@@ -30,16 +30,22 @@
     <param name="sync_slop" value="0.2" />
     <param name="enable_visualization" value="True" />
     <rosparam ns="plane_detector">
+      max_no_candidate_frames: 5
       max_inlier_density: 0.5
-      max_depth_consider: 4.0
-      min_depth_consider: 1.0
-      subsample: 1
-      voxel_size: 0.008
-      normal_radius: 0.03
-      normal_max_nn: 30
-      nx_thr: 0.30
-      ny_thr: 0.30
-      nz_min: 0.85
+      reference_door_distance_m : 2.0
+      distance_range_m: 0.3
+      backproject:
+        max_depth: 3.0
+        min_depth: 1.0
+        subsample: 1
+      filter_points:
+
+        voxel_size: 0.008
+        normal_radius: 0.03
+        normal_max_nn: 30
+        nx_thr: 0.30
+        ny_thr: 0.30
+        nz_min: 0.85
       ransac:
         distance_threshold: 0.03
         n: 3
@@ -52,6 +58,18 @@
         upper_pct : 95
         min_width_m: 0.8
         min_height_m: 0.5
+      temporal_smoothing:
+        alpha: 0.3
+        max_jump_deg: 8.0
+        max_jump_m: 0.3
+        window: 10
+        confirm_k: 6
+        drop_k: 2
+    </rosparam>
+    <rosparam ns ="door_type_detector">
+      bin_width: 0.04
+      min_vertical_support: 0.7
+      min_points_per_bin: 5
     </rosparam>
     <rosparam ns="color_image_based_door_detector">
       depth_range: [1.7, 2.3]

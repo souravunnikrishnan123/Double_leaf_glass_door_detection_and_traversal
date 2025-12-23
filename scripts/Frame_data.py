@@ -16,6 +16,7 @@ class FrameContext:
 
     # shared artifacts across states
     plane_result: Optional[dict] = None
+    color_image_for_plane_detection: Optional[np.ndarray] = None
     
     # color-based branch
     roi_left_color_based: Optional[np.ndarray] = None

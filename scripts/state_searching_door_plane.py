@@ -15,6 +15,7 @@ class searching_door_plane_state(BaseState):
         self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
         self.distance_range_m = rospy.get_param(f"{ns}/distance_range_m", 0.3)
         self._no_candidate_count = 0
+        self.margin_for_glass_width_inaccuracy = rospy.get_param(f"{ns}/margin_for_glass_width_inaccuracy", 0.2)  # 20% margin of safety
 
     def do_action(self, ctx: FrameContext):
         #check if there is a glass door plane in front of the camera
@@ -26,30 +27,44 @@ class searching_door_plane_state(BaseState):
         if result["plane_model"] is not None:
 
             glass_and_door_width = self.door_type_detector.estimate_glass_and_frame_widths(
-                result["plane_model"],
                 result["inlier_points"]
             )
             
+
             vis_img = self.door_type_detector.visualize_door_bins_and_widths(
-            result["plane_model"],
             inlier_points=result["inlier_points"],
             bin_edges=glass_and_door_width["bins"],
             bin_labels=glass_and_door_width["bin_labels"],
             segments=glass_and_door_width["segments"],
+            final_glass_index=glass_and_door_width["final_glass_index"],
+            final_frame_index=glass_and_door_width["final_frame_index"],
             fx=ctx.fx,
             cx=ctx.cx,
             color_image=ctx.color_image_for_plane_detection,
             )
 
+            if glass_and_door_width["final_glass_width_m"] is not None and glass_and_door_width["final_frame_width_m"] is not None:
+                # Cast numpy scalars to native Python floats before setting ROS params
+                glass_width_cm_safe_value = float(glass_and_door_width["final_glass_width_m"]) * 100.0 * (1 - self.margin_for_glass_width_inaccuracy) # margin of safety
+                center_frame_width_cm_safe_value = float(glass_and_door_width["final_frame_width_m"]) * 100.0
+                #for glass width dont have to check the default value as the glass width detection is usually accurate enough and also, the default value is set to a lower value to handle the case, in which the algorithm couldnt detect the glass width
+
+                default_value_of_center_frame_width = rospy.get_param("/door_geometry/center_frame_width_cm", 30.0)*100.0
+
+                center_frame_width_cm_safe_value = max(center_frame_width_cm_safe_value, default_value_of_center_frame_width)  # enforce minimum frame width.
+                #it is needed because sometimes the frame width detection can be way off when there is clutter around the door frame, especially when the door is already open
+
+
+                rospy.set_param("/door_geometry/glass_width_cm", glass_width_cm_safe_value)
+                rospy.set_param("/door_geometry/center_frame_width_cm", center_frame_width_cm_safe_value)
+                # if final_glass_width_m and final_frame_width_m are None, do not update the params (keep default valid values)
+
             ctx.color_image_for_plane_detection = vis_img
-            print("Glass widths (m):", glass_and_door_width["glass_widths_m"])
-            print("Frame widths (m):", glass_and_door_width["frame_widths_m"])
-
-
             ctx.plane_result = result
             self._no_candidate_count = 0 # reset counter on successful detection
 
             distance = result["plane_metrics"]["distance_m"]
+            rospy.set_param("/plane_detector/output/ransac_plane_distance", distance)
             if abs(distance - self.reference_door_distance_m) < self.distance_range_m:
                 #return "parallel_detection_state"
                 return None

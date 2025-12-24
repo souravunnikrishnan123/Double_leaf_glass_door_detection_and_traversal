@@ -5,7 +5,7 @@ import numpy as np
 import open3d as o3d
 
 from processing_classes import backproject_depth_to_points
-from extra_functions import highlight_planes_on_image
+
 
 
 
@@ -95,6 +95,7 @@ class PlaneDetector:
     def __init__(self):
         ns = "~plane_detector"
         self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
+        self.distance_range_m = rospy.get_param(f"{ns}/distance_range_m", 0.3)
         #backprojection
         self.max_depth_backprojection = rospy.get_param(f"{ns}/backproject/max_depth", 3.0)
         self.min_depth_backprojection = rospy.get_param(f"{ns}/backproject/min_depth", 1.0)
@@ -289,7 +290,6 @@ class PlaneDetector:
         depth_std = np.std(depths_in_plane)
         normalized_std = depth_std / (depth_mean + 1e-9)
 
-        print(f"Depth mean: {depth_mean:.3f} m, std: {depth_std:.3f} m, min: {depth_min_p_5:.3f} m, max: {depth_max_p_95:.3f} m, hole fraction: {fraction_of_holes_in_plane:.3f}, inlier density: {inlier_density:.3f}, distance to plane: {distance_m:.3f} m")
         return {
             "depth_mean": depth_mean,
             "depth_std": depth_std,
@@ -302,6 +302,35 @@ class PlaneDetector:
         }
 
 
+    def highlight_planes_on_image(self, color_image, uv, found_vertical_planes):
+        """
+        Overlays each detected plane's inlier pixels on the color_image in a unique color.
+        - color_image: (H, W, 3) numpy array (will be modified in-place)
+        - uv: (N, 2) array of pixel coordinates corresponding to the original points
+        - found_vertical_planes: list of (plane_model, inlier_indices, inlier_points)
+        """
+        # Define a list of distinct colors (BGR for OpenCV)
+        plane_colors = [
+            (0, 0, 255),    # Red
+            (0, 255, 0),    # Green
+            (255, 0, 0),    # Blue
+            (0, 255, 255),  # Yellow
+            (255, 0, 255),  # Magenta
+            (255, 255, 0),  # Cyan
+            (128, 128, 255),# Pinkish
+            (0, 128, 255),  # Orange
+        ]
+        for i, (_, inlier_indices, _) in enumerate(found_vertical_planes):
+            color = plane_colors[i % len(plane_colors)]
+            for idx in inlier_indices:
+                u, v = uv[idx]
+                u, v = int(u), int(v)
+                
+                if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
+                    cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
+                    
+
+
     def detect(self, color_image, depth_image_in_meters,
                fx, fy, cx, cy):
         
@@ -311,6 +340,8 @@ class PlaneDetector:
             self.max_depth_backprojection, self.min_depth_backprojection,
             self.subsample
         )
+
+
         if all_points.shape[0] == 0:
             return {"plane_model": None, "plane_metrics": None, "inlier_points": None,"had_candidates": False, "confirmed": False}
 
@@ -325,7 +356,7 @@ class PlaneDetector:
         if not found_vertical_planes:
             return {"plane_model": None, "plane_metrics": None,"inlier_points": None, "had_candidates": False, "confirmed": False}
 
-        highlight_planes_on_image(
+        self.highlight_planes_on_image(
             color_image,uv_after_normal_filtering,
             found_vertical_planes)
         
@@ -357,9 +388,15 @@ class PlaneDetector:
         if not candidates:
             return {"plane_model": None, "plane_metrics": None, "inlier_points": None,"had_candidates": False, "confirmed": False}
 
-        # Choose candidate closest to ~2m (existing heuristic)
-        candidates.sort(key=lambda c: abs(c["distance_m"] - self.reference_door_distance_m))
-        chosen = candidates[0]
+        # Keep only planes within the reference distance threshold
+        filtered = [c for c in candidates if abs(c["distance_m"] - self.reference_door_distance_m) <= self.distance_range_m]
+        if not filtered:
+            # We had candidates, but none within desired distance
+            return {"plane_model": None, "plane_metrics": None, "inlier_points": None, "had_candidates": True, "confirmed": False}
+        # Pick the strongest by inlier count among filtered
+        # this is important to avoid jumping between multiple planes. because sometimes, points that belongs to one plane is segmented into two planes by RANSAC.
+        # observed in testing glass door with walls on both sides.
+        chosen = max(filtered, key=lambda c: len(c["inliers"]))
 
         # Update temporal tracker; only proceed once confirmed
         confirmed, n_s, d_s = self.tracker.update(chosen["normal"], chosen["distance_m"])

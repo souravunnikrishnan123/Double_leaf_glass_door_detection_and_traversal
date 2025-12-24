@@ -1,6 +1,6 @@
 <launch>
   <!-- Remap these as needed to your camera topics -->
-  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_from_PC_lab_side_far_from_door_plane_moving_towards_door_plane_opening.bag"/>
+  <arg name="bag_file" default="/app/realsense_camera_feed/brown_door/brown_door_opening_inward_with_other_side_visible_but_with_lot_of_noise_night.bag"/>
 
   <!-- Debug toggle: run with debug:=true to enable VS Code attach -->
   <arg name="debug" default="false"/>
@@ -33,13 +33,14 @@
       max_no_candidate_frames: 5
       max_inlier_density: 0.5
       reference_door_distance_m : 2.0
-      distance_range_m: 0.3
+      global_map_distance_accuracy_to_door_plane : 0.15
+      distance_range_m: reference_door_distance_m * global_map_distance_accuracy_to_door_plane
+      margin_for_glass_width_inaccuracy : 0.2
       backproject:
-        max_depth: 3.0
-        min_depth: 1.0
-        subsample: 1
+        max_depth: reference_door_distance_m + distance_range_m
+        min_depth: reference_door_distance_m - distance_range_m
+        subsample: 4
       filter_points:
-
         voxel_size: 0.008
         normal_radius: 0.03
         normal_max_nn: 30
@@ -51,7 +52,7 @@
         n: 3
         num_iterations: 100
         vertical_tol: 0.1
-        min_inliers: 2000
+        min_inliers: 500
         max_planes: 2
       outline:
         lower_pct : 5
@@ -65,14 +66,23 @@
         window: 10
         confirm_k: 6
         drop_k: 2
+      output:
+        ransac_plane_distance : 2.0
+        ransac_error : 0.05
     </rosparam>
     <rosparam ns ="door_type_detector">
       bin_width: 0.04
-      min_vertical_support: 0.7
+      min_vertical_support: 0.4
       min_points_per_bin: 5
+      min_glass_width: 0.16
+      max_glass_width : 1.5
+      num_vertical_slices: 40
+      min_points_per_vertical_slice: 2
+
     </rosparam>
+
     <rosparam ns="color_image_based_door_detector">
-      depth_range: [1.7, 2.3]
+      depth_range: [ransac_plane_distance *(1-ransac_error), ransac_plane_distance * (1+ransac_error)]
       scale: 0.5
       canny:
         lower_factor: 0.7
@@ -95,7 +105,7 @@
     <rosparam ns="depth_image_based_door_detector">
       MIN_DEPTH: 1.0
       MAX_DEPTH: 4.0
-      DEPTH_RANGE: [1.7, 2.3]
+      DEPTH_RANGE: [ransac_plane_distance *(1-ransac_error), ransac_plane_distance * (1+ransac_error)]
       PHYSICAL_GRADIENT_THRESHOLD: 0.25
       scale: 0.5
       hough:

@@ -113,37 +113,6 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
     return roi_polygon
 
 
-
-def highlight_planes_on_image(color_image, uv, found_vertical_planes):
-  """
-  Overlays each detected plane's inlier pixels on the color_image in a unique color.
-  - color_image: (H, W, 3) numpy array (will be modified in-place)
-  - uv: (N, 2) array of pixel coordinates corresponding to the original points
-  - found_vertical_planes: list of (plane_model, inlier_indices, inlier_points)
-  """
-  # Define a list of distinct colors (BGR for OpenCV)
-  plane_colors = [
-      (0, 0, 255),    # Red
-      (0, 255, 0),    # Green
-      (255, 0, 0),    # Blue
-      (0, 255, 255),  # Yellow
-      (255, 0, 255),  # Magenta
-      (255, 255, 0),  # Cyan
-      (128, 128, 255),# Pinkish
-      (0, 128, 255),  # Orange
-  ]
-  for i, (_, inlier_indices, _) in enumerate(found_vertical_planes):
-      color = plane_colors[i % len(plane_colors)]
-      for idx in inlier_indices:
-          u, v = uv[idx]
-          u, v = int(u), int(v)
-          
-          if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
-              cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
-            
-
-
-
 def find_planes(points,
                          distance_threshold=0.05,
                          ransac_n=3,

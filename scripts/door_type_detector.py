@@ -1,7 +1,6 @@
 import numpy as np
 import rospy
 import cv2
-import math
 
 
 
@@ -14,9 +13,12 @@ class DoorTypeDetector():
         self.bin_width = rospy.get_param("~door_type_detector/bin_width", 0.02)              # meters (2 cm)
         self.min_vertical_support = rospy.get_param("~door_type_detector/min_vertical_support", 0.6)    # fraction of door height
         self.min_points_per_bin = rospy.get_param("~door_type_detector/min_points_per_bin", 5)
-
+        self.min_glass_width = rospy.get_param("~door_type_detector/min_glass_width", 0.16)   #  segments
+        self.max_glass_width = rospy.get_param("~door_type_detector/max_glass_width", 1.5)
+        self.num_vertical_slices = rospy.get_param("~door_type_detector/num_vertical_slices", 40)
+        self.min_points_per_vertical_slice = rospy.get_param("~door_type_detector/min_points_per_vertical_slice", 2)
+    
     def estimate_glass_and_frame_widths(self,
-        plane_model,
         inlier_points
     ):
         """
@@ -104,9 +106,7 @@ class DoorTypeDetector():
             vertical_support_ratio = self.compute_vertical_occupancy_ratio(
                                         y_vals=y_vals,
                                         door_y_min=door_y_min,
-                                        door_y_max=door_y_max,
-                                        num_slices=10,
-                                        min_points_per_slice=1
+                                        door_y_max=door_y_max
                                     )
 
             if vertical_support_ratio >= self.min_vertical_support:
@@ -153,14 +153,67 @@ class DoorTypeDetector():
             else:
                 frame_widths_m.append(width)
 
-        glass_segments, frame_segments = self.consolidate_door_segments(segments)
+        merged_segments = self.consolidate_door_segments(segments)
+
+        # ------------------------------------------------------------
+        # STEP 7: Select final frame/glass widths per adjacency rules
+        # ------------------------------------------------------------
+        final_frame_width_m = None
+        final_glass_width_m = None
+        final_frame_index = None
+        final_glass_index = None
+
+        if merged_segments and len(merged_segments) >= 1:
+            widths = [x1 - x0 for (x0, x1, _) in merged_segments]
+            labels = [label for (_, _, label) in merged_segments]
+
+            # Filter glass segments by max width constraint
+            glass_ok = set([i for i, label in enumerate(labels)
+                            if label == "glass" and widths[i] <= self.max_glass_width])
+
+            # Case A: a frame flanked by glass on both sides
+            candidate_frames = []
+            for i in range(len(merged_segments)):
+                if labels[i] != "frame":
+                    continue
+                left_ok = (i - 1) in glass_ok if i - 1 >= 0 and labels[i - 1] == "glass" else False
+                right_ok = (i + 1) in glass_ok if i + 1 < len(merged_segments) and labels[i + 1] == "glass" else False
+                if left_ok and right_ok:
+                    candidate_frames.append(i)
+
+            if candidate_frames:
+                # Choose the widest frame among candidates
+                i_best = max(candidate_frames, key=lambda k: widths[k])
+                final_frame_width_m = widths[i_best]
+                final_frame_index = i_best
+                final_glass_width_m = min(widths[i_best - 1], widths[i_best + 1])
+                final_glass_index = i_best - 1 if widths[i_best - 1] <= widths[i_best + 1] else i_best + 1
+            else:
+                # Case B: exactly one valid glass segment, use adjacent frames
+                if len(glass_ok) == 1:
+                    g_idx = list(glass_ok)[0]
+                    final_glass_width_m = widths[g_idx]
+                    final_glass_index = g_idx
+
+                    adj_frame_widths = []
+                    if g_idx - 1 >= 0 and labels[g_idx - 1] == "frame":
+                        adj_frame_widths.append(widths[g_idx - 1])
+
+                    if g_idx + 1 < len(merged_segments) and labels[g_idx + 1] == "frame":
+                        adj_frame_widths.append(widths[g_idx + 1])
+                    
+                    if adj_frame_widths:
+                        final_frame_width_m = min(adj_frame_widths)
+                        final_frame_index = g_idx - 1 if final_frame_width_m == widths[g_idx - 1] else g_idx + 1
 
         result = {
             "bins": bins,
             "bin_labels": bin_labels,
-            "segments": segments,
-            "glass_widths_m": glass_segments,
-            "frame_widths_m": frame_segments,
+            "segments": merged_segments,
+            "final_frame_width_m": final_frame_width_m,
+            "final_glass_width_m": final_glass_width_m,
+            "final_frame_index": final_frame_index,
+            "final_glass_index": final_glass_index
         }
 
         return result
@@ -170,9 +223,7 @@ class DoorTypeDetector():
     def compute_vertical_occupancy_ratio(self,
         y_vals,
         door_y_min,
-        door_y_max,
-        num_slices=20,
-        min_points_per_slice=2
+        door_y_max
     ):
         """
         Robust vertical support estimation using OCCUPANCY RATIO.
@@ -200,28 +251,26 @@ class DoorTypeDetector():
         slice_edges = np.linspace(
             door_y_min,
             door_y_max,
-            num_slices + 1
+            self.num_vertical_slices + 1
         )
 
         occupied = 0
 
-        for i in range(num_slices):
+        for i in range(self.num_vertical_slices):
             y0 = slice_edges[i]
             y1 = slice_edges[i + 1]
 
             # Count inliers in this vertical slice
             in_slice = (y_vals >= y0) & (y_vals < y1)
 
-            if np.count_nonzero(in_slice) >= min_points_per_slice:
+            if np.count_nonzero(in_slice) >= self.min_points_per_vertical_slice:
                 occupied += 1
 
-        return occupied / num_slices
+        return occupied / self.num_vertical_slices
 
 
     def consolidate_door_segments(self,
-    segments,
-    min_segment_width=0.08   # meters
-):
+    segments):
         """
         Consolidate over-segmented door geometry into
         meaningful glass and frame widths.
@@ -231,11 +280,9 @@ class DoorTypeDetector():
         segments : list of (x_start, x_end, label)
             Output from vertical-support algorithm
         min_segment_width : float
-            Minimum width to consider a segment meaningful
-        expected_glass_count : int
-            Usually 2 (left & right glass)
-        expected_frame_count : int
-            Usually 1 (center frame)
+            Minimum width to consider a GLASS segment meaningful.
+            Frame segments are kept regardless of width.
+
 
         Returns
         -------
@@ -245,13 +292,13 @@ class DoorTypeDetector():
         """
 
         # --------------------------------------------------
-        # STEP 1: Remove tiny segments (noise)
+        # STEP 1: Remove tiny GLASS segments (keep all frames)
         # --------------------------------------------------
         filtered = []
         for seg in segments:
             x0, x1, label = seg
             width = x1 - x0
-            if width >= min_segment_width:
+            if label != "glass" or width >= self.min_glass_width:
                 filtered.append(seg)
 
         if not filtered:
@@ -271,37 +318,19 @@ class DoorTypeDetector():
             else:
                 merged.append((x0, x1, label))
 
-        # --------------------------------------------------
-        # STEP 3: Separate glass and frame segments
-        # --------------------------------------------------
-        glass_segments = []
-        frame_segments = []
 
-        for x0, x1, label in merged:
-            width = x1 - x0
-            if label == "glass":
-                glass_segments.append(width)
-            else:
-                frame_segments.append(width)
-
-        # --------------------------------------------------
-        # STEP 4: Keep only dominant segments
-        # --------------------------------------------------
-        glass_segments = sorted(glass_segments, reverse=True)
-        frame_segments = sorted(frame_segments, reverse=True)
-
-
-        return glass_segments, frame_segments,
+        return merged
         
     
 
 
     def visualize_door_bins_and_widths(self,
-        plane_model,
         inlier_points,
         bin_edges,
         bin_labels,
         segments,
+        final_glass_index,
+        final_frame_index,
         fx, cx,
         color_image
     ):
@@ -355,7 +384,7 @@ class DoorTypeDetector():
         # --------------------------------------------------
         # STEP 4: Draw consolidated segments (thick boxes)
         # --------------------------------------------------
-        for x0, x1, label in segments:
+        for i, (x0, x1, label) in enumerate(segments):
             u0 = world_x_to_img_u(x0)
             u1 = world_x_to_img_u(x1)
 
@@ -364,11 +393,19 @@ class DoorTypeDetector():
             width_cm = (x1 - x0) * 100.0
 
             if label == "frame":
-                color = (0, 255, 0)   # green
-                text = f"Frame {width_cm:.1f} cm"
+                if i == final_frame_index:
+                    color = (0, 0, 255)   # red
+                    text = f"Final Frame {width_cm:.1f} cm"
+                else:
+                    color = (0, 255, 0)   # green
+                    text = f"Frame {width_cm:.1f} cm"
             else:
-                color = (0, 165, 255) # orange
-                text = f"Glass {width_cm:.1f} cm"
+                if i == final_glass_index:
+                    color = (255, 0, 0)   # blue
+                    text = f"Final Glass {width_cm:.1f} cm"
+                else:
+                    color = (0, 165, 255) # orange
+                    text = f"Glass {width_cm:.1f} cm"
 
             cv2.rectangle(vis, (u0, 5), (u1, H - 5), color, 3)
 

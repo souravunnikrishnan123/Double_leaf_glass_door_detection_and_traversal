@@ -95,10 +95,11 @@ class PlaneDetector:
     def __init__(self):
         ns = "~plane_detector"
         self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
-        self.distance_range_m = rospy.get_param(f"{ns}/distance_range_m", 0.3)
+        self.global_map_distance_accuracy_to_door_plane = rospy.get_param(f"{ns}/global_map_distance_accuracy_to_door_plane", 0.15)
+        self.distance_range_m = self.reference_door_distance_m * self.global_map_distance_accuracy_to_door_plane
         #backprojection
-        self.max_depth_backprojection = rospy.get_param(f"{ns}/backproject/max_depth", 3.0)
-        self.min_depth_backprojection = rospy.get_param(f"{ns}/backproject/min_depth", 1.0)
+        self.max_depth_backprojection = self.reference_door_distance_m + self.distance_range_m
+        self.min_depth_backprojection = self.reference_door_distance_m - self.distance_range_m
         self.subsample = rospy.get_param(f"{ns}/backproject/subsample", 1)
         
         #filter points

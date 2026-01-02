@@ -29,9 +29,9 @@ class DepthDoorDetector:
 
     def __init__(self):
         ns = "~depth_image_based_door_detector"
-        self.MIN_DEPTH = rospy.get_param(f"{ns}/MIN_DEPTH", 1.0)
-        self.MAX_DEPTH = rospy.get_param(f"{ns}/MAX_DEPTH", 4.0)
-        self.DEPTH_RANGE = rospy.get_param(f"{ns}/DEPTH_RANGE", [1.7, 2.3])
+        
+        self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
+        
         self.PHYSICAL_GRADIENT_THRESHOLD = rospy.get_param(f"{ns}/PHYSICAL_GRADIENT_THRESHOLD", 0.25)
         self.scale = rospy.get_param(f"{ns}/scale", 0.5)
         self.hough = {
@@ -63,7 +63,6 @@ class DepthDoorDetector:
             "glass_width_cm": rospy.get_param(f"{gns}/glass_width_cm", 40),
             "center_frame_width_cm": rospy.get_param(f"{gns}/center_frame_width_cm", 30),
             "roi_width": rospy.get_param(f"{gns}/roi_width", 240),
-            "min_depth": rospy.get_param(f"{gns}/min_depth", 1.7),
             "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
         }
         self.line_filter = LineFilter()
@@ -87,6 +86,9 @@ class DepthDoorDetector:
         timer = get_duration_seconds()
         timer.start("depth_based_edge_detection preprocessing")
 
+        ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance", 2.0)
+        DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
+    
         valid_lines = []
         depth_of_valid_lines = []
         H = ctx.depth_image_in_meters.shape[0]
@@ -103,13 +105,14 @@ class DepthDoorDetector:
         
         # Apply mask (keep only valid + relevant regions)
         # After computing depth_scaled
-        mask_ds = (depth_scaled > self.DEPTH_RANGE[0]) & (depth_scaled < self.DEPTH_RANGE[1])
+        mask_ds = (depth_scaled > DEPTH_RANGE[0]) & (depth_scaled < DEPTH_RANGE[1])
         depth_grad_x[~mask_ds] = 0
         valid_grad_vals = depth_grad_x[mask_ds]  #Only gradients at valid depth pixels are used to compute the threshold
         depth_edges = self.edge_detector.adaptive_threshold(depth_grad_x, valid_grad_vals, self.adaptive)
         
         # Normalize for visualization (convert to 8-bit image)
         sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        
         # Convert Sobel visualization to color (BGR)
         sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
 
@@ -121,6 +124,8 @@ class DepthDoorDetector:
 
         # Overlay depth edges in red
         sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
+
+
 
         depth_lines = self.line_detector.detect(depth_edges, self.hough, self.scale)
         sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
@@ -141,7 +146,7 @@ class DepthDoorDetector:
                 line_depth = self.line_filter.get_median_depth_by_roi_around(ctx.depth_image_in_meters, line , self.roi_width_for_depth_estimation)
                 cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
 
-                if not self.line_filter.is_depth_valid(line_depth, self.DEPTH_RANGE):
+                if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
                     continue
                     
                 valid_lines.append((x1, y1, x2, y2))
@@ -165,6 +170,7 @@ class DepthDoorDetector:
                 merged_lines,
                 merged_lines_depths,
                 self.door_geometry,
+                DEPTH_RANGE,
                 keyword="depth"
             )
         else:

@@ -11,6 +11,7 @@ class GlassFrameLineProcessor:
         self.lines = []
         self.depth_of_each_lines = []
         self.door_geometry = []
+        self.DEPTH_RANGE = []
         self.keyword = None
         
 
@@ -269,13 +270,13 @@ class GlassFrameLineProcessor:
 
             # Compute average Z for left ROI
             avg_z_left_roi, roi_polygon_left = self.get_strip_avg_z(
-                self.depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=self.door_geometry["roi_width"], min_depth=self.door_geometry["min_depth"]
+                self.depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
             )
             
 
             # Compute average Z for right ROI
             avg_z_right_roi, roi_polygon_right = self.get_strip_avg_z(
-                self.depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=self.door_geometry["roi_width"], min_depth=self.door_geometry["min_depth"]
+                self.depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
             ) # minimum depth used to ignore the depth info from human who is between the door and robodog
             
 
@@ -366,6 +367,7 @@ class GlassFrameLineProcessor:
                                         lines,
                                         depth_of_each_lines,
                                         door_geometry,
+                                        DEPTH_RANGE,
                                         keyword):
         
         self.depth_image_in_meters = depth_image_in_meters
@@ -374,7 +376,9 @@ class GlassFrameLineProcessor:
         self.lines = lines
         self.depth_of_each_lines = depth_of_each_lines
         self.door_geometry = door_geometry
+        self.DEPTH_RANGE = DEPTH_RANGE
         self.keyword = keyword
+
 
         if lines is None or len(lines) == 0:
             return None, None, 0

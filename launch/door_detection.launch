@@ -29,143 +29,138 @@
     <param name="queue_size" value="30" />
     <param name="sync_slop" value="0.2" />
     <param name="enable_visualization" value="True" />
-    <rosparam ns="plane_detector">
-      max_no_candidate_frames: 5
-      max_inlier_density: 0.5
-      reference_door_distance_m : 2.0
-      global_map_distance_accuracy_to_door_plane : 0.15
-      distance_range_m: reference_door_distance_m * global_map_distance_accuracy_to_door_plane
-      margin_for_glass_width_inaccuracy : 0.2
-      backproject:
-        max_depth: reference_door_distance_m + distance_range_m
-        min_depth: reference_door_distance_m - distance_range_m
-        subsample: 4
-      filter_points:
-        voxel_size: 0.008
-        normal_radius: 0.03
-        normal_max_nn: 30
-        nx_thr: 0.30
-        ny_thr: 0.30
-        nz_min: 0.85
-      ransac:
-        distance_threshold: 0.03
-        n: 3
-        num_iterations: 100
-        vertical_tol: 0.1
-        min_inliers: 500
-        max_planes: 2
-      outline:
-        lower_pct : 5
-        upper_pct : 95
-        min_width_m: 0.8
-        min_height_m: 0.5
-      temporal_smoothing:
-        alpha: 0.3
-        max_jump_deg: 8.0
-        max_jump_m: 0.3
-        window: 10
-        confirm_k: 6
-        drop_k: 2
-      output:
-        ransac_plane_distance : 2.0
-        ransac_error : 0.05
-    </rosparam>
-    <rosparam ns ="door_type_detector">
-      bin_width: 0.04
-      min_vertical_support: 0.4
-      min_points_per_bin: 5
-      min_glass_width: 0.16
-      max_glass_width : 1.5
-      num_vertical_slices: 40
-      min_points_per_vertical_slice: 2
-
-    </rosparam>
-
-    <rosparam ns="color_image_based_door_detector">
-      depth_range: [ransac_plane_distance *(1-ransac_error), ransac_plane_distance * (1+ransac_error)]
-      scale: 0.5
-      canny:
-        lower_factor: 0.7
-        upper_factor: 2.0
-      blur:
-        ksize: 3
-        sigma: 0.8
-      hough:
-        threshold: 100
-        min_line_length: 100
-        max_line_gap: 20
-      angle_threshold: 0.2
-      min_num_of_valid_depths_for_depth_estimation: 5
-      extrapolation:
-        gradient_threshold_for_extrapolation: 0.1
-        window_size_for_extrapolation: 5
-
-      
-    </rosparam>
-    <rosparam ns="depth_image_based_door_detector">
-      MIN_DEPTH: 1.0
-      MAX_DEPTH: 4.0
-      DEPTH_RANGE: [ransac_plane_distance *(1-ransac_error), ransac_plane_distance * (1+ransac_error)]
-      PHYSICAL_GRADIENT_THRESHOLD: 0.25
-      scale: 0.5
-      hough:
-        threshold: 100
-        min_line_length: 100
-        max_line_gap: 30
-      bilateral:
-        d: 5
-        sigma_color: 50
-        sigma_space: 75
-      sobel:
-        ksize: 3
-      adaptive:
-        k_factor: 1.0
-        fallback_threshold: 0.1
-      angle_threshold: 0.2
-      roi_width_for_depth_estimation: 10
-      merge_lines:
-        x_threshold_to_merge_lines: 10
-        MIN_LINE_LENGTH_after_merging: 50
-    </rosparam>
-    <rosparam ns="door_geometry">
-      glass_width_cm: 40
-      center_frame_width_cm: 30
-      roi_width: 240
-      min_depth: 1.7
-      correction_factor: 1.1
-    </rosparam>
-    <rosparam ns="door_status_detector">
-      roi_width: 240
-      margin: 10
-      threshold: 0.05
-      bev_params:
-        grid_res: 0.01
-        required_clearance: 0.45
-        max_obstacle_height: -1.5
-      back_proj_params:
-        subsample: 2
-      filter_points_params:
+    <rosparam>
+      plane_detector:  
+        max_no_candidate_frames: 5
+        max_inlier_density: 0.5
+        reference_door_distance_m : 2.0
+        global_map_distance_accuracy_to_door_plane : 0.2
+        margin_for_glass_width_inaccuracy : 0.2
+        backproject:
+          subsample: 4
+        filter_points:
+          voxel_size: 0.008
+          normal_radius: 0.03
+          normal_max_nn: 30
+          nx_thr: 0.30
+          ny_thr: 0.30
+          nz_min: 0.85
         ransac:
-          max_planes: 3
+          distance_threshold: 0.03
           n: 3
-          distance_threshold: 0.02
-          num_iterations: 50
-          min_inliers: 50
-          horizontal_tol: 0.3
-        normal_filter:
-          radius: 0.15
-          max_nn: 40
-          ny_thr: 0.7
-        outlier:
-          nb_neighbors: 50
-          std_ratio: 1.0
-        cc_filter:
-          near_z: 0.6
-          min_area_near: 640
-          minimum_area_far: 600
-          base_area_at_1m: 1400
-          min_z: 0.1
-          max_z: 4.0
+          num_iterations: 100
+          vertical_tol: 0.1
+          min_inliers: 500
+          max_planes: 2
+        outline:
+          lower_pct : 5
+          upper_pct : 95
+          min_width_m: 0.8
+          min_height_m: 0.5
+        temporal_smoothing:
+          alpha: 0.3
+          max_jump_deg: 8.0
+          max_jump_m: 0.3
+          window: 10
+          confirm_k: 6
+          drop_k: 2
+        output:
+          ransac_plane_distance : 2.0
+          ransac_error : 0.1
+    </rosparam>
+    <rosparam>
+      door_type_detector:
+        bin_width: 0.04
+        min_vertical_support: 0.4
+        min_points_per_bin: 5
+        min_glass_width: 0.16
+        max_glass_width : 1.5
+        num_vertical_slices: 40
+        min_points_per_vertical_slice: 2
+    </rosparam>
+
+    <rosparam>
+      color_image_based_door_detector:
+        scale: 0.5
+        canny:
+          lower_factor: 0.7
+          upper_factor: 2.0
+        blur:
+          ksize: 3
+          sigma: 0.8
+        hough:
+          threshold: 100
+          min_line_length: 100
+          max_line_gap: 20
+        angle_threshold: 0.2
+        min_num_of_valid_depths_for_depth_estimation: 5
+        extrapolation:
+          gradient_threshold_for_extrapolation: 0.1
+          window_size_for_extrapolation: 5
+    </rosparam>
+    <rosparam>
+      depth_image_based_door_detector:
+        PHYSICAL_GRADIENT_THRESHOLD: 0.25
+        scale: 0.5
+        hough:
+          threshold: 100
+          min_line_length: 100
+          max_line_gap: 30
+        bilateral:
+          d: 5
+          sigma_color: 50
+          sigma_space: 75
+        sobel:
+          ksize: 3
+        adaptive:
+          k_factor: 1.0
+          fallback_threshold: 0.1
+        angle_threshold: 0.2
+        roi_width_for_depth_estimation: 10
+        merge_lines:
+          x_threshold_to_merge_lines: 10
+          MIN_LINE_LENGTH_after_merging: 50
+    </rosparam>
+    <rosparam>
+      door_geometry:
+        glass_width_cm: 40
+        center_frame_width_cm: 30
+        roi_width: 240
+        correction_factor: 1.1
+    </rosparam>
+    <rosparam>
+      door_status_detector:
+        roi_width: 240
+        margin: 10
+        threshold: 0.05
+        bev_params:
+          grid_res: 0.01
+          required_clearance: 0.45
+          max_obstacle_height: -0.5
+        back_proj_params:
+          subsample: 2
+        filter_points_params:
+          ransac:
+            max_planes: 3
+            n: 3
+            distance_threshold: 0.02
+            num_iterations: 50
+            min_inliers: 50
+            horizontal_tol: 0.3
+          normal_filter:
+            radius: 0.15
+            max_nn: 40
+            ny_thr: 0.7
+          outlier:
+            nb_neighbors: 50
+            std_ratio: 1.0
+          cc_filter:
+            near_z: 0.6
+            min_area_near: 640
+            minimum_area_far: 600
+            base_area_at_1m: 1400
+            min_z: 0.1
+            max_z: 4.0
     </rosparam>
   </node>
 </launch>

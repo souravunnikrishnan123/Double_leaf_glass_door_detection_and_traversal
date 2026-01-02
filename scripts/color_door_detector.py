@@ -13,6 +13,7 @@ from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Pre
 
 
 
+
 @dataclass
 class ColorDetectionResult:
     roi_left: Optional[np.ndarray]
@@ -62,7 +63,9 @@ class ColorDoorDetector:
 
     def __init__(self):
         ns = "~color_image_based_door_detector"
-        self.DEPTH_RANGE = rospy.get_param(f"{ns}/depth_range", [1.7, 2.3])
+
+        self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error")
+
         self.scale = rospy.get_param(f"{ns}/scale", 1.0)
         # Optional tunables for image processing
         self.canny = {
@@ -84,12 +87,12 @@ class ColorDoorDetector:
             "gradient_threshold_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/gradient_threshold_for_extrapolation", 0.1),
             "window_size_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/window_size_for_extrapolation", 5),
         }
+        gns = "~door_geometry"
         self.door_geometry = {
-            "glass_width_cm": rospy.get_param(f"/door_geometry/glass_width_cm", 40),
-            "center_frame_width_cm": rospy.get_param(f"/door_geometry/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param(f"/door_geometry/roi_width", 240),
-            "min_depth": rospy.get_param(f"/door_geometry/min_depth", 1.7),
-            "correction_factor": rospy.get_param(f"/door_geometry/correction_factor", 1.1),
+            "glass_width_cm": rospy.get_param(f"{gns}/glass_width_cm", 40),
+            "center_frame_width_cm": rospy.get_param(f"{gns}/center_frame_width_cm", 30),
+            "roi_width": rospy.get_param(f"{gns}/roi_width", 240),
+            "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
         }
         # Compose strategy components
         self.preprocessor = Preprocessor()
@@ -101,6 +104,10 @@ class ColorDoorDetector:
         
 
     def process_frame(self, ctx) -> ColorDetectionResult:
+
+        ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
+        DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
+ 
         # Detect vertical lines in color image using Canny + Hough
         vertical_lines = []
         depth_of_each_lines = []
@@ -109,6 +116,8 @@ class ColorDoorDetector:
         timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         H = ctx.color_image_color_based.shape[0]
         W = ctx.color_image_color_based.shape[1]
+
+
 
         color_image_scaled = self.preprocessor.resize_by_scale(ctx.color_image_color_based, self.scale)
         filtered_grey_image = self.preprocessor.gaussian_blur_filter(color_image_scaled, self.blur)
@@ -145,7 +154,7 @@ class ColorDoorDetector:
                 # Compute median depth and center
                 
 
-                if not self.line_filter.is_depth_valid(line_depth, self.DEPTH_RANGE):
+                if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
                     continue  # skip invalid depth lines
 
                 filtered_segment.append((x1, y1))
@@ -236,6 +245,7 @@ class ColorDoorDetector:
                     #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
             timer.stop("color_image_based_frame_detection line processing")
 
+
             roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(
                 ctx.depth_image_in_meters,
                 ctx.color_image_color_based,
@@ -243,6 +253,7 @@ class ColorDoorDetector:
                 vertical_lines,
                 depth_of_each_lines,
                 self.door_geometry,
+                DEPTH_RANGE,
                 keyword="depth"
             )
 

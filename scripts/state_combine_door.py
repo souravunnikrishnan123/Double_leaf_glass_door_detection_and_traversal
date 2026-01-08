@@ -4,7 +4,6 @@ import rospkg
 import rospy
 from typing import Optional
 from Frame_data import BaseState, FrameContext
-from check_if_passable import BirdsEyePassabilityPipeline
 from Frame_data import FrameContext
 import numpy as np
 import cv2
@@ -20,7 +19,7 @@ class TemporalSmoother:
         self.current_stable = None
         self.stable_count = 0
 
-    def update(self, label: str) -> str:
+    def update(self, label: str) -> Optional[str]:
         # Push new value
         self.buffer.append(label)
 
@@ -33,8 +32,17 @@ class TemporalSmoother:
         majority_label = max(freq.items(), key=lambda x: x[1])[0]
         majority_count = freq[majority_label]
 
+        # Initial warm-up: until enough evidence, return None
+        if self.current_stable is None:
+            if majority_count >= self.min_consistent:
+                self.current_stable = majority_label
+                self.stable_count = majority_count
+                return self.current_stable
+            else:
+                return None
+
         # Require at least min_consistent within window
-        candidate = majority_label if majority_count >= self.min_consistent else (self.current_stable or label)
+        candidate = majority_label if majority_count >= self.min_consistent else self.current_stable
 
         if not self.hysteresis:
             self.current_stable = candidate
@@ -42,11 +50,6 @@ class TemporalSmoother:
             return self.current_stable
 
         # Hysteresis: only switch after "stable_hold" confirmations for new candidate
-        if self.current_stable is None:
-            self.current_stable = candidate
-            self.stable_count = 1
-            return self.current_stable
-
         if candidate == self.current_stable:
             # reinforce stability
             self.stable_count = min(self.window_size, self.stable_count + 1)
@@ -64,7 +67,6 @@ class TemporalSmoother:
 class combine_door_state(BaseState):
     def __init__(self):
         super().__init__("combine_door_state")
-        self.check_passability = BirdsEyePassabilityPipeline()
         self.height = 0
         self.width = 0
         # Temporal smoothing parameters can be tuned here
@@ -91,10 +93,10 @@ class combine_door_state(BaseState):
     
 
 
-    def resolve_door_status(self, color_pipline_result, depth_pipline_result, roi_open_side_color_based, roi_open_side_depth_based, iou_threshold):
+    def resolve_door_status(self, color_pipline_result, depth_pipline_result, roi_open_side_color_based, roi_open_side_depth_based, door_depth_m_color_based, door_depth_m_depth_based, iou_threshold):
 
         # Default result container
-        result = dict(final_door_status="unknown", bev=None, ask_human=False, reason="")
+        result = dict(final_door_status="unknown", pipeline=None, ask_human=False, door_depth = None, reason="")
 
         # -------------------------------------------------------------
         # DEPTH = NO FRAME
@@ -102,20 +104,25 @@ class combine_door_state(BaseState):
         if depth_pipline_result == "no_frame_detected":
             if color_pipline_result == "open_left" or color_pipline_result == "open_right":
                 result["final_door_status"] = color_pipline_result # "open_left" or "open_right"
-                result["bev"] = "color"
-                result["reason"] = f"Color {color_pipline_result} + depth no-frame → use color BEV"
+                result["pipeline"] = "color_based"
+                result["door_depth"] = door_depth_m_color_based # use color-based door depth
+                result["reason"] = f"Color {color_pipline_result} + depth no-frame → use color pipeline"
             elif color_pipline_result == "closed":
                 result["final_door_status"] = "closed"
+                result["pipeline"] = "color_based"
+                result["door_depth"] = door_depth_m_color_based # use color-based door depth
                 result["reason"] = "Color closed + depth no-frame → closed"
             elif color_pipline_result == "no_frame_detected":
                 result["final_door_status"] = "no_frame_detected"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
-                result["reason"] = "No frame in both → no_frame_detected, ask human/full BEV"
+                result["door_depth"] = None
+                result["reason"] = "No frame in both → no_frame_detected, ask human/full image"
             elif color_pipline_result == "unknown":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Depth no-frame + color unknown → unknown"
 
         # -------------------------------------------------------------
@@ -124,20 +131,25 @@ class combine_door_state(BaseState):
         elif depth_pipline_result == "unknown":
             if color_pipline_result == "open_left" or color_pipline_result == "open_right":
                 result["final_door_status"] = color_pipline_result # "open_left" or "open_right"
-                result["bev"] = "color"
-                result["reason"] = f"Color {color_pipline_result} + depth unknown → use color BEV"
+                result["pipeline"] = "color_based"
+                result["door_depth"] = door_depth_m_color_based # use color-based door depth
+                result["reason"] = f"Color {color_pipline_result} + depth unknown → use color pipeline"
             elif color_pipline_result == "closed":
                 result["final_door_status"] = "closed"
+                result["pipeline"] = "color_based"
+                result["door_depth"] = door_depth_m_color_based # use color-based door depth
                 result["reason"] = "Color closed + depth unknown → closed"
             elif color_pipline_result == "no_frame_detected":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Color no-frame + depth unknown → ambiguous"
             elif color_pipline_result == "unknown":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Both unknown → unknown"
 
         # -------------------------------------------------------------
@@ -146,14 +158,19 @@ class combine_door_state(BaseState):
         elif depth_pipline_result == "closed":
             if color_pipline_result == "open_left" or color_pipline_result == "open_right":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Conflict: color open but depth closed"
             elif color_pipline_result == "closed":
                 result["final_door_status"] = "closed"
+                result["pipeline"] = "depth_based"
+                result["door_depth"] = door_depth_m_depth_based # use depth-based door depth
                 result["reason"] = "Both closed → closed"
             elif color_pipline_result == "no_frame_detected" or color_pipline_result == "unknown":
                 result["final_door_status"] = "closed"
+                result["pipeline"] = "depth_based"
+                result["door_depth"] = door_depth_m_depth_based # use depth-based door depth
                 result["reason"] = "Depth closed overrides color no-frame/unknown"
 
         # -------------------------------------------------------------
@@ -163,22 +180,26 @@ class combine_door_state(BaseState):
             if color_pipline_result == "open_left":
                 if self.rois_match(roi_open_side_color_based, roi_open_side_depth_based, iou_threshold):
                     result["final_door_status"] = "open_left"
-                    result["bev"] = "color"
-                    result["reason"] = "Both open_left + ROI match → use color BEV"
+                    result["pipeline"] = "color_based"
+                    result["door_depth"] = door_depth_m_color_based # use color-based door depth
+                    result["reason"] = "Both open_left + ROI match → use color pipeline"
                 else:
                     result["final_door_status"] = "unknown"
-                    result["bev"] = "full"
+                    result["pipeline"] = "full_image_view"
                     result["ask_human"] = True
-                    result["reason"] = "Both open_left but ROI mismatch → full BEV"
+                    result["door_depth"] = None
+                    result["reason"] = "Both open_left but ROI mismatch → full image"
             elif color_pipline_result == "open_right" or color_pipline_result == "closed":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Conflict with depth open_left"
             elif color_pipline_result == "no_frame_detected" or color_pipline_result == "unknown":
                 result["final_door_status"] = "open_left"
-                result["bev"] = "depth"
-                result["reason"] = "Depth open_left + weak color → use depth BEV"
+                result["pipeline"] = "depth_based"
+                result["door_depth"] = door_depth_m_depth_based # use depth-based door depth
+                result["reason"] = "Depth open_left + weak color → use depth pipeline"
         # -------------------------------------------------------------
         # DEPTH = OPEN RIGHT
         # -------------------------------------------------------------
@@ -186,29 +207,34 @@ class combine_door_state(BaseState):
             if color_pipline_result == "open_right":
                 if self.rois_match(roi_open_side_color_based, roi_open_side_depth_based, iou_threshold):
                     result["final_door_status"] = "open_right"
-                    result["bev"] = "color"
-                    result["reason"] = "Both open_right + ROI match → use color BEV"
+                    result["pipeline"] = "color_based"
+                    result["door_depth"] = door_depth_m_color_based # use color-based door depth
+                    result["reason"] = "Both open_right + ROI match → use color pipeline"
                 else:
                     result["final_door_status"] = "unknown"
-                    result["bev"] = "full"
+                    result["pipeline"] = "full_image_view"
                     result["ask_human"] = True
+                    result["door_depth"] = None
                     result["reason"] = "Both open_right but ROI mismatch"
             elif color_pipline_result == "open_left" or color_pipline_result == "closed":
                 result["final_door_status"] = "unknown"
-                result["bev"] = "full"
+                result["pipeline"] = "full_image_view"
                 result["ask_human"] = True
+                result["door_depth"] = None
                 result["reason"] = "Conflict with depth open_right"
             elif color_pipline_result == "no_frame_detected" or color_pipline_result == "unknown":
                 result["final_door_status"] = "open_right"
-                result["bev"] = "depth"
-                result["reason"] = "Depth open_right + weak color → use depth BEV"
+                result["pipeline"] = "depth_based"
+                result["door_depth"] = door_depth_m_depth_based # use depth-based door depth
+                result["reason"] = "Depth open_right + weak color → use depth pipeline"
         # -------------------------------------------------------------
         # FALLBACK
         # -------------------------------------------------------------
         else:
             result["final_door_status"] = "unknown"
-            result["bev"] = "full"
+            result["pipeline"] = "full_image_view"
             result["ask_human"] = True
+            result["door_depth"] = None
             result["reason"] = f"Unhandled combination ({depth_pipline_result}, {color_pipline_result})"
 
         return result
@@ -217,7 +243,7 @@ class combine_door_state(BaseState):
     def do_action(self, ctx: FrameContext) -> Optional[str]:
         self.height, self.width = ctx.color_image_color_based.shape[:2]
 
-        result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, iou_threshold=0.5)
+        result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, ctx.door_depth_m_color_based, ctx.door_depth_m_depth_based, iou_threshold=0.5)
 
 
         # Optionally: clear branch state for next cycle
@@ -225,32 +251,11 @@ class combine_door_state(BaseState):
         #ctx.roi_left_depth_based = ctx.roi_right_depth_based = None
         #ctx.door_state_color_based = ctx.door_state_depth_based = None
         #ctx.door_depth_m_color_based = ctx.door_depth_m_depth_based = None
-
-
-
-
-        if result["final_door_status"] == "open_left" or result["final_door_status"] == "open_right":
-            #create bird eye view and passability view for the open side
-            roi_open_side = ctx.roi_open_side_color_based if result["bev"] == "color" else ctx.roi_open_side_depth_based
-            keyword = "color_based" if result["bev"] == "color" else "depth_based"
-            Passability_status, passability_view, bird_eye_view = self.check_passability.run(
-            ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, getattr(ctx, f"color_image_{keyword}"), roi_open_side, getattr(ctx, f"door_depth_m_{keyword}"), keyword)
-
-            # Append passability status to door state
-            if Passability_status: # True or False
-                result["final_door_status"] += "_passable"
-            else:
-                result["final_door_status"] += "_not_passable"
-
-            # Persist visualizations in context
-            setattr(ctx, f"passability_view_{keyword}", passability_view)
-            setattr(ctx, f"bird_eye_view_{keyword}", bird_eye_view)
         
 
         # Apply temporal smoothing on final label
         smoothed_door_state = self.smoother.update(result["final_door_status"])
-        ctx.door_state_label = smoothed_door_state
-        
+
         pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
         log_dir = os.path.join(pkg_path, 'scripts')
         os.makedirs(log_dir, exist_ok=True)
@@ -259,4 +264,23 @@ class combine_door_state(BaseState):
                 f.write(f"smoothed_door_state: {smoothed_door_state}\n")
 
 
-        return "parallel_detection_state"
+        ctx.door_state_label = smoothed_door_state
+        ctx.door_depth = result["door_depth"]
+        pipeline_used = result["pipeline"]
+
+        if smoothed_door_state == "open_left":
+            roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
+            ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 95)  # get the max x position of the open side roi polygon, to find the center of the central frame
+            return None  # Stay in the current state
+        elif smoothed_door_state == "open_right":
+            roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
+            ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 5)  # get the min x position of the open side roi polygon, to find the center of the central frame
+            return None  # Stay in the current state
+        else:
+            #door state is either closed, unknown or no_frame_detected
+            ctx.mid_frame_x_px_for_passability_check = None
+            #loop back to parallel detection, because still need to monitor for door opening
+            return "parallel_detection_state"
+
+
+        

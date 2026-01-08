@@ -9,84 +9,62 @@ from duration import get_duration_seconds
 
 
 
-class BirdsEyePassabilityPipeline:
+class Passability_checker:
     """
     Orchestrates the passability check as an object-oriented pipeline.
     Each step mirrors the existing procedural blocks and preserves comments/behavior.
     """
 
     def __init__(self):
-        self.keyword = None
-        ns = "~door_status_detector"
+        ns = "~passabilility_check"
+        # -----------------------------
+        # Backprojection parameters
+        # -----------------------------
+        self.subsample = rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
 
+        # -----------------------------
+        # RANSAC floor removal params
+        # -----------------------------
+        self.max_planes = rospy.get_param(f"{ns}/filter_points_params/ransac/max_planes", 3)
+        self.ransac_n = rospy.get_param(f"{ns}/filter_points_params/ransac/n", 3)
+        self.distance_threshold = rospy.get_param(f"{ns}/filter_points_params/ransac/distance_threshold", 0.02)
+        self.num_iterations = rospy.get_param(f"{ns}/filter_points_params/ransac/num_iterations", 50)
+        self.min_inliers = rospy.get_param(f"{ns}/filter_points_params/ransac/min_inliers", 50)
+        self.horizontal_tol = rospy.get_param(f"{ns}/filter_points_params/ransac/horizontal_tol", 0.3)
 
-        # Grouped detector params 
-        self.bev_params = {
-                "grid_res": rospy.get_param(f"{ns}/bev_params/grid_res", 0.01),
-                "required_clearance": rospy.get_param(f"{ns}/bev_params/required_clearance", 0.45),
-                "max_obstacle_height": rospy.get_param(f"{ns}/bev_params/max_obstacle_height", -1.5),
-                    }
-        self.back_proj_params = {
-                "subsample": rospy.get_param(f"{ns}/back_proj_params/subsample", 2),
-            }
-        self.filter_points_params = {
-            "ransac": {
-                "max_planes": rospy.get_param(f"{ns}/filter_points_params/ransac/max_planes", 3),
-                "n": rospy.get_param(f"{ns}/filter_points_params/ransac/n", 3),
-                "distance_threshold": rospy.get_param(f"{ns}/filter_points_params/ransac/distance_threshold", 0.02),
-                "num_iterations": rospy.get_param(f"{ns}/filter_points_params/ransac/num_iterations", 50),
-                "min_inliers": rospy.get_param(f"{ns}/filter_points_params/ransac/min_inliers", 50),
-                "horizontal_tol": rospy.get_param(f"{ns}/filter_points_params/ransac/horizontal_tol", 0.3),
-            },
-            "normal_filter": {
-                "radius": rospy.get_param(f"{ns}/filter_points_params/normal_filter/radius", 0.15),
-                "max_nn": rospy.get_param(f"{ns}/filter_points_params/normal_filter/max_nn", 40),
-                "ny_thr": rospy.get_param(f"{ns}/filter_points_params/normal_filter/ny_thr", 0.7),
-            },
-            "outlier": {
-                "nb_neighbors": rospy.get_param(f"{ns}/filter_points_params/outlier/nb_neighbors", 50),
-                "std_ratio": rospy.get_param(f"{ns}/filter_points_params/outlier/std_ratio", 1.0),
-            },
-            "cc_filter": {
-                "near_z": rospy.get_param(f"{ns}/filter_points_params/cc_filter/near_z", 0.6),
-                "min_area_near": rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_area_near", 640),
-                "minimum_area_far": rospy.get_param(f"{ns}/filter_points_params/cc_filter/minimum_area_far", 600),
-                "base_area_at_1m": rospy.get_param(f"{ns}/filter_points_params/cc_filter/base_area_at_1m", 1400),
-                "min_z": rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1),
-                "max_z": rospy.get_param(f"{ns}/filter_points_params/cc_filter/max_z", 4.0),
-            },
-        }
+        # -----------------------------
+        # Normal filtering params
+        # -----------------------------
+        self.radius = rospy.get_param(f"{ns}/filter_points_params/normal_filter/radius", 0.15)
+        self.max_nn = rospy.get_param(f"{ns}/filter_points_params/normal_filter/max_nn", 40)
+        self.ny_thr = rospy.get_param(f"{ns}/filter_points_params/normal_filter/ny_thr", 0.7)
 
-        self.subsample = self.back_proj_params.get("subsample", 2)
+        # -----------------------------
+        # Outlier removal params
+        # -----------------------------
+        self.nb_neighbors = rospy.get_param(f"{ns}/filter_points_params/outlier/nb_neighbors", 50)
+        self.std_ratio = rospy.get_param(f"{ns}/filter_points_params/outlier/std_ratio", 1.0)
 
-        self.max_planes = self.filter_points_params["ransac"].get("max_planes", 3)
-        self.ransac_n = self.filter_points_params["ransac"].get("n", 3)
-        self.distance_threshold = self.filter_points_params["ransac"].get("distance_threshold", 0.02)
-        self.num_iterations = self.filter_points_params["ransac"].get("num_iterations", 50)
-        self.min_inliers = self.filter_points_params["ransac"].get("min_inliers", 50)
-        self.horizontal_tol = self.filter_points_params["ransac"].get("horizontal_tol", 0.3)   
-        
-        self.radius = self.filter_points_params["normal_filter"].get("radius", 0.15)
-        self.max_nn = self.filter_points_params["normal_filter"].get("max_nn", 40)
-        self.ny_thr = self.filter_points_params["normal_filter"].get("ny_thr", 0.7)
+        # -----------------------------
+        # Connected component params
+        # -----------------------------
+        self.near_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/near_z", 0.6)
+        self.min_area_near = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_area_near", 640)
+        self.minimum_area_far = rospy.get_param(f"{ns}/filter_points_params/cc_filter/minimum_area_far", 600)
+        self.base_area_at_1m = rospy.get_param(f"{ns}/filter_points_params/cc_filter/base_area_at_1m", 1400)
+        self.min_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1)
+        self.max_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/max_z", 4.0)
 
-        self.nb_neighbors = self.filter_points_params["outlier"].get("nb_neighbors", 50)
-        self.std_ratio = self.filter_points_params["outlier"].get("std_ratio", 1.0)
-        # anything closer is "near field"   
-        self.near_z = self.filter_points_params["cc_filter"].get("near_z", 0.6)
-        # px required for near-field small obstacles
-        self.min_area_near = self.filter_points_params["cc_filter"].get("min_area_near", 640)
-        
-        self.minimum_area_far = self.filter_points_params["cc_filter"].get("minimum_area_far", 600)
-        self.base_area_at_1m = self.filter_points_params["cc_filter"].get("base_area_at_1m", 1400)
-        self.min_z = self.filter_points_params["cc_filter"].get("min_z", 0.1)
-        self.max_z = self.filter_points_params["cc_filter"].get("max_z", 4.0)
-
-        self.grid_res = self.bev_params.get("grid_res", 0.01)
-        self.required_clearance = self.bev_params.get("required_clearance", 0.45)
-        self.max_obstacle_height = self.bev_params.get("max_obstacle_height", -1.5)
-        
-
+        # -----------------------------
+        # Traversal safety thresholds
+        # -----------------------------
+        self.min_front_clearance = rospy.get_param(f"{ns}/traversal_params/min_front_clearance", 1.0)  # meters
+        self.robot_width = rospy.get_param(f"{ns}/traversal_params/robot_width", 0.45)  # meters ,robot  width
+        self.safety_margin_robot_width = rospy.get_param(f"{ns}/traversal_params/safety_margin_robot_width", 0.05)  # meters
+        self.door_frame_margin = rospy.get_param(f"{ns}/traversal_params/door_frame_margin", 0.05)  # meters
+        self.minimum_depth_points_before_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_before_filtering", 50)  # points
+        self.max_obstacle_height = rospy.get_param(f"{ns}/traversal_params/max_obstacle_height", -0.5)  # meters
+        self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
 
     def visualize_roi(self, color_image, roi_polygon):
         # Visualization: translucent ROI fill + outline
@@ -102,15 +80,6 @@ class BirdsEyePassabilityPipeline:
             pass
         return color_image
 
-    def backproject(self, depth_image_in_meters, fx, fy, cx, cy, roi_polygon, door_depth, subsample):
-        #  Define Z extents relative to door
-        z_min, z_max = 0.05, door_depth + 1.5  # meters
-        valid_points, uv, _ = backproject_depth_to_points(
-            depth_image_in_meters, fx, fy, cx, cy,
-            max_depth=z_max, min_depth=z_min,
-            subsample=subsample, roi_polygon=roi_polygon
-        )
-        return valid_points, uv, z_min, z_max
 
     def split_eye_level(self, points, uv):
         mask_below_robot_eye_level = points[:, 1] > 0.0
@@ -350,248 +319,108 @@ class BirdsEyePassabilityPipeline:
         return color_image
 
 
-    def check_passable_birdeye(self, points_above_floor,
-                                x_min,
-                            x_max,
-                            z_min,
-                            z_max):
-        """
-        BEV passability check that (a) computes x_min/x_max from the provided ROI
-        polygon (in image pixel coordinates) if available, and (b) ignores obstacles
-        whose height (Y coordinate in camera frame) is above max_obstacle_height.
+    def run(self, depth_image_in_meters, fx, fy, cx, cy, color_image, mid_frame_x_px, open_side, door_depth, keyword):
 
-        Args:
-            points_above_floor (np.ndarray): Nx3 points in camera frame (already floor-removed).
-            door_depth (float): Z (depth) of door plane in same camera frame units (meters).
-            roi_polygon_uv (np.ndarray or list, optional): polygon in image pixel coords (Nx2).
-                If provided together with uv_pts, the function will compute x_min/x_max from the
-                3D points that project inside this polygon.
-            uv_pts (np.ndarray, optional): Nx2 array of (u,v) pixel coordinates mapping one-to-one
-                with points_above_floor. Required if roi_polygon_uv is passed.
-            roi_width (float): fallback ROI width (meters) used if roi_polygon_uv not supplied.
-            grid_res (float): BEV cell resolution in meters.
-            required_clearance (float): required horizontal corridor width (m) for passability.
-            max_obstacle_height (float): ignore points with Y > max_obstacle_height (meters). set to 1.5m. because robot will only go through 
-                the place where human can go through.
-                - Camera-frame convention assumed: Y is vertical (positive upward).
-                - This value should be the maximum height at which an obstacle would block the robot.
-                Example: if robot body top is at 0.35 m from floor and camera origin is approximately
-                at floor-level + camera_mount_height, pick accordingly. Tune as needed.
-            visualize (bool): show BEV image when True.
-
-        Returns:
-            max_clearance_m (float), passable (bool), occ_map (np.ndarray or None)
-        """
-
-        # 1) quick exits
-        if points_above_floor is None or len(points_above_floor) == 0:
-            return 0.0, False, None
-
-        # 2) apply height filter: ignore high points (they are above robot height -> not blocking)
-        #    points_above_floor[:,1] is vertical (Y). Keep points whose Y <= max_obstacle_height.
-        #    NOTE: The meaning of 'max_obstacle_height' depends on camera-to-floor reference.
-        low_height_mask = points_above_floor[:, 1] >= self.max_obstacle_height
-        points_filtered = points_above_floor[low_height_mask]
-
-
-        if len(points_filtered) == 0:
-            return 0.0, False, None
-
-
-        # 5) Filter points to the horizontal (X) and depth (Z) window we will consider
-        mask_roi_space = (
-            (points_filtered[:, 2] > z_min) &
-            (points_filtered[:, 2] < z_max) &
-            (points_filtered[:, 0] > x_min) &
-            (points_filtered[:, 0] < x_max)
-        )
-        roi_points = points_filtered[mask_roi_space]
-
-        if len(roi_points) == 0:
-            return 0.0, False, None
-
-        # 6) Prepare BEV grid sizes
-        x = roi_points[:, 0]  # X-axis = horizontal axis (left-right direction relative to camera)
-        z = roi_points[:, 2]  # Z-axis = forward direction (depth away from camera)
-
-
-        # Compute the number of grid cells in X and Z based on desired resolution
-        # e.g. if x_min=-0.5, x_max=0.5 and grid_res=0.02 → x_bins = 50
-        x_bins = max(1, int(np.ceil((x_max - x_min) / self.grid_res)))
-        z_bins = max(1, int(np.ceil((z_max - z_min) / self.grid_res)))
-
-        # 7) Initialize occupancy grid (z_bins rows, x_bins columns)
-        #  Initialize state grid (0=unknown, 1=free, 2=occupied)
-        occ_map = np.zeros((z_bins, x_bins), dtype=np.uint8)
-
-        # 8) Rasterize points into grid cells
-        # Convert each 3D point’s X,Z position into a BEV grid index
-        occ_mask = np.zeros((z_bins, x_bins), dtype=np.uint8)
-        #xi = np.clip(((x - x_min) / grid_res).astype(int), 0, x_bins - 1)
-        #zi = np.clip(((z - z_min) / grid_res).astype(int), 0, z_bins - 1)
-
-        xi = ((x - x_min) / self.grid_res)
-        zi = ((z - z_min) / self.grid_res)
-
-        # floor manually to avoid rounding-up distortions
-        xi = np.floor(xi).astype(int)
-        zi = np.floor(zi).astype(int)
-
-        # clamp
-        xi = np.clip(xi, 0, x_bins - 1)
-        zi = np.clip(zi, 0, z_bins - 1)
-
-        # Mark those grid cells as occupied (1)
-        occ_mask[zi, xi] = 1
-
-        # 9) Morphological cleanup (remove tiny holes/noise)
-        
-        occ_mask = cv2.morphologyEx(occ_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
-        #occ_mask = cv2.dilate(occ_mask, np.ones((3, 3), np.uint8), iterations=1)
-        occ_map[occ_mask == 1] = 2  # occupied
-
-        # 9) Raycast-style free space: for each X column, mark rows from sensor (near) up to nearest occupied as free
-        for c in range(x_bins):
-            rows = np.flatnonzero(occ_map[:, c] == 2)
-            if rows.size > 0:
-                z_near = int(rows.min())
-                if z_near > 0:
-                    occ_map[0:z_near, c] = np.maximum(occ_map[0:z_near, c], 1)  # set to free (don’t overwrite occupied)
-
-        no_obstacle_cols = np.where(np.sum(occ_map == 2, axis=0) == 0)[0]
-        if no_obstacle_cols.size > 0:
-            occ_map[:, no_obstacle_cols] = 1  # mark entire column as free if no occupied cells
-
-
-        # 10) Compute free fraction per column (X direction)
-        #Compute how much of each column (X direction) is free
-        free_cols = (occ_map == 1).astype(np.uint8)
-
-        # 10) Columns considered clear only if they contain no occupied cells anywhere
-        free_widths = (np.sum(occ_map == 2, axis=0) == 0).astype(np.uint8)
-
-        # 11) find largest continuous free column run
-        max_clear_cells = 0
-        current = 0
-        for val in free_widths:
-            if val == 1:
-                current += 1
-                if current > max_clear_cells:
-                    max_clear_cells = current
-            else:
-                current = 0
-
-        # 12) convert cells -> meters, decide passability
-        max_clearance_m = max_clear_cells * self.grid_res
-        passable = max_clearance_m >= self.required_clearance
-
-
-        # 13) visualization (optional)
-
-        bev_vis = np.zeros((z_bins, x_bins, 3), dtype=np.uint8)
-        bev_vis[occ_map == 2] = (0, 0, 255)     # red occupied
-        bev_vis[occ_map == 1] = (0, 255, 0)     # green free
-        bev_vis[occ_map == 0] = (80, 80, 80)    # gray unknown
-
-        # highlight free columns (those that met the >99.9% free criterion)
-        
-        free_col_indices = np.where(free_widths == 1)[0]
-        for col in free_col_indices:
-            bev_vis[:, col] = (0, 200, 255)     # orange for clear corridor
-        
-        # resize for display - keep aspect ratio but make it readable
-        if bev_vis.shape[1] > 0:
-            scale = 400.0 / bev_vis.shape[1]
-        else:
-            scale = 1.0
-        bev_vis_resized = cv2.resize(bev_vis,
-                                    (int(bev_vis.shape[1] * scale), int(bev_vis.shape[0] * scale)),
-                                    interpolation=cv2.INTER_NEAREST)
-        
-        # display with near at bottom, far at top (flip vertically for OpenCV)
-        bev_vis_display = cv2.flip(bev_vis_resized, 0)
-        #bev_vis_display = bev_vis_resized
-
-        # display with axes in meters (extent = [x_min, x_max, z_min, z_max])
-        #Near/far are inverted because OpenCV shows row 0 at the top. Flip the BEV image vertically before imshow.
-        #cv2.namedWindow(plotname+"BEV", cv2.WINDOW_NORMAL)
-        #cv2.imshow(plotname+"BEV", bev_vis_display)
-
-            
-
-        return max_clearance_m, passable, bev_vis_display
-
-
-    def run(self, depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, keyword):
-        self.keyword = keyword
         timer_full = get_duration_seconds()
         H, W = depth_image_in_meters.shape
-        timer_full.start(f"check_if_passable--> main passability check {self.keyword}")
+        timer_full.start(f"check_if_passable--> main passability check {keyword}")
 
         timer = get_duration_seconds()
-        timer.start(f"check_if_passable--> backprojection {self.keyword}")
-        color_image = self.visualize_roi(color_image, roi_polygon)
+        timer.start(f"check_if_passable--> backprojection {keyword}")
+        #color_image = self.visualize_roi(color_image, roi_polygon)
 
-        valid_points, uv, z_min, z_max = self.backproject(
-            depth_image_in_meters, fx, fy, cx, cy, roi_polygon, door_depth, self.subsample 
+        #  Define Z extents relative to door
+        z_min, z_max = 0.05, door_depth + 1.5  # meters
+        valid_points, uv, _ = backproject_depth_to_points(
+            depth_image_in_meters, fx, fy, cx, cy,
+            max_depth=z_max, min_depth=z_min,
+            subsample=self.subsample, roi_polygon=None
         )
 
         if len(valid_points) == 0:
             return False, None, None
+
+        # ---------------------------------------
+        # Convert door mid-frame pixel to X (meters)
+        # ---------------------------------------
+        x_center = (mid_frame_x_px - cx) * door_depth / fx
+
+        # ---------------------------------------
+        # Define robot-centric traversal corridor
+        # ---------------------------------------
+        if open_side == "open_left":
+            x_left_boundary   = x_center - (self.robot_width + self.safety_margin_robot_width)  
+            x_right_boundary  = x_center - self.door_frame_margin   
+        elif open_side == "open_right":
+            x_left_boundary   = x_center + self.door_frame_margin
+            x_right_boundary  = x_center + (self.robot_width + self.safety_margin_robot_width)
+        else:
+            return False, None, None
+        
+        corridor_mask_before_filter = (
+            (valid_points[:, 0] > x_left_boundary) &
+            (valid_points[:, 0] < x_right_boundary) &
+            (valid_points[:, 1] > self.max_obstacle_height) &
+            (valid_points[:, 2] > z_min) &
+            (valid_points[:, 2] < z_max)
+        )
+        corridor_pts_before_filter = valid_points[corridor_mask_before_filter]
+        corridor_uv_before_filter = uv[corridor_mask_before_filter]
+
 
         (
             points_above_robot_eye_level,
             uv_above_robot_eye_level,
             points_below_robot_eye_level,
             uv_below_robot_eye_level,
-        ) = self.split_eye_level(valid_points, uv)
+        ) = self.split_eye_level(corridor_pts_before_filter, corridor_uv_before_filter)
 
-        timer.stop(f"check_if_passable--> backprojection {self.keyword}")
+        timer.stop(f"check_if_passable--> backprojection {keyword}")
 
-        timer.start(f"check_if_passable--> floor removal {self.keyword}")
+        timer.start(f"check_if_passable--> floor removal {keyword}")
         points_3_nofloor, uv_3_nofloor, floor_height = self.remove_floor_ransac(
             points_below_robot_eye_level, uv_below_robot_eye_level
         )
-        timer.stop(f"check_if_passable--> floor removal {self.keyword}")
+        timer.stop(f"check_if_passable--> floor removal {keyword}")
 
-        timer.start(f"check_if_passable--> normal filtering {self.keyword}")
+        timer.start(f"check_if_passable--> normal filtering {keyword}")
         points_4_normal, uv_4_normal = self.normal_filtering(points_3_nofloor, uv_3_nofloor)
-        timer.stop(f"check_if_passable--> normal filtering {self.keyword}")
+        timer.stop(f"check_if_passable--> normal filtering {keyword}")
 
-        timer.start(f"check_if_passable--> 3D outlier removal {self.keyword}")
+        timer.start(f"check_if_passable--> 3D outlier removal {keyword}")
         points_2_3d_outlier_removal, uv_2_3d_outlier_removal = self.outlier_removal(
             points_4_normal, uv_4_normal
         )
         if points_2_3d_outlier_removal.shape[0] == 0:
             return False, None, None
-        timer.stop(f"check_if_passable--> 3D outlier removal {self.keyword}")
+        timer.stop(f"check_if_passable--> 3D outlier removal {keyword}")
 
-        timer.start(f"check_if_passable--> connected components {self.keyword}")
+        timer.start(f"check_if_passable--> connected components {keyword}")
         points_5_remove_patches, uv_5_remove_patches = self.connected_components_filter(
             points_2_3d_outlier_removal, uv_2_3d_outlier_removal, W, H, floor_height
         )
-        timer.stop(f"check_if_passable--> connected components {self.keyword}")
+        timer.stop(f"check_if_passable--> connected components {keyword}")
 
         final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
         final_uv = np.vstack([uv_5_remove_patches, uv_above_robot_eye_level])
 
-        x_vals = valid_points[:, 0]
-        x_min = float(np.percentile(x_vals, 5))
-        x_max = float(np.percentile(x_vals, 95))
+        
 
-        timer_full.stop(f"check_if_passable--> main passability check {self.keyword}")
+        if len(final_points) > self.minimum_depth_points_after_filtering:
+            front_clearance = np.min(final_points[:, 2])
+            passablility_status = front_clearance > self.min_front_clearance
+        else: # no points in corridor after filtering
+            # need to check if there were points before filtering
+            if len(corridor_pts_before_filter) > self.minimum_depth_points_before_filtering:
+                front_clearance = z_max
+                passablility_status = True
+            else:
+                front_clearance = None
+                passablility_status = False  # no points in corridor at all
 
-        timer.start(f"check_if_passable--> BEV passability check {self.keyword}")
-        clearance_m, Passability_status, bird_eye_view = self.check_passable_birdeye(
-            final_points,
-            x_min,
-            x_max,
-            z_min,
-            z_max
-        )
-        timer.stop(f"check_if_passable--> BEV passability check {self.keyword}")
+        timer_full.stop(f"check_if_passable--> main passability check {keyword}")
 
-        timer.start(f"check_if_passable--> visualization of final points {self.keyword}")
+        timer.start(f"check_if_passable--> visualization of final points {keyword}")
         color_image = self.visualize_points(
             color_image,
             W,
@@ -602,19 +431,19 @@ class BirdsEyePassabilityPipeline:
                 (uv_4_normal, (0, 165, 255)),
                 (uv_2_3d_outlier_removal, (255, 0, 0)),
                 (uv_5_remove_patches, (0, 0, 255)),
-                (final_uv, (0, 255, 255)),
+                (final_uv, (0, 255, 255))
             ],
         )
-        timer.stop(f"check_if_passable--> visualization of final points {self.keyword}")
+        timer.stop(f"check_if_passable--> visualization of final points {keyword}")
 
 
-        cv2.putText(
-            color_image,
-            f"Passability status: {Passability_status}, clearance: {clearance_m:.2f} m",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 200, 0),
-            2,
-        )
-        return Passability_status, color_image, bird_eye_view
+        return passablility_status, front_clearance, color_image
+
+def main():
+    rospy.init_node("check_if_corridor_is_passable")
+    node = Passability_checker()
+    rospy.loginfo("Check if corridor is passable node started.")
+
+
+if __name__ == "__main__":
+    main()

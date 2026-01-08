@@ -24,14 +24,13 @@ from state_combine_door import combine_door_state
 from state_parallel_detection import parallel_detection_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
-from state_no_door_plane_detected_state import create_full_view_bird_eye_view_state
+from state_no_door_plane_detected_state import full_image_passability_check_state
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode
 
 
 class DoorDetectionNode:
     def __init__(self):
-        rospy.init_node("glass_door_detection_node")
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
@@ -47,25 +46,25 @@ class DoorDetectionNode:
         self.sm = StateMachine(ctx=None)
         self.sm.add_state(idle_state())
         self.sm.add_state(searching_door_plane_state())
-        self.sm.add_state(create_full_view_bird_eye_view_state())
+        self.sm.add_state(full_image_passability_check_state())
         self.sm.add_state(parallel_detection_state())
         self.sm.add_state(combine_door_state())
-        self.sm.set_state("idle")
+        self.sm.set_state("idle_state")
 
-        # Publishers
-        self.state_pub = rospy.Publisher("~door_state", String, queue_size=10)
+        # state Publishers
+        self.door_state_pub = rospy.Publisher("~door_state", String, queue_size=10)
+        self.mid_frame_x_px_for_passability_check_pub = rospy.Publisher("~mid_frame_x_px_for_passability_check", String, queue_size=10)
+        self.door_depth_pub = rospy.Publisher("~door_depth", String, queue_size=10)
+
+
+        
+        # visualization publishers
         self.debug_pub = rospy.Publisher("~debug_image", Image, queue_size=1)
         self.viz_color_pub = rospy.Publisher("~viz/color_branch", Image, queue_size=1)
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
         
-        self.viz_bird_eye_pub_color = rospy.Publisher("~viz/bird_eye_view_color", Image, queue_size=1)
-        self.viz_bird_eye_pub_depth = rospy.Publisher("~viz/bird_eye_view_depth", Image, queue_size=1)
-        self.viz_bird_eye_pub_full_image = rospy.Publisher("~viz/bird_eye_view_full_image", Image, queue_size=1)
-        
-        self.viz_passability_pub_depth = rospy.Publisher("~viz/passability_view_depth", Image, queue_size=1)
-        self.viz_passability_pub_color = rospy.Publisher("~viz/passability_view_color", Image, queue_size=1)
-        self.viz_passability_pub_full_image = rospy.Publisher("~viz/passability_view_full_image", Image, queue_size=1)
+        self.viz_passability_pub = rospy.Publisher("~viz/passability_view", Image, queue_size=1)
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
         color_sub = message_filters.Subscriber(color_topic, Image)
@@ -144,10 +143,13 @@ class DoorDetectionNode:
 
         
 
-        label = self.sm.ctx.door_state_label
-        if label is not None:
-            self.state_pub.publish(String(data=label))
+        # Publish current door state
+        self.door_state_pub.publish(String(data=self.sm.ctx.door_state_label))
+        self.mid_frame_x_px_for_passability_check_pub.publish(String(data=str(self.sm.ctx.mid_frame_x_px_for_passability_check)))
+        self.door_depth_pub.publish(String(data=str(self.sm.ctx.door_depth)))
 
+
+        # Publish visualizations
         try:
             if self.enable_visualization:
                 dbg = self.sm.ctx.color_image_color_based
@@ -160,24 +162,14 @@ class DoorDetectionNode:
                 # plane overlay: use base color image (with plane outlines drawn)
                 if self.sm.ctx.color_image_for_plane_detection is not None:
                     self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.color_image_for_plane_detection, encoding="bgr8"))
-                if self.sm.ctx.bird_eye_view_color_based is not None:
-                    self.viz_bird_eye_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_color_based, encoding="bgr8"))
-                if self.sm.ctx.bird_eye_view_depth_based is not None:
-                    self.viz_bird_eye_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_depth_based, encoding="bgr8"))
-                if self.sm.ctx.bird_eye_view_full_image_view is not None:
-                    self.viz_bird_eye_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.bird_eye_view_full_image_view, encoding="bgr8"))
-                if self.sm.ctx.passability_view_color_based is not None:
-                    self.viz_passability_pub_color.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_color_based, encoding="bgr8"))
-                if self.sm.ctx.passability_view_depth_based is not None:
-                    self.viz_passability_pub_depth.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_depth_based, encoding="bgr8"))
-                if self.sm.ctx.passability_view_full_image_view is not None:
-                    self.viz_passability_pub_full_image.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.passability_view_full_image_view, encoding="bgr8"))
+
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")
 
         #cv2.waitKey(1)
 
 def main():
+    rospy.init_node("glass_door_detection_node")
     node = DoorDetectionNode()
     rospy.loginfo("glass_door_detection_node started.")
     rospy.spin()

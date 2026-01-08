@@ -2,21 +2,17 @@
 
 from Frame_data import FrameContext,BaseState
 import numpy as np
-from check_if_passable import BirdsEyePassabilityPipeline
+
+import rospy
 
 
-class create_full_view_bird_eye_view_state(BaseState):
+class full_image_passability_check_state(BaseState):
     def __init__(self):
-        super().__init__("create_full_view_bird_eye_view_state")
+        super().__init__("full_image_passability_check_state")
+        self.reference_door_distance_m = rospy.get_param("~plane_detector/reference_door_distance_m", 2.0)  # meters
 
     def do_action(self, ctx: FrameContext):
-        full_image_roi = np.array([[0,0],[ctx.color_image.shape[1]-1,0],[ctx.color_image.shape[1]-1,ctx.color_image.shape[0]-1],[0,ctx.color_image.shape[0]-1]])
-        keyword = "full_image_view"
-        pipeline_full_image = BirdsEyePassabilityPipeline()
-        point_cloud_vertical_ratio, passability_view, bird_eye_view = pipeline_full_image.run(ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, ctx.color_image, full_image_roi, door_depth=2.0, keyword=keyword)
-
-
-
-        # Persist visualizations in context
-        setattr(ctx, f"passability_view_{keyword}", passability_view)
-        setattr(ctx, f"bird_eye_view_{keyword}", bird_eye_view)
+        ctx.door_state_label = "No_door_plane_detected"  # No door plane detected
+        ctx.mid_frame_x_px_for_passability_check = None  # Not applicable
+        ctx.door_depth = self.reference_door_distance_m  # Default depth when no door plane is
+        return "idle_state"  # Transition back to idle state

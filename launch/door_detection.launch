@@ -133,12 +133,13 @@
         roi_width: 240
         margin: 10
         threshold: 0.05
-        bev_params:
-          grid_res: 0.01
-          required_clearance: 0.45
-          max_obstacle_height: -0.5
+    </rosparam>
+  </node>
+  <node pkg="robodog_glass_door_detection" type="check_if_passable.py" name="check_if_corridor_is_passable" output="screen" launch-prefix="$(eval debug and 'python3 -m debugpy --listen 0.0.0.0:5678 --wait-for-client' or '')">
+    <rosparam>
+      passabilility_check:
         back_proj_params:
-          subsample: 2
+          subsample: 4
         filter_points_params:
           ransac:
             max_planes: 3
@@ -161,6 +162,17 @@
             base_area_at_1m: 1400
             min_z: 0.1
             max_z: 4.0
+        traversal_params:
+          min_front_clearance: 1.0  # meters
+          robot_width: 0.45  # meters ,robot  width
+          safety_margin_robot_width: 0.05  # meters
+          door_frame_margin: 0.05  # meters
+          minimum_depth_points_before_filtering : 50  # points
+          max_obstacle_height : -0.5  # meters
+          minimum_depth_points_after_filtering : 20  # points
     </rosparam>
   </node>
+  <node pkg="robodog_glass_door_detection" type="door_traversal_controller.py" name="door_traversal" output="screen" launch-prefix="$(eval debug and 'python3 -m debugpy --listen 0.0.0.0:5678 --wait-for-client' or '')">
+    <rosparam>
+    </rosparam>
 </launch>

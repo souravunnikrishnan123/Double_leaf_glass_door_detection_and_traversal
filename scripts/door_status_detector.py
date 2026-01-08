@@ -4,7 +4,6 @@
 #!/usr/bin/env python3
 import rospy
 import cv2
-from check_if_passable import BirdsEyePassabilityPipeline
 import numpy as np
 import open3d as o3d
 from duration import get_duration_seconds

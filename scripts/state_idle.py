@@ -6,7 +6,7 @@ import os
 
 class idle_state(BaseState):
     def __init__(self):
-        super().__init__("idle")
+        super().__init__("idle_state")
     def do_action(self, ctx: FrameContext):
         pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
         log_dir = os.path.join(pkg_path, 'scripts')

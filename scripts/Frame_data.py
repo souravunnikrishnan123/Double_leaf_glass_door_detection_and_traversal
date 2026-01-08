@@ -38,20 +38,13 @@ class FrameContext:
 
     # final
     door_state_label: Optional[str] = None
-    passable_ratio: Optional[float] = None
+    mid_frame_x_px_for_passability_check: Optional[float] = None
+    door_depth : Optional[float] = None
 
     # visualization buffers (published as ROS images)
     viz_color_stack: Optional[np.ndarray] = None
     viz_depth_stack: Optional[np.ndarray] = None
     viz_plane_overlay: Optional[np.ndarray] = None
-    bird_eye_view_color_based: Optional[np.ndarray] = None
-    bird_eye_view_depth_based: Optional[np.ndarray] = None
-    bird_eye_view_full_image_view : Optional[np.ndarray] = None
-    passability_view_color_based: Optional[np.ndarray] = None
-    passability_view_depth_based: Optional[np.ndarray] = None
-    passability_view_full_image_view : Optional[np.ndarray] = None
-
-
 
 
 class BaseState:

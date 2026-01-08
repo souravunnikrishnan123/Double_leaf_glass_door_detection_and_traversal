@@ -84,6 +84,7 @@ def intrinsics_to_camera_info(intr, frame_id):
 
 def main():
     rospy.init_node('realsense_bag_bridge', anonymous=False)
+    rospy.loginfo("realsense_bag_bridge node started.")
 
     bag_file = rospy.get_param('~bag', rospy.get_param('bag', None))
     if bag_file is None:

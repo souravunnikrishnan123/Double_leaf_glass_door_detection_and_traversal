@@ -86,11 +86,11 @@ class searching_door_plane_state(BaseState):
                 # No candidates detected this frame
                 self._no_candidate_count += 1
                 if self._no_candidate_count >= self.max_no_candidate_frames:
-                    # Transition to full-view bird-eye processing (no door plane detected path)
+                    # Transition to full-view image passability check (no door plane detected path)
                     # Reset counters on transition
                     self._no_candidate_count = 0
                     # to directly check if the door is passable without plane detection as the plane is not detectable. this is useful when the both doors halves are wide open already and ransac couldnt detect frame around it as well
-                    return "create_full_view_bird_eye_view_state"
+                    return "full_image_passability_check_state"
                 #stay in this state
                 return None
 

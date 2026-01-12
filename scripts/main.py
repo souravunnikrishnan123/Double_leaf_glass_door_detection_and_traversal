@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32, Int32
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import message_filters
@@ -38,6 +38,9 @@ class DoorDetectionNode:
         queue_size = rospy.get_param("~queue_size", 30)
         slop = rospy.get_param("~sync_slop", 0.2)
 
+        self.latest_info = None
+        self.fx = self.fy = self.cx = self.cy = None
+
         self.bridge = CvBridge()
         # Global visualization toggle (default true)
         self.enable_visualization = rospy.get_param("~enable_visualization", True)
@@ -53,8 +56,8 @@ class DoorDetectionNode:
 
         # state Publishers
         self.door_state_pub = rospy.Publisher("~door_state", String, queue_size=10)
-        self.mid_frame_x_px_for_passability_check_pub = rospy.Publisher("~mid_frame_x_px_for_passability_check", String, queue_size=10)
-        self.door_depth_pub = rospy.Publisher("~door_depth", String, queue_size=10)
+        self.mid_frame_x_px_for_passability_check_pub = rospy.Publisher("~mid_frame_x_px_for_passability_check", Int32, queue_size=10)
+        self.door_depth_pub = rospy.Publisher("~door_depth", Float32, queue_size=10)
 
 
         
@@ -69,15 +72,17 @@ class DoorDetectionNode:
         # Subscribers: sync color + depth; cache camera info separately for robustness
         color_sub = message_filters.Subscriber(color_topic, Image)
         depth_sub = message_filters.Subscriber(depth_topic, Image)
-        self.latest_info = None
+        
+        # camera intrinsics will be cached on first receipt
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
-        #camera intrinsics will be cached on first receipt
-        self.fx = self.fy = self.cx = self.cy = None
 
         ats = message_filters.ApproximateTimeSynchronizer(
             [color_sub, depth_sub], queue_size=queue_size, slop=slop
         )
         ats.registerCallback(self.callback)
+
+
+
 
     def _to_cv_color(self, color_msg: Image) -> np.ndarray:
         try:
@@ -112,15 +117,13 @@ class DoorDetectionNode:
             rospy.logwarn_throttle(5.0, "Waiting for CameraInfo (only needed once)...")
             return
 
-        fx, fy, cx, cy = self.fx, self.fy, self.cx, self.cy
-
-        depth_frame_adapter = DepthFrameAdapter(depth_mm, fx, fy, cx, cy)
+        depth_frame_adapter = DepthFrameAdapter(depth_mm, self.fx, self.fy, self.cx, self.cy)
 
         if not hasattr(self.sm, "ctx") or self.sm.ctx is None:
             self.sm.ctx = FrameContext(
                 depth_image_in_meters=depth_m,
                 color_image=color_image,
-                fx=fx, fy=fy, cx=cx, cy=cy,
+                fx=self.fx, fy=self.fy, cx=self.cx, cy=self.cy,
                 depth_frame=depth_frame_adapter,
             )
             self.sm.ctx.color_image_color_based = color_image.copy()
@@ -133,20 +136,41 @@ class DoorDetectionNode:
             ctx.color_image_color_based = color_image.copy()
             ctx.color_image_depth_based = color_image.copy()
             ctx.color_image_for_plane_detection = color_image.copy()
-            ctx.fx, ctx.fy, ctx.cx, ctx.cy = fx, fy, cx, cy
+            ctx.fx, ctx.fy, ctx.cx, ctx.cy = self.fx, self.fy, self.cx, self.cy
             ctx.depth_frame = depth_frame_adapter
 
         
         self.sm.update(self.sm.ctx)
+        #write durations to file once per callback.
+        # file is overwritten each time.filepath is specified by ROS param ~durations_file_path and read by duration.py 
+        #when we create get_duration_seconds object in each usage
+        get_duration_seconds.write_text_file()
 
        
 
         
 
-        # Publish current door state
-        self.door_state_pub.publish(String(data=self.sm.ctx.door_state_label))
-        self.mid_frame_x_px_for_passability_check_pub.publish(String(data=str(self.sm.ctx.mid_frame_x_px_for_passability_check)))
-        self.door_depth_pub.publish(String(data=str(self.sm.ctx.door_depth)))
+        # Publish current door state (guard None)
+        door_state = self.sm.ctx.door_state_label
+        if door_state is None:
+            door_state = "unknown"
+        self.door_state_pub.publish(String(data=str(door_state)))
+
+        # Publish mid_frame_x for passability (must be an int)
+        mfx = self.sm.ctx.mid_frame_x_px_for_passability_check
+        if mfx is not None:
+            try:
+                self.mid_frame_x_px_for_passability_check_pub.publish(Int32(data=int(mfx)))
+            except (ValueError, TypeError) as e:
+                rospy.logwarn_throttle(5.0, f"mid_frame_x publish skipped (non-integer): {e}")
+
+        # Publish door depth (must be a float)
+        dd = self.sm.ctx.door_depth
+        if dd is not None:
+            try:
+                self.door_depth_pub.publish(Float32(data=float(dd)))
+            except (ValueError, TypeError) as e:
+                rospy.logwarn_throttle(5.0, f"door_depth publish skipped (non-float): {e}")
 
 
         # Publish visualizations
@@ -169,9 +193,9 @@ class DoorDetectionNode:
         #cv2.waitKey(1)
 
 def main():
-    rospy.init_node("glass_door_detection_node")
+    rospy.init_node("glass_door_detection")
     node = DoorDetectionNode()
-    rospy.loginfo("glass_door_detection_node started.")
+    rospy.loginfo("glass_door_detection node started.")
     rospy.spin()
 
 

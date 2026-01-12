@@ -3,9 +3,7 @@ import rospy
 import cv2
 import numpy as np
 import open3d as o3d
-from processing_classes import backproject_depth_to_points
 from duration import get_duration_seconds
-
 
 
 
@@ -59,12 +57,13 @@ class Passability_checker:
         # Traversal safety thresholds
         # -----------------------------
         self.min_front_clearance = rospy.get_param(f"{ns}/traversal_params/min_front_clearance", 1.0)  # meters
-        self.robot_width = rospy.get_param(f"{ns}/traversal_params/robot_width", 0.45)  # meters ,robot  width
-        self.safety_margin_robot_width = rospy.get_param(f"{ns}/traversal_params/safety_margin_robot_width", 0.05)  # meters
-        self.door_frame_margin = rospy.get_param(f"{ns}/traversal_params/door_frame_margin", 0.05)  # meters
-        self.minimum_depth_points_before_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_before_filtering", 50)  # points
+        self.minimum_depth_points_after_back_projection = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_back_projection", 50)  # points
         self.max_obstacle_height = rospy.get_param(f"{ns}/traversal_params/max_obstacle_height", -0.5)  # meters
         self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
+
+        # duration timer
+        self.timer = get_duration_seconds()
+
 
     def visualize_roi(self, color_image, roi_polygon):
         # Visualization: translucent ROI fill + outline
@@ -316,53 +315,27 @@ class Passability_checker:
                         color_image[py[valid_mask], px[valid_mask]] = color
         except Exception:
             pass
-        return color_image
+        return color_image                
 
 
-    def run(self, depth_image_in_meters, fx, fy, cx, cy, color_image, mid_frame_x_px, open_side, door_depth, keyword):
 
-        timer_full = get_duration_seconds()
+    def run(self, depth_image_in_meters, color_image, x_left_boundary, x_right_boundary, valid_points, uv, z_max):
+
         H, W = depth_image_in_meters.shape
-        timer_full.start(f"check_if_passable--> main passability check {keyword}")
+        self.timer.start(f"check_if_passable--> main passability check")
 
-        timer = get_duration_seconds()
-        timer.start(f"check_if_passable--> backprojection {keyword}")
+        self.timer.start(f"check_if_passable--> backprojection")
         #color_image = self.visualize_roi(color_image, roi_polygon)
 
-        #  Define Z extents relative to door
-        z_min, z_max = 0.05, door_depth + 1.5  # meters
-        valid_points, uv, _ = backproject_depth_to_points(
-            depth_image_in_meters, fx, fy, cx, cy,
-            max_depth=z_max, min_depth=z_min,
-            subsample=self.subsample, roi_polygon=None
-        )
 
         if len(valid_points) == 0:
             return False, None, None
 
-        # ---------------------------------------
-        # Convert door mid-frame pixel to X (meters)
-        # ---------------------------------------
-        x_center = (mid_frame_x_px - cx) * door_depth / fx
-
-        # ---------------------------------------
-        # Define robot-centric traversal corridor
-        # ---------------------------------------
-        if open_side == "open_left":
-            x_left_boundary   = x_center - (self.robot_width + self.safety_margin_robot_width)  
-            x_right_boundary  = x_center - self.door_frame_margin   
-        elif open_side == "open_right":
-            x_left_boundary   = x_center + self.door_frame_margin
-            x_right_boundary  = x_center + (self.robot_width + self.safety_margin_robot_width)
-        else:
-            return False, None, None
         
         corridor_mask_before_filter = (
             (valid_points[:, 0] > x_left_boundary) &
             (valid_points[:, 0] < x_right_boundary) &
-            (valid_points[:, 1] > self.max_obstacle_height) &
-            (valid_points[:, 2] > z_min) &
-            (valid_points[:, 2] < z_max)
+            (valid_points[:, 1] > self.max_obstacle_height)
         )
         corridor_pts_before_filter = valid_points[corridor_mask_before_filter]
         corridor_uv_before_filter = uv[corridor_mask_before_filter]
@@ -375,32 +348,30 @@ class Passability_checker:
             uv_below_robot_eye_level,
         ) = self.split_eye_level(corridor_pts_before_filter, corridor_uv_before_filter)
 
-        timer.stop(f"check_if_passable--> backprojection {keyword}")
+        self.timer.stop(f"check_if_passable--> backprojection")
 
-        timer.start(f"check_if_passable--> floor removal {keyword}")
+        self.timer.start(f"check_if_passable--> floor removal")
         points_3_nofloor, uv_3_nofloor, floor_height = self.remove_floor_ransac(
             points_below_robot_eye_level, uv_below_robot_eye_level
         )
-        timer.stop(f"check_if_passable--> floor removal {keyword}")
+        self.timer.stop(f"check_if_passable--> floor removal")
 
-        timer.start(f"check_if_passable--> normal filtering {keyword}")
+        self.timer.start(f"check_if_passable--> normal filtering")
         points_4_normal, uv_4_normal = self.normal_filtering(points_3_nofloor, uv_3_nofloor)
-        timer.stop(f"check_if_passable--> normal filtering {keyword}")
+        self.timer.stop(f"check_if_passable--> normal filtering")
 
-        timer.start(f"check_if_passable--> 3D outlier removal {keyword}")
+        self.timer.start(f"check_if_passable--> 3D outlier removal")
         points_2_3d_outlier_removal, uv_2_3d_outlier_removal = self.outlier_removal(
             points_4_normal, uv_4_normal
         )
-        if points_2_3d_outlier_removal.shape[0] == 0:
-            return False, None, None
-        timer.stop(f"check_if_passable--> 3D outlier removal {keyword}")
 
-        timer.start(f"check_if_passable--> connected components {keyword}")
+        self.timer.stop(f"check_if_passable--> 3D outlier removal")
+
+        self.timer.start(f"check_if_passable--> connected components")
         points_5_remove_patches, uv_5_remove_patches = self.connected_components_filter(
             points_2_3d_outlier_removal, uv_2_3d_outlier_removal, W, H, floor_height
         )
-        timer.stop(f"check_if_passable--> connected components {keyword}")
-
+        self.timer.stop(f"check_if_passable--> connected components")
         final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
         final_uv = np.vstack([uv_5_remove_patches, uv_above_robot_eye_level])
 
@@ -411,16 +382,16 @@ class Passability_checker:
             passablility_status = front_clearance > self.min_front_clearance
         else: # no points in corridor after filtering
             # need to check if there were points before filtering
-            if len(corridor_pts_before_filter) > self.minimum_depth_points_before_filtering:
+            if len(valid_points) > self.minimum_depth_points_after_back_projection:
                 front_clearance = z_max
                 passablility_status = True
             else:
                 front_clearance = None
-                passablility_status = False  # no points in corridor at all
+                passablility_status = False  # no points in image at all
 
-        timer_full.stop(f"check_if_passable--> main passability check {keyword}")
+        self.timer.stop(f"check_if_passable--> main passability check")
 
-        timer.start(f"check_if_passable--> visualization of final points {keyword}")
+        self.timer.start(f"check_if_passable--> visualization of final points")
         color_image = self.visualize_points(
             color_image,
             W,
@@ -434,16 +405,8 @@ class Passability_checker:
                 (final_uv, (0, 255, 255))
             ],
         )
-        timer.stop(f"check_if_passable--> visualization of final points {keyword}")
+        self.timer.stop(f"check_if_passable--> visualization of final points")
 
 
         return passablility_status, front_clearance, color_image
 
-def main():
-    rospy.init_node("check_if_corridor_is_passable")
-    node = Passability_checker()
-    rospy.loginfo("Check if corridor is passable node started.")
-
-
-if __name__ == "__main__":
-    main()

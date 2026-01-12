@@ -13,6 +13,9 @@ class GlassFrameLineProcessor:
         self.door_geometry = []
         self.DEPTH_RANGE = []
         self.keyword = None
+
+        #duration timer
+        self.timer = get_duration_seconds()
         
 
     def filter_vertical_lines_glass_contact(self):
@@ -382,8 +385,8 @@ class GlassFrameLineProcessor:
 
         if lines is None or len(lines) == 0:
             return None, None, 0
-        timer = get_duration_seconds()
-        timer.start(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
+
+        self.timer.start(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
 
         paired_lines = self.filter_vertical_lines_glass_contact()
         # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
@@ -415,8 +418,7 @@ class GlassFrameLineProcessor:
 
         roi_polygon_left, roi_polygon_right , mean_z_depth_along_frame_lines = self.process_filtered_lines(paired_lines_sorted)
 
-        
-        timer.stop(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
+        self.timer.stop(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
         return roi_polygon_left, roi_polygon_right , mean_z_depth_along_frame_lines
 
 

@@ -102,6 +102,9 @@ class ColorDoorDetector:
         self.line_extender = LineExtender()
         self.glass_frame_detector = GlassFrameLineProcessor()
         
+        # duration timer
+        self.timer = get_duration_seconds()
+        
 
     def process_frame(self, ctx) -> ColorDetectionResult:
 
@@ -112,8 +115,7 @@ class ColorDoorDetector:
         vertical_lines = []
         depth_of_each_lines = []
 
-        timer = get_duration_seconds()
-        timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
+        self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         H = ctx.color_image_color_based.shape[0]
         W = ctx.color_image_color_based.shape[1]
 
@@ -126,11 +128,10 @@ class ColorDoorDetector:
         edges = self.preprocessor.restore_size(edges_scaled, W, H, self.scale)
         
 
-        timer.stop("get_rgb_based_lines_using_canny_and_hough_lines")
+        self.timer.stop("get_rgb_based_lines_using_canny_and_hough_lines")
         
 
-        timer = get_duration_seconds()
-        timer.start("color_image_based_frame_detection line processing")
+        self.timer.start("color_image_based_frame_detection line processing")
 
         if lines is not None:
             lines = self.line_filter.angle_filter(lines, self.angle_threshold)
@@ -243,7 +244,7 @@ class ColorDoorDetector:
                     #pt1 = tuple(map(int, line_pts[0][:2]))
                     #pt2 = tuple(map(int, line_pts[-1][:2]))
                     #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
-            timer.stop("color_image_based_frame_detection line processing")
+            self.timer.stop("color_image_based_frame_detection line processing")
 
 
             roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(

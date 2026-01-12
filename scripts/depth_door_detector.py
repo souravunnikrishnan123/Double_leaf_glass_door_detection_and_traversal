@@ -71,6 +71,9 @@ class DepthDoorDetector:
         self.preprocessor = Preprocessor()
         self.glass_frame_detector = GlassFrameLineProcessor()
 
+        #duration timer
+        self.timer = get_duration_seconds()
+
 
 
     def process_frame(self, ctx) -> DepthDetectionResult:
@@ -83,8 +86,7 @@ class DepthDoorDetector:
         # If aligned depth resolution differs from RGB, resize the color image to depth size
         # so line and ROI coordinates derived from depth map align correctly.
 
-        timer = get_duration_seconds()
-        timer.start("depth_based_edge_detection preprocessing")
+        self.timer.start("depth_based_edge_detection preprocessing")
 
         ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance", 2.0)
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
@@ -131,9 +133,9 @@ class DepthDoorDetector:
         sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
         
 
-        timer.stop("depth_based_edge_detection preprocessing")
+        self.timer.stop("depth_based_edge_detection preprocessing")
 
-        timer.start("depth_based_edge_detection line processing")
+        self.timer.start("depth_based_edge_detection line processing")
         
         if depth_lines is not None:
             depth_lines = self.line_filter.angle_filter(depth_lines, self.angle_threshold)
@@ -161,7 +163,7 @@ class DepthDoorDetector:
 
             
 
-            timer.stop("depth_based_edge_detection line processing")
+            self.timer.stop("depth_based_edge_detection line processing")
 
             roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(
                 ctx.depth_image_in_meters,

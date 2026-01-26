@@ -85,17 +85,17 @@ def intrinsics_to_camera_info(intr, frame_id):
     return ci
 
 
-def calculate_camera_info_for_gazebo(depth_msg: Image, hfov:float, vfov : float) -> CameraInfo:
+def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float) -> CameraInfo:
     """
     Calculate CameraInfo for the depth image in Gazebo mode.
     Assumes typical RealSense D455 intrinsics.
     """
     ci = CameraInfo()
-    ci.header = depth_msg.header
-    ci.width = depth_msg.width
-    W = depth_msg.width
-    ci.height = depth_msg.height
-    H = depth_msg.height
+    ci.header = color_msg.header
+    ci.width = color_msg.width
+    W = color_msg.width
+    ci.height = color_msg.height
+    H = color_msg.height
 
     # --- Compute intrinsics ---
     fx = W / (2.0 * math.tan(hfov / 2.0))
@@ -155,6 +155,12 @@ def main():
     rospy.loginfo("realsense_bag_bridge node started.")
     input_mode = rospy.get_param('~input_mode', 'bag')  # 'bag' or 'gazebo'
 
+    # used only in gazebo mode to indicate which stream triggered processing
+    last_color_msg = None
+    last_depth_msg = None
+    new_color = False
+    new_depth = False
+
     if input_mode == 'bag':
         bag_file = rospy.get_param('~bag_file', None)
         loop_bag = rospy.get_param('~loop', True)  # whether to loop playback
@@ -176,30 +182,27 @@ def main():
         align = None
         rospy.loginfo("realsense_bag_bridge running in 'gazebo' mode")
         
-        #use deques to mimic “latest frame” behavior (closest to RealSense pipeline semantics).
-        latest_color = deque(maxlen=1)
-        latest_depth = deque(maxlen=1)
-
 
         def color_cb(msg):
-            latest_color.append(msg)
+            nonlocal last_color_msg, new_color
+            rospy.loginfo_once("COLOR CALLBACK FIRING")
+            last_color_msg = msg
+            new_color = True
 
         def depth_cb(msg):
-            latest_depth.append(msg)
+            nonlocal last_depth_msg, new_depth
+            rospy.loginfo_once("DEPTH CALLBACK FIRING")
+            last_depth_msg = msg
+            new_depth = True
 
             
         rospy.Subscriber(
         '/realsense/realsense/color/image_raw',
-        Image, color_cb, queue_size=1)
+        Image, color_cb, queue_size=1, tcp_nodelay=True)
 
         rospy.Subscriber(
         '/realsense/realsense/depth/image_raw',
-        Image, depth_cb, queue_size=1)
-
-
-
-
-
+        Image, depth_cb, queue_size=1, tcp_nodelay=True)
 
     color_topic = rospy.get_param('~color_topic', '/camera/color/image_raw')
     depth_topic = rospy.get_param('~depth_topic', '/camera/aligned_depth_to_color/image_raw')
@@ -212,7 +215,6 @@ def main():
 
     bridge = CvBridge()
         
-    rate = rospy.Rate(30.0)  # fallback loop rate
     # -------------------------
     # FPS REDUCTION CONTROL
     # -------------------------
@@ -223,10 +225,17 @@ def main():
 
     try:
         while not rospy.is_shutdown():
+            #rospy.loginfo("MAIN LOOP RUNNING")
+            # Initialize per-iteration artifacts
+            color_image = None
+            depth_image = None
+            camera_info = None
+            ros_time = None
             if input_mode == 'bag':
                 # Get frames (blocks until next frame set)
                 try:
                 # wait longer (10s) to avoid spurious timeouts
+                # this always return synchronized depth and color frames. no need of separte sync
                     frames = pipeline.wait_for_frames(timeout_ms=10000)
                 except RuntimeError as e:
                     rospy.logwarn("wait_for_frames timeout / runtime error: %s", e)
@@ -280,46 +289,63 @@ def main():
                 # Publish CameraInfo derived from the color frame intrinsics (once every frame)
                 camera_info = intrinsics_to_camera_info(color_intr, frame_id="camera_color_frame")
                 
+                # FPS reduction logic. this is only for bag mode; because we get synchrnoized frames only in bag mode ( via realsense pipeline). 
+                # hence bag mode is frame based, so FPS reduction is done here. for gazebo mode, we process messages as they arrive, so no frame skipping here
+                # because gazebo mode is message based(event based), not frame based
+                frame_counter += 1
+                if frame_counter % (frame_skip + 1) != 0:
+                    continue
 
             elif input_mode == 'gazebo':
-                #get latest frames from deques
-                if not latest_color or not latest_depth:
-                    rospy.logwarn_throttle(5.0, "Waiting for color, depth messages...")
-                    rate.sleep()
+                #never require both color and depth to be present at the same time.
+                #process color and depth independently; no synchronization is enforced here
+                #Color messages may be published even if depth lags behind, or vice versa.
+                #main node's ApproximateTimeSynchronizer will work correctly
+                if not new_color and not new_depth:
+                    # nothing to publish this iteration
+                    rospy.sleep(0.001)
                     continue
+                
+                color_msg = last_color_msg
+                depth_msg = last_depth_msg
+                new_color = False
+                new_depth = False
 
-                #take the last messages
-                color_msg = latest_color[-1]
-                depth_msg = latest_depth[-1]
-                camera_info = calculate_camera_info_for_gazebo(depth_msg, hfov=1.396, vfov=0.789 )
+                
 
-                #convert to cv images
+                #rospy.loginfo("Processing gazebo messages")
+
+                # Compute CameraInfo only when we have a color message
+                if color_msg is not None:
+                    camera_info = calculate_camera_info_for_gazebo(color_msg, hfov=1.396, vfov=0.789)
+
+                # convert to cv images if present
                 try:
-                    color_image = bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
+                    if color_msg is not None:
+                        color_image = bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
                 except Exception as e:
                     rospy.logwarn("Failed to convert color image msg to cv2: %s", e)
-                    continue
+                    # proceed to try depth if available
                 try:
-                    depth_image = bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+                    if depth_msg is not None:
+                        depth_image = bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
                 except Exception as e:
                     rospy.logwarn("Failed to convert depth image msg to cv2: %s", e)
-                    continue
-                ros_time = color_msg.header.stamp
+                    # proceed; may still publish color
 
             # since we calculated depth_image, color_image, camera_info and ros_time, we can now proceed to post processing
-            # like FPS reduction and scaling followed by publishing
-
-            # FPS reduction logic
-            frame_counter += 1
-            if frame_counter % (frame_skip + 1) != 0:
-                continue
+            # like scaling followed by publishing
 
 
             if resize_scale != 1.0:
-                new_w = int(color_image.shape[1] * resize_scale)
-                new_h = int(color_image.shape[0] * resize_scale)
-                color_image = cv2.resize(color_image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-                depth_image = cv2.resize(depth_image, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                if color_image is not None:
+                    new_w = int(color_image.shape[1] * resize_scale)
+                    new_h = int(color_image.shape[0] * resize_scale)
+                    color_image = cv2.resize(color_image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+                if depth_image is not None:
+                    new_w = int(depth_image.shape[1] * resize_scale)
+                    new_h = int(depth_image.shape[0] * resize_scale)
+                    depth_image = cv2.resize(depth_image, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
             # Try to detect color encoding; many bags store color as RGB8 -> cv_bridge expects 'rgb8' or convert to bgr8
             # We'll publish as bgr8 for OpenCV compatibility. If color image is RGB, swap channels.
             # A quick heuristic: check number of channels
@@ -327,47 +353,81 @@ def main():
             #Intel’s SDK uses RGB internally
             #RealSense Viewer exports RGB frames
             #ROS RealSense driver publishes RGB
-            if input_mode == "bag" and color_image.shape[2] == 3:
-                # Heuristic: if colors look like RGB (not guaranteed). We'll convert RGB->BGR to be safe.
-                color_bgr = color_image[..., ::-1].copy()  # RGB->BGR
-            else: #in gazebo mode, color image is already bgr8. so no need to swap channels
-                color_bgr = color_image
+            color_bgr = None
+            if color_image is not None:
+                if input_mode == "bag" and color_image.shape[2] == 3:
+                    # Heuristic: if colors look like RGB (not guaranteed). We'll convert RGB->BGR to be safe.
+                    color_bgr = color_image[..., ::-1].copy()  # RGB->BGR
+                else:
+                    # in gazebo mode, color image is already bgr8. so no need to swap channels
+                    color_bgr = color_image
 
             # Prepare image messages
             # For color: publish bgr8
-            color_msg = bridge.cv2_to_imgmsg(color_bgr, encoding='bgr8')
+            color_msg_out = None
+            if color_bgr is not None:
+                color_msg_out = bridge.cv2_to_imgmsg(color_bgr, encoding='bgr8')
 
             # For depth: preserve raw encoding as passthrough so downstream knows actual type
             # If depth array dtype is uint16 -> publish as '16UC1'; if float32 -> '32FC1'
-            if depth_image.dtype == np.uint16:
-                depth_msg = bridge.cv2_to_imgmsg(depth_image, encoding='passthrough')  # keep 16UC1
-            elif depth_image.dtype == np.float32 or depth_image.dtype == np.float64:
-                depth_msg = bridge.cv2_to_imgmsg(depth_image.astype(np.float32), encoding='32FC1')
-            else:
-                # fallback: publish as passthrough and let downstream interpret
-                depth_msg = bridge.cv2_to_imgmsg(depth_image, encoding='passthrough')
+            depth_msg_out = None
+            if depth_image is not None:
+                if depth_image.dtype == np.uint16:
+                    depth_msg_out = bridge.cv2_to_imgmsg(depth_image, encoding='passthrough')  # keep 16UC1
+                elif depth_image.dtype == np.float32 or depth_image.dtype == np.float64:
+                    depth_msg_out = bridge.cv2_to_imgmsg(depth_image.astype(np.float32), encoding='32FC1')
+                else:
+                    # fallback: publish as passthrough and let downstream interpret
+                    depth_msg_out = bridge.cv2_to_imgmsg(depth_image, encoding='passthrough')
 
 
-            color_msg.header.stamp = ros_time
-            depth_msg.header.stamp = ros_time
-            camera_info.header.stamp = ros_time
-            color_msg.header.frame_id = "camera_color_frame"
+            #preserve original timestamps for color image and depth image( for  bag mode, use SDK timestamp ( already synchronized); for gazebo mode, use original message timestamps( may or may not be synchronized, but the main node will use ApproximateTimeSynchronizer for synchronization))
+            if input_mode == 'bag':
+                # no need to change timestamps; use SDK timestamp for color and depth
+                if camera_info is not None:
+                    camera_info.header.stamp = ros_time
+            elif input_mode == 'gazebo':
+                # preserve original timestamps from messages
+                if color_msg_out is not None and color_msg is not None:
+                    color_msg_out.header.stamp = color_msg.header.stamp
+                if depth_msg_out is not None and depth_msg is not None:
+                    depth_msg_out.header.stamp = depth_msg.header.stamp
+                if camera_info is not None and color_msg is not None:
+                    camera_info.header.stamp = color_msg.header.stamp
+
+                """
+                rospy.loginfo(
+                "Have color=%s depth=%s",
+                last_color_msg is not None,
+                last_depth_msg is not None
+            )
+            """
+
+
+            if color_msg_out is not None:
+                color_msg_out.header.frame_id = "camera_color_frame"
             #Each depth pixel corresponds to the same ray as the color pixel at the same (u,v).
-            depth_msg.header.frame_id = "camera_color_frame"  # aligned depth uses color frame
-            camera_info.header.frame_id = "camera_color_frame"
+            if depth_msg_out is not None:
+                depth_msg_out.header.frame_id = "camera_color_frame"  # aligned depth uses color frame
+            if camera_info is not None:
+                camera_info.header.frame_id = "camera_color_frame"
 
-            pub_camera_info.publish(camera_info)
 
-
-            # Publish images
-            pub_color.publish(color_msg)
-            pub_depth.publish(depth_msg)
+            
+            # Publish images and CameraInfo only if available
+            if camera_info is not None:
+                pub_camera_info.publish(camera_info)
+            if color_msg_out is not None:
+                pub_color.publish(color_msg_out)
+            if depth_msg_out is not None:
+                pub_depth.publish(depth_msg_out)
 
             # small sleep to avoid busy spin if pipeline is faster than consumer
-            rate.sleep()
+            rospy.sleep(0.001)
 
-    except rospy.ROSInterruptException:
-        pass
+    except Exception as e:
+        rospy.logerr("EXCEPTION IN MAIN LOOP: %s", e)
+        raise
     finally:
         try:
             if pipeline is not None:

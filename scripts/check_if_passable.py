@@ -133,7 +133,8 @@ class Passability_checker:
         if floor_height is None:
             print("Detected floor height: None (RANSAC failed)")
         else:
-            print(f"Detected floor height at y={floor_height:.3f} meters")
+            #print(f"Detected floor height at y={floor_height:.3f} meters")
+            pass
         """
         mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
         
@@ -172,7 +173,7 @@ class Passability_checker:
 
     def outlier_removal(self, points, uv):
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
-        print(f"number of points before S3O {len(points)}")
+        #print(f"number of points before S3O {len(points)}")
         try:
             pc_clean = o3d.geometry.PointCloud()
             pc_clean.points = o3d.utility.Vector3dVector(points)
@@ -190,7 +191,7 @@ class Passability_checker:
         return points_2_3d_outlier_removal, uv_2_3d_outlier_removal
 
     def connected_components_filter(self, points, uv, W, H, floor_height):
-        print(f"number of points before CC {len(points)}")
+        #print(f"number of points before CC {len(points)}")
         # --- Remove small patches in image space (connected components) ---
         try:
             # Defaults so visualization doesn't disappear if nothing is filtered
@@ -397,14 +398,15 @@ class Passability_checker:
             W,
             H,
             [
-                (uv, (0, 255, 0)),
-                (uv_3_nofloor, (255, 0, 255)),
-                (uv_4_normal, (0, 165, 255)),
-                (uv_2_3d_outlier_removal, (255, 0, 0)),
-                (uv_5_remove_patches, (0, 0, 255)),
-                (final_uv, (0, 255, 255))
+                (uv, (0, 255, 0)), # green
+                (uv_3_nofloor, (255, 0, 255)), # magenta
+                (uv_4_normal, (0, 165, 255)), # orange
+                (uv_2_3d_outlier_removal, (255, 0, 0)), # blue
+                (uv_5_remove_patches, (0, 0, 255)),# red
+                (final_uv, (0, 255, 255)) # yellow
             ],
         )
+
         self.timer.stop(f"check_if_passable--> visualization of final points")
 
 

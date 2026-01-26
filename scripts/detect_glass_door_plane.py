@@ -94,7 +94,7 @@ class PlaneDetector:
     """
     def __init__(self):
         ns = "~plane_detector"
-        self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
+        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
         self.global_map_distance_accuracy_to_door_plane = rospy.get_param(f"{ns}/global_map_distance_accuracy_to_door_plane", 0.15)
         self.distance_range_m = self.reference_door_distance_m * self.global_map_distance_accuracy_to_door_plane
         #backprojection

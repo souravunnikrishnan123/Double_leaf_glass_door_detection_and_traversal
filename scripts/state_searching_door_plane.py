@@ -12,7 +12,7 @@ class searching_door_plane_state(BaseState):
         ns = "~plane_detector"
         # Thresholds to decide "no plane present" path
         self.max_no_candidate_frames = rospy.get_param(f"{ns}/max_no_candidate_frames", 5)
-        self.reference_door_distance_m = rospy.get_param(f"{ns}/reference_door_distance_m", 2.0)
+        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
         self.global_map_distance_accuracy_to_door_plane = rospy.get_param(f"{ns}/global_map_distance_accuracy_to_door_plane", 0.15)
         self.distance_range_m = self.reference_door_distance_m * self.global_map_distance_accuracy_to_door_plane
         self._no_candidate_count = 0
@@ -65,6 +65,7 @@ class searching_door_plane_state(BaseState):
             self._no_candidate_count = 0 # reset counter on successful detection
 
             distance = float(result["plane_metrics"]["distance_m"])
+            rospy.loginfo(f"Detected door plane at distance: {distance:.2f} m")
             rospy.set_param("~plane_detector/output/ransac_plane_distance", distance)
             """
             if abs(distance - self.reference_door_distance_m) < self.distance_range_m:

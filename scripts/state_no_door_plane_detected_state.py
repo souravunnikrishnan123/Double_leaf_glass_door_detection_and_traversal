@@ -9,7 +9,7 @@ import rospy
 class full_image_passability_check_state(BaseState):
     def __init__(self):
         super().__init__("full_image_passability_check_state")
-        self.reference_door_distance_m = rospy.get_param("~plane_detector/reference_door_distance_m", 2.0)  # meters
+        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)  # meters
 
     def do_action(self, ctx: FrameContext):
         ctx.door_state_label = "No_door_plane_detected"  # No door plane detected

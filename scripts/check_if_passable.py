@@ -21,6 +21,12 @@ class Passability_checker:
         self.subsample = rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
 
         # -----------------------------
+        # split eye level params
+        # -----------------------------
+        
+        self.robot_eye_level_y = rospy.get_param(f"{ns}/filter_points_params/split_eye_level/robot_eye_level_y", -0.1)
+        
+        # -----------------------------
         # RANSAC floor removal params
         # -----------------------------
         self.max_planes = rospy.get_param(f"{ns}/filter_points_params/ransac/max_planes", 3)
@@ -49,14 +55,14 @@ class Passability_checker:
         self.near_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/near_z", 0.6)
         self.min_area_near = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_area_near", 640)
         self.minimum_area_far = rospy.get_param(f"{ns}/filter_points_params/cc_filter/minimum_area_far", 600)
-        self.base_area_at_1m = rospy.get_param(f"{ns}/filter_points_params/cc_filter/base_area_at_1m", 1400)
         self.min_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1)
         self.max_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/max_z", 4.0)
+        #self.min_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1)
+        #self.max_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/max_z", 4.0)
 
         # -----------------------------
         # Traversal safety thresholds
         # -----------------------------
-        self.min_front_clearance = rospy.get_param(f"{ns}/traversal_params/min_front_clearance", 1.0)  # meters
         self.minimum_depth_points_after_back_projection = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_back_projection", 50)  # points
         self.max_obstacle_height = rospy.get_param(f"{ns}/traversal_params/max_obstacle_height", -0.5)  # meters
         self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
@@ -81,7 +87,7 @@ class Passability_checker:
 
 
     def split_eye_level(self, points, uv):
-        mask_below_robot_eye_level = points[:, 1] > 0.0
+        mask_below_robot_eye_level = points[:, 1] > self.robot_eye_level_y
         points_above_robot_eye_level = points[~mask_below_robot_eye_level]
         uv_above_robot_eye_level = uv[~mask_below_robot_eye_level]
         points_below_robot_eye_level = points[mask_below_robot_eye_level]
@@ -120,7 +126,7 @@ class Passability_checker:
 
         floor_height = None
         if floor_inliers is not None and floor_inliers.size > 0:
-            #take the largest horizontal plane as floor
+            #take the largest horizontal plane as floor. this is an assumption.
             keep_mask = np.ones(points.shape[0], dtype=bool)
             keep_mask[floor_inliers] = False
             points_3_nofloor = points[keep_mask]
@@ -133,10 +139,10 @@ class Passability_checker:
         if floor_height is None:
             print("Detected floor height: None (RANSAC failed)")
         else:
-            #print(f"Detected floor height at y={floor_height:.3f} meters")
+            print(f"Detected floor height at y={floor_height:.3f} meters")
             pass
         """
-        mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > -0.1  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
+        mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > self.robot_eye_level_y  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
         
         points_for_percentile_calculation = points[mask_below_robot_eye_level_for_floor_points_removal]
         # 3) Remove floor by percentile (top 98% in camera-frame Y)
@@ -200,7 +206,9 @@ class Passability_checker:
 
             area_scale = self.subsample * self.subsample  # compensate for subsampling
             # Depth-aware params
-            base_area_at_1m = self.base_area_at_1m / area_scale 
+            # be it corridor or local passability check, the depth range is small (like 0.5m for local and 2-3m for corridor). so using min_z and max_z for area scaling.
+            # because setting min_area_near and minimum_area_far has nothing to do with depth of points in corridor or local passability check. these are just area thresholds to remove small patches.
+            # because points that are about 0.5m to robot is considered as near points( always )
             min_area_near = max(6, int(self.min_area_near / area_scale))
             minimum_area_far = max(6, int(self.minimum_area_far / area_scale))
 
@@ -273,7 +281,8 @@ class Passability_checker:
                 if z_vals.size == 0:
                     continue
                 z_med = np.median(z_vals)
-                z_eff = np.clip(z_med, self.min_z, self.max_z)
+                
+                #z_eff = np.clip(z_med, self.min_z, self.max_z)
 
                 y_vals = pts_valid[label_mask, 1]
                 y_vals = y_vals[~np.isnan(y_vals)]
@@ -286,11 +295,14 @@ class Passability_checker:
                 #there could be floor noisy points due to reflection which have high z value but small area. so these should be removed.
                 #depths above 3.5m are removed during back projection itself.but there can be noisy floor points with depth less than 3.5m but higher than actual floor depth.
                 z_mad = np.median(np.abs(z_vals - np.median(z_vals)))
+                # need to review if below code is needed or not. because remving points based on  depth variation can cause removal of valid points also.
                 if z_mad > (0.30 + 0.05 * (area_px / 100)):
                     continue  # skip component with wildly varying depth
                 #area_thresh = base_area_at_1m / (z_eff * z_eff)
-                area_thresh = minimum_area_far
-                if (z_eff < self.near_z and area_px >= min_area_near) or (area_px >= area_thresh):
+                #using above line will not remove patches due to floor reflection. the points in floor near to robot will have high z_eff which will make area_thresh small and hence these patches will be kept instead of removing them.
+                #so use minimum_area_far as threshold for far points.
+
+                if (z_med < self.near_z and area_px >= min_area_near) or (area_px >= minimum_area_far):
                     keep_mask[label_mask] = True
 
             if np.any(keep_mask):
@@ -330,7 +342,7 @@ class Passability_checker:
 
 
         if len(valid_points) == 0:
-            return False, None, None
+            return None, None
 
         
         corridor_mask_before_filter = (
@@ -380,15 +392,15 @@ class Passability_checker:
 
         if len(final_points) > self.minimum_depth_points_after_filtering:
             front_clearance = np.min(final_points[:, 2])
-            passablility_status = front_clearance > self.min_front_clearance
-        else: # no points in corridor after filtering
+
+        else: # no enough points in corridor after filtering
             # need to check if there were points before filtering
             if len(valid_points) > self.minimum_depth_points_after_back_projection:
                 front_clearance = z_max
-                passablility_status = True
             else:
-                front_clearance = None
-                passablility_status = False  # no points in image at all
+                front_clearance = None # no points in image at all. means some problem. 
+                # but this is a problem only for corridor passability check. because local passability check only consider points in small roi around door center. hence for 
+                #local passability check, even if there are no points in small roi, we can assume front clearance to be large value like z_max.
 
         self.timer.stop(f"check_if_passable--> main passability check")
 
@@ -410,5 +422,5 @@ class Passability_checker:
         self.timer.stop(f"check_if_passable--> visualization of final points")
 
 
-        return passablility_status, front_clearance, color_image
+        return front_clearance, color_image
 

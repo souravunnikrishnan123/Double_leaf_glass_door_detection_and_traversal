@@ -178,7 +178,12 @@
           minimum_depth : 0.1  # meters
           maximum_depth_beyond_door_depth : 1.5  # meters
           subsample: 4
+          minimum_depth_local_passability_check : 0.05  # meters
+          maximum_depth_local_passability_check : 0.5  # meters
+        
         filter_points_params:
+          split_eye_level:
+            robot_eye_level_y: -0.1  # meters , height of robot eye level in camera frame (y axis points downward)
           ransac:
             max_planes: 3
             n: 3
@@ -197,11 +202,8 @@
             near_z: 0.6
             min_area_near: 640
             minimum_area_far: 600
-            base_area_at_1m: 1400
-            min_z: 0.1
-            max_z: 4.0
         traversal_params:
-          min_front_clearance: 3.0  # meters
+          min_corridor_clearance_beyond_door_to_trigger_traversal_node : 0.7  # meters. stil based on the length of robot. this is min distance beyond door plane to check for corridor passability. setting higher value cause detecting human as obstacle when the door is opening outward
           robot_width: 0.45  # meters ,robot  width
           safety_margin_robot_width: 0.05  # meters
           door_frame_margin: 0.05  # meters
@@ -216,6 +218,8 @@
     <rosparam>
       door_traversal_controller:
         control_rate_hz: 5
+        min_front_clearance_local_passability_check: 0.2  # meters
+        min_front_clearance_corridor_beyond_door_plane : 0.7  # meters.  stil based on the length of robot. this is min distance beyond door plane to check for corridor passability. setting higher value cause detecting human as obstacle when the door is opening outward
         required_consecutive_safe : 3
         passability_hysteresis:
           consecutive_passable_to_true: 5
@@ -225,26 +229,32 @@
           heading_error_tolerance: 0.03
           min_forward_motion_for_heading : 0.02  # meters
           required_heading_samples : 2
-        pre_align_state:
+        pre_align_heading_state:
           lateral_error_tolerance: 0.05 # meters
-          velocity: 0.03 # m/s
+          omega_max: 0.4
+          kp_lateral_movement: -1.2
+        pre_align_readjust_heading_state:
+          fraction_distance_to_door_for_readjust_heading: 0.3  # fraction of distance to door
+          omega_max: 0.4
+          kp_lateral_movement: -1.2
+        pre_align_position_state:
+          lateral_error_tolerance: 0.05 # meters
+          velocity: 0.06 # m/s    # minimum of 5 cm/s forward to ensure some movement by controller
           omega_max: 0.4
           kp_lateral_movement: -1.2
         align_state:
-          lateral_error_tolerance: 0.02 # meters ( tigher than pre-align)
-          velocity: 0.02 # m/s
+          heading_error_tolerance: 0.02 # meters ( tigher than pre-align)
           omega_max: 0.5
-          kp_lateral_movement: -1.8
-          kp_heading_align_state : 1.2
+          kp_heading_align_state : -1.2
         traverse_state:
           distance_threshold: 1.0
           v_max: 0.2
-          v_min: 0.05
+          v_min: 0.06
           omega_max: 0.6
           k_clearance: 0.3
-          kp_corridor_center: 1.5
+          kp_corridor_center: -1.5
           scale_factor: 0.1
-          kp_heading_traverse_state : 0.8
+          kp_heading_traverse_state : -0.8
         abort:
           abort_backoff_distance: 0.25
           abort_backoff_speed: -0.08

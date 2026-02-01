@@ -22,11 +22,13 @@ from state_idle import idle_state
 from state_searching_door_plane import searching_door_plane_state
 from state_combine_door import combine_door_state
 from state_parallel_detection import parallel_detection_state
+from state_final import final_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
 from state_no_door_plane_detected_state import full_image_passability_check_state
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode
+from std_msgs.msg import Bool
 
 
 class DoorDetectionNode:
@@ -40,6 +42,7 @@ class DoorDetectionNode:
 
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
+        self.go_to_idle_from_finish_state = False
 
         self.bridge = CvBridge()
         # Global visualization toggle (default true)
@@ -52,6 +55,7 @@ class DoorDetectionNode:
         self.sm.add_state(full_image_passability_check_state())
         self.sm.add_state(parallel_detection_state())
         self.sm.add_state(combine_door_state())
+        self.sm.add_state(final_state())  # terminal state
         self.sm.set_state("idle_state")
 
         # state Publishers
@@ -75,6 +79,7 @@ class DoorDetectionNode:
         
         # camera intrinsics will be cached on first receipt
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
+        rospy.Subscriber("/check_if_corridor_is_passable/retrigger_door_detection_node", Bool, self._retrigger_door_detection_node_cb, queue_size=1)
 
         ats = message_filters.ApproximateTimeSynchronizer(
             [color_sub, depth_sub], queue_size=queue_size, slop=slop
@@ -108,6 +113,13 @@ class DoorDetectionNode:
             self.cx, self.cy = K[2], K[5]
             rospy.loginfo("Camera intrinsics received and stored.")
 
+    def _retrigger_door_detection_node_cb(self, msg: Bool):
+        if msg.data:
+            self.go_to_idle_from_finish_state = True
+            rospy.loginfo("Door detection retriggered to go to idle state.")
+        else:
+            self.go_to_idle_from_finish_state = False
+
 
     def callback(self, color_msg: Image, depth_msg: Image):
         color_image = self._to_cv_color(color_msg)
@@ -119,7 +131,7 @@ class DoorDetectionNode:
 
         depth_frame_adapter = DepthFrameAdapter(depth_mm, self.fx, self.fy, self.cx, self.cy)
 
-        if not hasattr(self.sm, "ctx") or self.sm.ctx is None:
+        if not hasattr(self.sm, "ctx") or self.sm.ctx is None: # create object of context class once.
             self.sm.ctx = FrameContext(
                 depth_image_in_meters=depth_m,
                 color_image=color_image,
@@ -129,7 +141,8 @@ class DoorDetectionNode:
             self.sm.ctx.color_image_color_based = color_image.copy()
             self.sm.ctx.color_image_depth_based = color_image.copy()
             self.sm.ctx.color_image_for_plane_detection = color_image.copy()
-        else:
+            self.sm.ctx.go_to_idle_from_finish_state = False
+        else: # update existing context object with new subscriped data.
             ctx = self.sm.ctx
             ctx.depth_image_in_meters = depth_m
             ctx.color_image = color_image
@@ -138,6 +151,7 @@ class DoorDetectionNode:
             ctx.color_image_for_plane_detection = color_image.copy()
             ctx.fx, ctx.fy, ctx.cx, ctx.cy = self.fx, self.fy, self.cx, self.cy
             ctx.depth_frame = depth_frame_adapter
+            ctx.go_to_idle_from_finish_state = self.go_to_idle_from_finish_state
 
         
         self.sm.update(self.sm.ctx)

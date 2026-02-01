@@ -22,19 +22,21 @@ import rospy
 import numpy as np
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool , String
+from std_msgs.msg import Bool , String, UInt8
 from tf.transformations import euler_from_quaternion
 from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
-import math
+
 
 # -------------------------------
 # FSM states
 # -------------------------------
 IDLE = "IDLE"
-PRE_ALIGN_TO_CORRIDOR = "PRE_ALIGN_TO_CORRIDOR"
+PRE_ALIGN_HEADING_TO_CORRIDOR = "PRE_ALIGN_HEADING_TO_CORRIDOR"
+PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR = "PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR"
+PRE_ALIGN_POSITION_TO_CORRIDOR = "PRE_ALIGN_POSITION_TO_CORRIDOR"
 ALIGN_TO_CORRIDOR = "ALIGN_TO_CORRIDOR"
-TRAVERSE_DOOR = "TRAVERSE_DOOR"
+TRAVERSE_DOOR = "TRAVERSE_DOOR" 
 ABORT = "ABORT"
 DONE = "DONE"
 
@@ -50,21 +52,34 @@ class DoorTraversalController:
         self.control_rate_hz = rospy.get_param(f"{ns}/control_rate_hz", 5.0)
         self.rate = rospy.Rate(self.control_rate_hz)
 
-
+        self.min_front_clearance_local_passability_check = rospy.get_param(f"{ns}/min_front_clearance_local_passability_check", 0.2)  # meters
+        self.min_front_clearance_corridor_beyond_door_plane = rospy.get_param(f"{ns}/min_front_clearance_corridor_beyond_door_plane", 1.0)  # meters
 
         # Pre-alignment state
-        sp = "pre_align_state"
-        self.lateral_error_tolerance_pre_align_state = rospy.get_param(f"{ns}/{sp}/lateral_error_tolerance", 0.05)  # meters
-        self.velocity_pre_align_state = rospy.get_param(f"{ns}/{sp}/velocity", 0.03)  # m/s
-        self.omega_max_pre_align_state = rospy.get_param(f"{ns}/{sp}/omega_max", 0.4)   # rad/s
-        self.kp_lateral_movement_pre_align_state = rospy.get_param(f"{ns}/{sp}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
+        sph = "pre_align_heading_state"
+        self.lateral_error_tolerance_pre_align_heading_state = rospy.get_param(f"{ns}/{sph}/lateral_error_tolerance", 0.05)  # meters
+        self.omega_max_pre_align_heading_state = rospy.get_param(f"{ns}/{sph}/omega_max", 0.4)   # rad/s
+        self.kp_lateral_movement_pre_align_heading_state = rospy.get_param(f"{ns}/{sph}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
         
+        # pre-align readjust heading state
+        spr = "pre_align_readjust_heading_state"
+        self.pre_align_readjust_heading_ref = 0.0
+        self.fraction_distance_to_door_for_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/fraction_distance_to_door_for_readjust_heading", 0.3)  # fraction of distance to door
+        self.omega_max_pre_align_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/omega_max", 0.4)   # rad/s
+        self.kp_lateral_movement_pre_align_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
+
+        # pre-align position state
+        spp = "pre_align_position_state"
+        self.pre_align_heading_ref = 0.0
+        self.lateral_error_tolerance_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/lateral_error_tolerance", 0.05)  # meters
+        self.velocity_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/velocity", 0.03)  # m/s
+        self.omega_max_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/omega_max", 0.4)   # rad/s
+        self.kp_lateral_movement_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
+   
         # Align state
         sa = "align_state"
-        self.lateral_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/lateral_error_tolerance", 0.02)  # meters
-        self.velocity_align_state = rospy.get_param(f"{ns}/{sa}/velocity", 0.02)  # m/s
+        self.heading_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/heading_error_tolerance", 0.02)  # meters
         self.omega_max_align_state = rospy.get_param(f"{ns}/{sa}/omega_max", 0.5)   # rad/s
-        self.kp_lateral_movement_align_state = rospy.get_param(f"{ns}/{sa}/kp_lateral_movement", -1.8)  # rad/s per meter lateral error
         # Heading control gains
         self.kp_heading_align_state = rospy.get_param(f"{ns}/{sa}/kp_heading_align_state", 1.2)
 
@@ -87,10 +102,7 @@ class DoorTraversalController:
         self.abort_backoff_distance = rospy.get_param(f"{ns}/{sa}/abort_backoff_distance", 0.25)
         self.abort_backoff_speed = rospy.get_param(f"{ns}/{sa}/abort_backoff_speed", -0.08)
 
-        # Temporal filtering
-        self.required_consecutive_safe = rospy.get_param(
-            "~required_consecutive_safe", 3
-        )
+
 
         #heading error calculation
         # Low-pass filter for heading estimate
@@ -118,7 +130,8 @@ class DoorTraversalController:
         self.state = IDLE
         self.start_pose = None
         self.start_yaw = None
-        self.consecutive_safe = 0
+        self.start_pose_before_traverse = None
+        self.start_yaw_before_traverse = None
 
         # Odometry
         self.current_pose = None
@@ -126,15 +139,20 @@ class DoorTraversalController:
         self.gazebo_pose = None
 
         # Passability 
-        self.passable = False
+        self.corridor_passable = False
+        self.local_passable = False
         self.front_clearance = None
-        self.corridor_center_x = 0.0
+        self.x_corridor_center_cam = None
+        self.distance_to_door = None
+        self.corridor_center_x_robot_base = 0.0
         # Hysteresis counters
-        self.safe_seq = 0
-        self.unsafe_seq = 0
+        self.safe_seq_corridor = 0
+        self.unsafe_seq_corridor = 0 
+        self.safe_seq_local = 0
+        self.unsafe_seq_local = 0   
 
         # heading estimation
-        self.prev_corridor_center_x = None
+        self.prev_corridor_center_x_robot_base = None
         self.heading_error_est = 0.0
         # =========================================================
         # ROS interfaces
@@ -151,11 +169,16 @@ class DoorTraversalController:
 
 
         self.done_pub = rospy.Publisher(
-            "/door_traversal_done", Bool, queue_size=1, latch=True
+            "~door_traversal_done", Bool, queue_size=1
+        )
+
+        self.request_local_passability_check_pub = rospy.Publisher(
+            "~request_local_passability_check", UInt8, queue_size=1
         )
 
 
         self.start_movement = False
+        self.traversal_is_started = False
 
         rospy.Subscriber(
             "/check_if_corridor_is_passable/trigger_traversal_node", Bool, self.trigger_traversal_node_callback
@@ -201,28 +224,74 @@ class DoorTraversalController:
         """
         EXPECTED CONVENTION (example):
             msg.linear.x  -> front_clearance (m)
-            msg.linear.y  -> corridor_center_x (m)
+            msg.linear.y  -> corridor_center_x_robot_base (m)
             msg.linear.z  -> passable (1.0 or 0.0)
+            msg.angular.x -> x_corridor_center_cam (m)
+            msg.angular.y -> distance_to_door (m)
 
         Adjust this mapping to your actual message type.
         """
         self.front_clearance = msg.linear.x
-        self.corridor_center_x = msg.linear.y
+        self.corridor_center_x_robot_base = msg.linear.y
+        self.x_corridor_center_cam = msg.angular.x
+        self.distance_to_door = msg.angular.y
+
 
         # Raw passability from detector
-        raw_passable = msg.linear.z > 0.5
+        if msg.linear.z == 1.0: # corridor passability check
+            self.local_passable = False  # reset local passability. because we are doing corridor passability check now
+            self.safe_seq_local = 0
+            self.unsafe_seq_local = 0
+            
+            if self.front_clearance is not None:
+                if self.front_clearance > self.distance_to_door +self.min_front_clearance_corridor_beyond_door_plane :
+                    raw_corridor_passable = True
+                else: 
+                    raw_corridor_passable = False
+            else:
+                raw_corridor_passable = False
 
-        # Apply hysteresis: require consecutive confirmations before toggling
-        if raw_passable:
-            self.safe_seq += 1
-            self.unsafe_seq = 0
-            if self.safe_seq >= self.passability_true_hysteresis:
-                self.passable = True
-        else:
-            self.unsafe_seq += 1
-            self.safe_seq = 0
-            if self.unsafe_seq >= self.passability_false_hysteresis:
-                self.passable = False
+            # Apply hysteresis: require consecutive confirmations before toggling
+            if raw_corridor_passable:
+                self.safe_seq_corridor += 1
+                self.unsafe_seq_corridor = 0
+                if self.safe_seq_corridor >= self.passability_true_hysteresis:
+                    self.corridor_passable = True
+                        
+            else:
+                self.unsafe_seq_corridor += 1
+                self.safe_seq_corridor = 0
+                if self.unsafe_seq_corridor >= self.passability_false_hysteresis:
+                    self.corridor_passable = False
+            
+             
+        elif msg.linear.z == 2.0: # local passability check
+            self.corridor_passable = False  # reset corridor passability. because we are doing local passability check now
+            self.safe_seq_corridor = 0
+            self.unsafe_seq_corridor = 0
+            if self.front_clearance is not None:
+                if self.front_clearance > self.min_front_clearance_local_passability_check:
+                    raw_local_passable = True
+                else: 
+                    raw_local_passable = False
+            else:
+                raw_local_passable = False
+            
+            # Apply hysteresis: require consecutive confirmations before toggling                  
+            if raw_local_passable:
+                self.safe_seq_local += 1
+                self.unsafe_seq_local = 0
+                if self.safe_seq_local >= self.passability_true_hysteresis:
+                    self.local_passable = True
+            else:
+                self.unsafe_seq_local += 1
+                self.safe_seq_local = 0
+                if self.unsafe_seq_local >= self.passability_false_hysteresis:
+                    self.local_passable = False
+
+
+
+
 
     def model_states_callback(self, msg):
         if "go1_gazebo" not in msg.name:
@@ -241,10 +310,14 @@ class DoorTraversalController:
     # =========================================================
 
     def stop_robot(self):
-        self.publish_cmd_vel(0.0, 0.0)
+        self.publish_cmd_vel(0.0, 0.0, 0.0)
+
+    def wrap_angle(self, angle):
+        """Normalize an angle in radians to the range [-pi, pi]."""
+        return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
-    def publish_cmd_vel(self, v, omega):
+    def publish_cmd_vel(self, v_forward, v_lateral, omega):
 
         if self.gazebo_pose is None:
             rospy.logwarn("Gazebo pose not yet received; cannot publish velocity and angular velocity to /set_model_state service")
@@ -257,15 +330,21 @@ class DoorTraversalController:
         # always use current gazebo pose
         self.modelstate.pose = self.gazebo_pose
 
-        self.modelstate.twist.linear.x = v
-        self.modelstate.twist.linear.y = 0.0
+        # Convert body-frame forward velocity to world frame
+        # only forward velocity v is given in robot base frame no lateral velocity
+        #v_lateral is always zero.
+        vx_world = v_forward * np.cos(self.current_yaw) - v_lateral * np.sin(self.current_yaw)
+        vy_world = v_forward * np.sin(self.current_yaw) + v_lateral * np.cos(self.current_yaw)
+
+        self.modelstate.twist.linear.x = vx_world
+        self.modelstate.twist.linear.y = vy_world
         self.modelstate.twist.linear.z = 0.0
 
         self.modelstate.twist.angular.x = 0.0
         self.modelstate.twist.angular.y = 0.0
         self.modelstate.twist.angular.z = omega
 
-        rospy.loginfo("Publishing cmd_vel: v=%.3f m/s, omega=%.3f rad/s", v, omega)
+        rospy.loginfo("Publishing cmd_vel: v_forward=%.3f m/s, v_lateral=%.3f m/s, omega=%.3f rad/s", v_forward, v_lateral, omega)
 
         response = self.set_model_state(self.modelstate)
         rospy.loginfo(
@@ -282,10 +361,10 @@ class DoorTraversalController:
         if self.current_pose is None:
             return 0.0
 
-        dx = self.current_pose[0] - self.start_pose[0]
-        dy = self.current_pose[1] - self.start_pose[1]
+        dx = self.current_pose[0] - self.start_pose_before_traverse[0]
+        dy = self.current_pose[1] - self.start_pose_before_traverse[1]
 
-        return dx * np.cos(self.start_yaw) + dy * np.sin(self.start_yaw)
+        return dx * np.cos(self.start_yaw_before_traverse) + dy * np.sin(self.start_yaw_before_traverse)
     
     def find_heading_error_estimate(self):
         # Estimate heading error based on change in corridor center x
@@ -293,7 +372,7 @@ class DoorTraversalController:
         # Update heading error estimate (from corridor drift and motion-gated)
         # =================================================
         if (
-            self.prev_corridor_center_x is not None and
+            self.prev_corridor_center_x_robot_base is not None and
             self.prev_pose_for_heading is not None and
             self.current_pose is not None
             ):
@@ -308,7 +387,7 @@ class DoorTraversalController:
 
             # Only update heading if robot actually moved forward
             if abs(forward_motion) > self.min_forward_motion_for_heading:
-                lateral_drift = self.corridor_center_x - self.prev_corridor_center_x
+                lateral_drift = self.corridor_center_x_robot_base - self.prev_corridor_center_x_robot_base
                 heading_raw = lateral_drift / forward_motion
 
                 self.heading_error_est = (
@@ -321,7 +400,7 @@ class DoorTraversalController:
                 if self.heading_estimate_samples >= self.required_heading_samples:
                     self.heading_estimate_valid = True
 
-                self.prev_corridor_center_x = self.corridor_center_x
+                self.prev_corridor_center_x_robot_base = self.corridor_center_x_robot_base
                 self.prev_pose_for_heading = self.current_pose
 
 
@@ -342,65 +421,139 @@ class DoorTraversalController:
                 continue
 
             
-            
-            # Initialize traversal start pose
-            self.start_pose = self.current_pose
-            self.start_yaw = self.current_yaw
-            
         
             # =================================================
             # IDLE - to wait until temporal smoothing for passability is done
             # ================================================= 
 
             if self.state == IDLE:
-                if not self.passable:
+                # Initialize traversal start pose
+                self.start_pose = self.current_pose
+                self.start_yaw = self.current_yaw
+                if not self.corridor_passable:
                     rospy.loginfo("IDLE: waiting for temporal smoothing to finish")
                     #stay where you are
                     self.stop_robot()
                     continue
                 else:#now we are sure the corridor is passable by temporal smoothing
-                    rospy.loginfo("IDLE complete → PRE-ALIGN_TO_CORRIDOR")
-                    self.state = PRE_ALIGN_TO_CORRIDOR
+                    rospy.loginfo("IDLE complete → PRE-ALIGN_HEADING_TO_CORRIDOR")
+                    self.state = PRE_ALIGN_HEADING_TO_CORRIDOR
+                    self.request_local_passability_check_pub.publish(UInt8(data=0)) # nothing
+
                     continue
             # =================================================
-            # PRE_ALIGN_TO_CORRIDOR
+            # PRE_ALIGN_HEADING_TO_CORRIDOR
             # =================================================    
-            if self.state == PRE_ALIGN_TO_CORRIDOR:
+            if self.state == PRE_ALIGN_HEADING_TO_CORRIDOR:
                 """
-                PRE-ALIGN:
-                Bring robot footprint inside corridor.
+                PRE_ALIGN_HEADING_TO_CORRIDOR:
+                to make sure robot heading is roughly toward corridor direction.
                 Uses slow forward motion + yaw bias.
                 """ 
-                rospy.loginfo("Entering PRE-ALIGN_TO_CORRIDOR state")
-                if not self.passable: # temporal smoothing already done in IDLE state and also hysterisis done in passability callback
-                    # so if the passability is lost here, we abort immediately( it is not due to glitch )
-                    rospy.logwarn("PRE_ALIGN: corridor unsafe → ABORT")
-                    self.stop_robot()
-                    self.state = ABORT
-                    continue
+                rospy.loginfo(" PRE-ALIGN_HEADING_TO_CORRIDOR state")
+
+                # no need to check local passability here because it is a rotation state no translation involved
 
                 # Lateral error (meters)
-                lateral_error = self.corridor_center_x
-                rospy.loginfo(f"PRE_ALIGN: lateral_error={lateral_error:.3f}")
+                lateral_error_pre_align_heading_in_robot_base = self.corridor_center_x_robot_base
+                # x_corridor_center_cam is used only once and used in pre-align heading state for aligning heading toward corridor direction
+                lateral_error_pre_align_heading_in_cam =  self.x_corridor_center_cam
+
+                rospy.loginfo(f"PRE_ALIGN_HEADING: lateral_error in robot base frame ={lateral_error_pre_align_heading_in_robot_base:.3f}m, lateral_error in camera frame={lateral_error_pre_align_heading_in_cam:.3f}m")
+                
+
+                 #If we are sufficiently centered, move to PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR
+                if abs(lateral_error_pre_align_heading_in_cam) < self.lateral_error_tolerance_pre_align_heading_state:  # 5 cm tolerance
+                    rospy.loginfo("PRE_ALIGN_HEADING complete → PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR")
+                    self.stop_robot()
+                    self.state = PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR
+                    # set reference heading for position pre-alignment
+                    self.pre_align_heading_ref = self.current_yaw
+                    continue
+
+
+
+                # Yaw bias steers robot toward corridor center
+                omega = self.kp_lateral_movement_pre_align_heading_state * lateral_error_pre_align_heading_in_cam
+                omega = np.clip(omega, -self.omega_max_pre_align_heading_state, self.omega_max_pre_align_heading_state)
+
+                
+                self.publish_cmd_vel(0.0 , 0.0, omega)
+
+            # =================================================
+            # PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR
+            # =================================================  
+            if self.state == PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR:
+                """
+                 to adjust robot's orientation so that the robot will be within the corridor axis, within traveling a particular fraction of distance to the door. 
+                """
+                rospy.loginfo(" PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR state")
+
+                # no need to check local passability here because it is a rotation state no translation involved
+
+                lateral_error_pre_align_readjust_heading_in_robot_base = self.corridor_center_x_robot_base
+                estimated_forward_distance_to_reach_corridor = lateral_error_pre_align_readjust_heading_in_robot_base / np.tan(self.current_yaw)
+                maximum_allowable_forward_distance_to_reach_corridor = abs(self.distance_to_door * self.fraction_distance_to_door_for_readjust_heading_state) 
+                distance_offset = abs(estimated_forward_distance_to_reach_corridor) - maximum_allowable_forward_distance_to_reach_corridor
+                rospy.loginfo(f"PRE_ALIGN_READJUST_HEADING: lateral_error={lateral_error_pre_align_readjust_heading_in_robot_base:.3f} m, estimated_forward_distance_to_reach_corridor={estimated_forward_distance_to_reach_corridor:.3f} m, maximum_allowable_forward_distance_to_reach_corridor={maximum_allowable_forward_distance_to_reach_corridor:.3f} m, distance_offset={distance_offset:.3f} m")
+                if distance_offset <= 0.1: # will reach corridor within allowable distance
+                    rospy.loginfo("PRE_ALIGN_READJUST_HEADING complete → PRE_ALIGN_POSITION_TO_CORRIDOR")
+                    self.stop_robot()
+                    self.state = PRE_ALIGN_POSITION_TO_CORRIDOR
+                    # set reference heading for position pre-alignment
+                    self.pre_align_readjust_heading_ref = self.current_yaw
+                    self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                    continue
+                
+
+                # Yaw bias steers robot toward corridor center
+                omega = self.kp_lateral_movement_pre_align_readjust_heading_state * distance_offset
+                omega = np.clip(omega, -self.omega_max_pre_align_readjust_heading_state, self.omega_max_pre_align_readjust_heading_state)
+                
+                self.publish_cmd_vel(0.0 , 0.0, omega)
+                
+
+
+
+
+            # =================================================
+            # PRE_ALIGN_POSITION_TO_CORRIDOR
+            # =================================================  
+            if self.state == PRE_ALIGN_POSITION_TO_CORRIDOR:
+                """
+                 to make sure that robot's body is roughly inside in the corridor.
+                """
+                rospy.loginfo(" PRE-ALIGN_POSITION_TO_CORRIDOR state")
+
+                if not self.local_passable: # temporal smoothing already done in IDLE state and also hysterisis done in passability callback
+                    # so if the passability is lost here, we abort immediately( it is not due to glitch )
+                    #rospy.logwarn("PRE_ALIGN_HEADING_TO_CORRIDOR: corridor unsafe → ABORT")
+                    #self.stop_robot()
+                    #self.state = ABORT
+                    continue
+
+                lateral_error_pre_align_position_in_robot_base = self.corridor_center_x_robot_base
+                rospy.loginfo(f"PRE_ALIGN_POSITION: lateral_error={lateral_error_pre_align_position_in_robot_base:.3f} m")
                 # If we are sufficiently centered, move to ALIGN
-                if abs(lateral_error) < self.lateral_error_tolerance_pre_align_state:  # 5 cm tolerance
-                    rospy.loginfo("PRE_ALIGN complete → ALIGN_TO_CORRIDOR")
+                if abs(lateral_error_pre_align_position_in_robot_base) < self.lateral_error_tolerance_pre_align_position_state:  # 5 cm tolerance
+                    rospy.loginfo("PRE_ALIGN_HEADING complete → ALIGN_TO_CORRIDOR")
                     self.stop_robot()
                     self.state = ALIGN_TO_CORRIDOR
+                    self.request_local_passability_check_pub.publish(UInt8(data=0)) # nothing
                     # reset heading estimation variables for ALIGN state
-                    self.prev_corridor_center_x = self.corridor_center_x
+                    self.prev_corridor_center_x_robot_base = self.corridor_center_x_robot_base
                     self.prev_pose_for_heading = self.current_pose
                     continue
 
-                # Small forward creep
-                v = self.velocity_pre_align_state
+                # Heading hold (NOT lateral correction)
+                heading_error = self.wrap_angle(self.current_yaw - self.pre_align_readjust_heading_ref)
 
                 # Yaw bias steers robot toward corridor center
-                omega = self.kp_lateral_movement_pre_align_state * lateral_error
-                omega = np.clip(omega, -self.omega_max_pre_align_state, self.omega_max_pre_align_state)
+                omega = self.kp_lateral_movement_pre_align_position_state * heading_error
+                omega = np.clip(omega, -self.omega_max_pre_align_position_state, self.omega_max_pre_align_position_state)
 
                 
-                self.publish_cmd_vel(v, omega)
+                self.publish_cmd_vel(self.velocity_pre_align_position_state, 0.0, omega)
 
             # =================================================
             # ALIGN_TO_CORRIDOR
@@ -411,71 +564,73 @@ class DoorTraversalController:
                 Correct heading so robot faces corridor direction.
                 Uses rotation + minimal creep.
                 """
+                rospy.loginfo("  ALIGN_TO_CORRIDOR state")
 
-                if not self.passable:
-                    # temporal smoothing already done in IDLE state and also hysterisis done in passability callback
-                    # so if the passability is lost here, we abort immediately( it is not due to glitch )
-                    rospy.logwarn("ALIGN: corridor unsafe → ABORT")
-                    self.stop_robot()
-                    self.state = ABORT
-                    continue
+                # no need to check local passability here because it is a rotation state no translation involved
                 
-                self.find_heading_error_estimate()
+                required_heading_correction = self.wrap_angle(self.current_yaw - self.start_yaw)
+                rospy.loginfo(f"ALIGN: start yaw is {self.start_yaw:.3f} rad, current yaw is {self.current_yaw:.3f} rad, required_heading_correction={required_heading_correction:.3f} rad")
+            
                 # If heading is good enough, start traversal
-                if self.heading_estimate_valid and abs(self.heading_error_est) < self.heading_error_tolerance: # heading error tolerance
+                if abs(required_heading_correction) < self.heading_error_tolerance_align_state: # heading error tolerance
                     rospy.loginfo("ALIGN complete → TRAVERSE_DOOR")
                     self.stop_robot()
 
                     # Reset traversal reference
-                    self.start_pose = self.current_pose
-                    self.start_yaw = self.current_yaw
-                    self.consecutive_safe = 0
-
+                    self.start_pose_before_traverse = self.current_pose
+                    self.start_yaw_before_traverse = self.current_yaw
+                    self.traversal_is_started = False
                     self.state = TRAVERSE_DOOR
                     # reset heading estimation variables for TRAVERSE_DOOR state
                     #exit action of ALIGN state
-                    self.prev_corridor_center_x = self.corridor_center_x
+                    self.prev_corridor_center_x_robot_base = self.corridor_center_x_robot_base
                     self.prev_pose_for_heading = self.current_pose
                     #PRE_ALIGN and ALIGN motions contaminate drift history
                     #TRAVERSE should start with a clean estimator
                     self.heading_error_est = 0.0
                     self.heading_estimate_valid = False
                     self.heading_estimate_samples = 0
+                    self.request_local_passability_check_pub.publish(UInt8(data=1)) # check corridor passability
                     continue
 
                 # Rotate to reduce lateral error
-                omega = self.kp_heading_align_state * self.heading_error_est
+                omega = self.kp_heading_align_state * required_heading_correction
                 omega = np.clip(omega, -self.omega_max_align_state, self.omega_max_align_state)
 
                 # Very small forward creep to stabilize yaw estimation
 
-                self.publish_cmd_vel(self.velocity_align_state, omega)
+                self.publish_cmd_vel(0.0, 0.0, omega)
 
             # =================================================
             # TRAVERSE_DOOR
             # =================================================
             elif self.state == TRAVERSE_DOOR:
+                rospy.loginfo(" TRAVERSE_DOOR state")
+                
+                if not self.corridor_passable:
+                    if not self.traversal_is_started: 
+                        rospy.loginfo("TRAVERSE_DOOR: waiting for temporal smoothing to finish")
+                        #stay where you are
+                        self.stop_robot()
+                        continue
+                    else:
+                        # if passability lost here means, traversal were already started and then passabililty lost( that is self.corridor_passable is False not due to temporal smoothing)
+                        # temporal smoothing already done in IDLE state and also hysterisis done in passability callback
+                        # so if the passability is lost here, we abort immediately( it is not due to glitch )
+                        rospy.logwarn("Passability lost → ABORT")
+                        self.stop_robot()
+                        self.state = ABORT
+                        self.traversal_is_started = False
+                        continue
+                        
 
-                if not self.passable:
-                    # temporal smoothing already done in IDLE state and also hysterisis done in passability callback
-                    # so if the passability is lost here, we abort immediately( it is not due to glitch )
-                    rospy.logwarn("Passability lost → ABORT")
-                    self.stop_robot()
-                    self.state = ABORT
-                    continue
-
-                self.consecutive_safe += 1
-                if self.consecutive_safe < self.required_consecutive_safe:
-                    self.stop_robot()
-                    self.rate.sleep()
-                    continue
-
+                self.traversal_is_started = True
                 # -----------------------------
                 # Compute velocities
                 # -----------------------------
-                v = min(self.v_max_traverse_state,
+                velocity_forward = min(self.v_max_traverse_state,
                         self.k_clearance_traverse_state * self.front_clearance)
-                v = max(self.v_min_traverse_state, v)
+                velocity_forward = max(self.v_min_traverse_state, velocity_forward)
                 
                 self.find_heading_error_estimate()
                  # ---------------------------------------------
@@ -483,10 +638,10 @@ class DoorTraversalController:
                 # ---------------------------------------------
 
                 # Lateral position correction
-                omega_pos = -self.kp_corridor_center_traverse_state * self.corridor_center_x
+                omega_pos = self.kp_corridor_center_traverse_state * self.corridor_center_x_robot_base
 
                 # Heading correction (damps oscillations)
-                omega_heading = -self.kp_heading_traverse_state * self.heading_error_est
+                omega_heading = self.kp_heading_traverse_state * self.heading_error_est
 
                 omega = omega_pos + omega_heading
                 rospy.loginfo(f"TRAVERSE: omega_pos={omega_pos:.3f}, omega_heading={omega_heading:.3f}, total_omega={omega:.3f}")
@@ -496,17 +651,22 @@ class DoorTraversalController:
                     omega = 0.0
 
                 omega = np.clip(omega, -self.omega_max_traverse_state, self.omega_max_traverse_state)
-                self.publish_cmd_vel(v, omega)
+                self.publish_cmd_vel(velocity_forward, 0.0, omega)
 
                 # -----------------------------
                 # Completion check
                 # -----------------------------
-                dist = self.get_forward_displacement()
-                if dist >= self.distance_threshold_traverse_state:
+                #dist = self.get_forward_displacement()
+                
+                #if dist >= self.distance_threshold_traverse_state:
+                if self.distance_to_door <= 0.1: # within 10 cm of door plane. now no chance to collide with closed glas door half
+                    #at this point we also ensured that corridor in front has a clearance more than min_front_clearance_corridor_beyond_door_plane
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()
-                    self.state = DONE
-                    self.done_pub.publish(Bool(data=True))
+                    self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                    #self.state = DONE
+                    #self.done_pub.publish(Bool(data=True))
+                    self.traversal_is_started = False
                     continue
 
             # =================================================
@@ -518,7 +678,7 @@ class DoorTraversalController:
                 # Back off a small distance
                 backoff_start = self.current_pose
                 while not rospy.is_shutdown():
-                    self.publish_cmd_vel(self.abort_backoff_speed, 0.0)
+                    self.publish_cmd_vel(self.abort_backoff_speed, 0.0, 0.0)
 
                     dx = self.current_pose[0] - backoff_start[0]
                     dy = self.current_pose[1] - backoff_start[1]

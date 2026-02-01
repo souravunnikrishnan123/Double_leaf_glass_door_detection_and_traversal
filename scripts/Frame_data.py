@@ -14,6 +14,7 @@ class FrameContext:
     cy: float
     depth_frame: Optional[Any] = None
 
+    go_to_idle_from_finish_state: bool = False
     # shared artifacts across states
     plane_result: Optional[dict] = None
     color_image_for_plane_detection: Optional[np.ndarray] = None

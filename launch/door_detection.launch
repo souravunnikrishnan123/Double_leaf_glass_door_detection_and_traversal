@@ -207,7 +207,6 @@
           robot_width: 0.45  # meters ,robot  width
           safety_margin_robot_width: 0.05  # meters
           door_frame_margin: 0.05  # meters
-          minimum_depth_points_after_back_projection : 50  # points
           max_obstacle_height : -0.5  # meters
           minimum_depth_points_after_filtering : 10  # points
     </rosparam>
@@ -243,18 +242,25 @@
           omega_max: 0.4
           kp_lateral_movement: -1.2
         align_state:
+          lateral_error_tolerance: 0.1 # meters
           heading_error_tolerance: 0.02 # meters ( tigher than pre-align)
           omega_max: 0.5
           kp_heading_align_state : -1.2
         traverse_state:
-          distance_threshold: 1.0
           v_max: 0.2
           v_min: 0.06
           omega_max: 0.6
           k_clearance: 0.3
           kp_corridor_center: -1.5
+          kd_corridor_center: 0.8
           scale_factor: 0.1
           kp_heading_traverse_state : -0.8
+
+        move_after_door_frame_crossed_state:
+          distance_to_move_after_door_frame_crossed: 1.5 # meters. because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
+          kp_heading_adjustment : -1.2
+          velocity: 0.03  # m/s
+          omega_max: 0.4   # rad/s
         abort:
           abort_backoff_distance: 0.25
           abort_backoff_speed: -0.08

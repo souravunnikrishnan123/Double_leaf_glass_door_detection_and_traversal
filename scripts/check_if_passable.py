@@ -63,7 +63,6 @@ class Passability_checker:
         # -----------------------------
         # Traversal safety thresholds
         # -----------------------------
-        self.minimum_depth_points_after_back_projection = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_back_projection", 50)  # points
         self.max_obstacle_height = rospy.get_param(f"{ns}/traversal_params/max_obstacle_height", -0.5)  # meters
         self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
 
@@ -341,8 +340,8 @@ class Passability_checker:
         #color_image = self.visualize_roi(color_image, roi_polygon)
 
 
-        if len(valid_points) == 0:
-            return None, None
+        if len(valid_points) == 0: 
+            return z_max, color_image
 
         
         corridor_mask_before_filter = (
@@ -394,13 +393,9 @@ class Passability_checker:
             front_clearance = np.min(final_points[:, 2])
 
         else: # no enough points in corridor after filtering
-            # need to check if there were points before filtering
-            if len(valid_points) > self.minimum_depth_points_after_back_projection:
-                front_clearance = z_max
-            else:
-                front_clearance = None # no points in image at all. means some problem. 
-                # but this is a problem only for corridor passability check. because local passability check only consider points in small roi around door center. hence for 
-                #local passability check, even if there are no points in small roi, we can assume front clearance to be large value like z_max.
+            # means the the corridor is free of obstacles.because lcoal passabiity and even for corridor passaability check we may not be getting any points in small roi around corridor center.
+            # that doesnt mean passabilty is not there. it can be there. so we assume front clearance to be large value like z_max.
+            front_clearance = z_max
 
         self.timer.stop(f"check_if_passable--> main passability check")
 

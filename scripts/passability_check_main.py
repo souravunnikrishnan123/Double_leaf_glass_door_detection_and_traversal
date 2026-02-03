@@ -352,7 +352,9 @@ class PassabilityCheckerNode:
         delta_yaw = self.current_yaw - self.start_yaw_at_activation
         delta_yaw = np.arctan2(np.sin(delta_yaw), np.cos(delta_yaw))
 
-        rotation_shift = (self.door_depth_first_time * np.tan(delta_yaw))
+        #rotation_shift = (self.door_depth_first_time * np.tan(delta_yaw))
+        rotation_shift = (self.dynamic_door_depth * np.tan(delta_yaw))
+    
         
         rospy.loginfo(f"start pose is {self.start_pose_at_activation} and current pose is {self.current_pose}   Lateral displacement from start: {lateral_displacement:.3f} m   Rotation shift: {rotation_shift:.3f} m")
         
@@ -405,7 +407,7 @@ class PassabilityCheckerNode:
             # ---- INITIALIZE ALL PUBLISHER OUTPUTS ----
             front_clearance = None
             x_corridor_center_cam = None
-            y_corridor_center_robot_base = None
+            y_corridor_center_start_yaw_frame = None
             door_depth = None
             corridoor_Passability_status = False  # not used in local check
             passability_view = None
@@ -413,7 +415,7 @@ class PassabilityCheckerNode:
 
             self.dynamic_door_depth = self.door_depth_first_time - self.get_forward_displacement_since_start()
             self.x_center_frame_dynamic_cam = self.calculate_dynamic_x_center_frame()
-            self.y_center_frame_current_robot_base = self.y_center_frame_first_time_robot_base + self.get_lateral_displacement_since_start()
+            self.y_center_frame_current_start_yaw_frame = self.y_center_frame_first_time_robot_base + self.get_lateral_displacement_since_start()
             door_depth = self.dynamic_door_depth
 
             # ---------------------------------------
@@ -424,18 +426,18 @@ class PassabilityCheckerNode:
                 x_right_boundary_cam  = self.x_center_frame_dynamic_cam - self.door_frame_margin
                 x_corridor_center_cam = (x_left_boundary_cam + x_right_boundary_cam) / 2.0 
 
-                y_left_boundary_robot_base = self.y_center_frame_current_robot_base - (self.robot_width + self.safety_margin_robot_width)
-                y_right_boundary_robot_base = self.y_center_frame_current_robot_base - self.door_frame_margin
-                y_corridor_center_robot_base = (y_left_boundary_robot_base + y_right_boundary_robot_base) / 2.0
+                y_left_boundary_start_yaw_frame = self.y_center_frame_current_start_yaw_frame - (self.robot_width + self.safety_margin_robot_width)
+                y_right_boundary_start_yaw_frame = self.y_center_frame_current_start_yaw_frame - self.door_frame_margin
+                y_corridor_center_start_yaw_frame = (y_left_boundary_start_yaw_frame + y_right_boundary_start_yaw_frame) / 2.0
 
             elif self.open_side == "open_right":
                 x_left_boundary_cam   = self.x_center_frame_dynamic_cam + self.door_frame_margin
                 x_right_boundary_cam  = self.x_center_frame_dynamic_cam + (self.robot_width + self.safety_margin_robot_width)
                 x_corridor_center_cam = (x_left_boundary_cam + x_right_boundary_cam) / 2.0 
 
-                y_left_boundary_robot_base = self.y_center_frame_current_robot_base + self.door_frame_margin
-                y_right_boundary_robot_base = self.y_center_frame_current_robot_base + (self.robot_width + self.safety_margin_robot_width)
-                y_corridor_center_robot_base = (y_left_boundary_robot_base + y_right_boundary_robot_base) / 2.0
+                y_left_boundary_start_yaw_frame = self.y_center_frame_current_start_yaw_frame + self.door_frame_margin
+                y_right_boundary_start_yaw_frame = self.y_center_frame_current_start_yaw_frame + (self.robot_width + self.safety_margin_robot_width)
+                y_corridor_center_start_yaw_frame = (y_left_boundary_start_yaw_frame + y_right_boundary_start_yaw_frame) / 2.0
             
             else:# unknown state. this is not possible but just in case
                 rospy.logwarn("Unknown door open side state.")
@@ -501,13 +503,9 @@ class PassabilityCheckerNode:
                         # may be false, we do not want to retrigger the traversal node.
                         self.trigger_traversal_node = True
 
-
-            elif type_of_passability_check == 2: # local passability check
                 #in local passability check we do not trigger traversal node, because it is already triggered in corridor passability check which will execute first
-                if front_clearance is  None:
-                    front_clearance = z_max # assume large clearance when no points in local roi
-                    
-                    
+
+                             
 
             get_duration_seconds.write_text_file()
 
@@ -516,7 +514,7 @@ class PassabilityCheckerNode:
 
             msg = Twist()
             msg.linear.x = float(front_clearance) if front_clearance is not None else float('nan')
-            msg.linear.y = float(y_corridor_center_robot_base) if y_corridor_center_robot_base is not None else float('nan')
+            msg.linear.y = float(y_corridor_center_start_yaw_frame) if y_corridor_center_start_yaw_frame is not None else float('nan')
             msg.linear.z = type_of_passability_check # 1 for corridor , 2 for local
             msg.angular.x = float(x_corridor_center_cam) if x_corridor_center_cam is not None else float('nan')
             msg.angular.y = float(door_depth) if door_depth is not None else float('nan')

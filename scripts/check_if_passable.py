@@ -341,7 +341,7 @@ class Passability_checker:
 
 
         if len(valid_points) == 0: 
-            return z_max, color_image
+            return z_max, color_image, None
 
         
         corridor_mask_before_filter = (
@@ -417,5 +417,5 @@ class Passability_checker:
         self.timer.stop(f"check_if_passable--> visualization of final points")
 
 
-        return front_clearance, color_image
+        return front_clearance, color_image, final_points
 

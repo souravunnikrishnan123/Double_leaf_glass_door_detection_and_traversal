@@ -271,11 +271,14 @@ class combine_door_state(BaseState):
         if smoothed_door_state == "open_left":
             roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
             ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 95)  # get the max x position of the open side roi polygon, to find the center of the central frame
-            return "final_state"  # go to idle state
+            return "final_state"  # go to final state
         elif smoothed_door_state == "open_right":
             roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
             ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 5)  # get the min x position of the open side roi polygon, to find the center of the central frame
-            return "final_state"  # go to idle state
+            return "final_state"  # go to final state
+        elif smoothed_door_state == "no_frame_detected":
+            ctx.mid_frame_x_px_for_passability_check = None
+            return "full_image_passability_check_state"  # go to a state that directly check the passability with full image and depth without relying on mid frame door detection, because no mid frame door detected
         else:
             #door state is either closed, unknown or no_frame_detected
             ctx.mid_frame_x_px_for_passability_check = None

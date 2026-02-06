@@ -25,7 +25,7 @@ from state_parallel_detection import parallel_detection_state
 from state_final import final_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
-from state_no_door_plane_detected_state import full_image_passability_check_state
+from state_full_image_passability_check import full_image_passability_check_state
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode
 from std_msgs.msg import Bool
@@ -43,6 +43,7 @@ class DoorDetectionNode:
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
         self.go_to_idle_from_finish_state = False
+        self.start_door_frame_detection = False
 
         self.bridge = CvBridge()
         # Global visualization toggle (default true)
@@ -80,6 +81,9 @@ class DoorDetectionNode:
         # camera intrinsics will be cached on first receipt
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
         rospy.Subscriber("/check_if_corridor_is_passable/retrigger_door_detection_node", Bool, self._retrigger_door_detection_node_cb, queue_size=1)
+        
+        # published by top level path planning and navigation algorithm to trigger start of door frame detection and subsequent steps. Published once per door traversal attempt.
+        rospy.Subscriber("/trigger_start_door_frame_detection", Bool, self._trigger_start_door_frame_detection, queue_size=1)
 
         ats = message_filters.ApproximateTimeSynchronizer(
             [color_sub, depth_sub], queue_size=queue_size, slop=slop
@@ -102,7 +106,10 @@ class DoorDetectionNode:
             depth_m = depth_mm.astype(np.float32) / 1000.0
         else:
             depth_m = img.astype(np.float32)
-            depth_mm = np.clip(depth_m * 1000.0, 0, 65535).astype(np.uint16)
+            # Sanitize invalid values before casting (NaN/Inf can trigger warnings)
+            scaled_mm = depth_m * 1000.0
+            scaled_mm = np.nan_to_num(scaled_mm, nan=0.0, posinf=0.0, neginf=0.0)
+            depth_mm = np.clip(np.rint(scaled_mm), 0, 65535).astype(np.uint16)
         return depth_mm, depth_m
 
     def _info_cb(self, info_msg: CameraInfo):
@@ -119,6 +126,14 @@ class DoorDetectionNode:
             rospy.loginfo("Door detection retriggered to go to idle state.")
         else:
             self.go_to_idle_from_finish_state = False
+    
+    def _trigger_start_door_frame_detection(self, msg: Bool):
+        if msg.data:
+            self.start_door_frame_detection = True
+            rospy.loginfo("door frame detection triggered.")
+        else:
+            self.start_door_frame_detection = False
+            rospy.loginfo("door frame detection stopped.")
 
 
     def callback(self, color_msg: Image, depth_msg: Image):
@@ -142,6 +157,7 @@ class DoorDetectionNode:
             self.sm.ctx.color_image_depth_based = color_image.copy()
             self.sm.ctx.color_image_for_plane_detection = color_image.copy()
             self.sm.ctx.go_to_idle_from_finish_state = False
+            self.sm.ctx.start_door_frame_detection = False
         else: # update existing context object with new subscriped data.
             ctx = self.sm.ctx
             ctx.depth_image_in_meters = depth_m
@@ -152,6 +168,7 @@ class DoorDetectionNode:
             ctx.fx, ctx.fy, ctx.cx, ctx.cy = self.fx, self.fy, self.cx, self.cy
             ctx.depth_frame = depth_frame_adapter
             ctx.go_to_idle_from_finish_state = self.go_to_idle_from_finish_state
+            ctx.start_door_frame_detection = self.start_door_frame_detection
 
         
         self.sm.update(self.sm.ctx)

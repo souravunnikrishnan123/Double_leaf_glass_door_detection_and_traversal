@@ -1,0 +1,25 @@
+
+
+from Frame_data import FrameContext,BaseState
+import numpy as np
+
+import rospy
+
+
+class full_image_passability_check_state(BaseState):
+    def __init__(self):
+        super().__init__("full_image_passability_check_state")
+        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
+        self.ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
+    def do_action(self, ctx: FrameContext):
+        ctx.mid_frame_x_px_for_passability_check = None  # Not applicable
+        # door state label should have been set in the previous state when determine to transition to this state
+        if ctx.door_state_label == "No_door_plane_detected":
+            ctx.door_depth = self.reference_door_distance_m  # set a default door depth for passability check when no door plane is detected
+            rospy.logwarn("No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.")
+        
+        elif ctx.door_state_label == "no_frame_detected":
+            rospy.logwarn("No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.")
+            ctx.door_depth = self.ransac_plane_distance
+        
+        return "final_state"  # Transition back to final state and wait until  get request to go to idle state again

@@ -17,5 +17,7 @@ class idle_state(BaseState):
             f.write(f"Logging door state by detection algorithm\n")
         with open(final_door_status_file_path, "w") as f:
             f.write(f"Logging smoothed_door_state after temporal smoothing\n")
-
-        return "searching_door_plane_state"
+        
+        if ctx.start_door_frame_detection:
+            return "searching_door_plane_state"
+        return None # stay in idle state until get request to start door frame detection

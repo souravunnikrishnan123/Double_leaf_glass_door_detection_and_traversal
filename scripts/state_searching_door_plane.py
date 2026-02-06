@@ -91,6 +91,7 @@ class searching_door_plane_state(BaseState):
                     # Reset counters on transition
                     self._no_candidate_count = 0
                     # to directly check if the door is passable without plane detection as the plane is not detectable. this is useful when the both doors halves are wide open already and ransac couldnt detect frame around it as well
+                    ctx.door_state_label = "No_door_plane_detected"  # No door plane detected
                     return "full_image_passability_check_state"
                 #stay in this state
                 return None

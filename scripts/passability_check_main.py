@@ -11,6 +11,8 @@ import numpy as np
 from geometry_msgs.msg import Twist
 from processing_classes import backproject_depth_to_points
 import cv2
+import tf2_ros
+from scipy.spatial.transform import Rotation as R
 
 class PassabilityCheckerNode:
     def __init__(self):
@@ -26,6 +28,8 @@ class PassabilityCheckerNode:
         self.door_status_from_frame_detection_node = None
         self.mid_frame_x_px_from_frame_detection_node = None
         self.door_depth_from_frame_detection_node = None
+        self.plane_info_distance_m = None
+        self.plane_info_norm = None
         self.x_corridor_center_cam_first_time = None
         # Additional state for traversal-requested corridor definition and publishing
         self.define_new_corridor_req_from_traversal = False
@@ -34,7 +38,6 @@ class PassabilityCheckerNode:
         self.clearance_needed_beyond_mid_corridor = None
         self.corridor_middle_point_depth_first_time = None
 
-       
 
         # Odometry
         self.start_pose_at_node_activation = None
@@ -125,6 +128,13 @@ class PassabilityCheckerNode:
                 queue_size=1
             )
 
+        rospy.Subscriber(
+                "/glass_door_detection/plane_info",
+                Twist,
+                self._plane_info_cb,
+                queue_size=1
+            )
+
 
 
 
@@ -169,11 +179,59 @@ class PassabilityCheckerNode:
         self.passability_checker = Passability_checker()
         self.rate = rospy.Rate(5)  # 5 Hz decision loop
 
+        self.R_rc, self.t_rc = self.get_camera_extrinsics_tf()
+
+
+
     # -----------------------------
     # Activation logic called upon door state changes
     # only update states, store data and activation/deactivation of camera subscriptions
     # call backs shall be non blocking and lightweight
     # -----------------------------
+
+    def get_camera_extrinsics_tf(self,
+                                robot_frame="trunk",
+                                camera_frame="realsense_d455_optical_frame"
+                                ):
+        """
+        Load camera extrinsics (R_rc, t_rc) from TF.
+        Call ONCE after Gazebo is running.
+        """
+
+        tf_buffer = tf2_ros.Buffer()
+        tf_listener = tf2_ros.TransformListener(tf_buffer)
+
+        rospy.loginfo("Waiting for TF %s -> %s",
+                    robot_frame, camera_frame)
+
+        # Wait until TF is available
+        tf_buffer.can_transform(
+            robot_frame,
+            camera_frame,
+            rospy.Time(0),
+            rospy.Duration(5.0)
+        )
+
+        transform = tf_buffer.lookup_transform(
+            robot_frame,
+            camera_frame,
+            rospy.Time(0)
+        )
+
+        # Translation
+        t = transform.transform.translation
+        t_rc = np.array([t.x, t.y, t.z])
+
+        # Rotation (quaternion → matrix)
+        q = transform.transform.rotation
+        quat = [q.x, q.y, q.z, q.w]
+        R_rc = R.from_quat(quat).as_matrix()
+
+        rospy.loginfo("Camera extrinsics loaded from TF")
+
+        return R_rc, t_rc
+
+
     def _activate_node_cb(self, msg):
         if msg.data in ["open_left", "open_right", "No_door_plane_detected", "no_frame_detected"]: # one time activation on these states
             if not self.active:
@@ -203,6 +261,8 @@ class PassabilityCheckerNode:
             self.requested_type_of_passability_check_from_traversal_node = 1 # reset to default 1 for corridor
             self.mid_frame_x_px_from_frame_detection_node = None
             self.door_depth_from_frame_detection_node = None
+            self.plane_info_distance_m = None
+            self.plane_info_norm = None
             self.virtual_corridor_definition_finished = False
             self.retrigger_door_detection_node_pub.publish(True) # to retrigger door detection node for next detection and traversal cycle
 
@@ -304,6 +364,16 @@ class PassabilityCheckerNode:
         # checking self.active will make sure we get door depth and mid frame only when door state is open
         if self.mid_frame_x_px_from_frame_detection_node is None and self.active:
             self.mid_frame_x_px_from_frame_detection_node = msg.data
+
+    def _plane_info_cb(self, msg):
+        # plane info is published as Twist for simplicity, where:
+        # linear.x = distance_m, angular.x = plane_norm_x, angular.y = plane_norm_y, angular.z = plane_norm_z
+        if msg.linear.x <= 0.0: # invalid distance
+            return
+        if self.plane_info_distance_m is None and self.active:
+            self.plane_info_distance_m = msg.linear.x
+            self.plane_info_norm = np.array([msg.angular.x, msg.angular.y, msg.angular.z])
+            rospy.loginfo(f"Received plane info from frame detection node: distance {self.plane_info_distance_m:.2f} m, normal vector {self.plane_info_norm}")
 
     def _request_local_passability_check_cb(self, msg):
         if msg.data in [0, 1, 2]: # 1 for corridor , 2 for local
@@ -449,8 +519,8 @@ class PassabilityCheckerNode:
         
         if len(valid_corridors) == 0:
             rospy.logwarn("Cannot find any valid virtual corridor for passability check.")
-            # there is no virtual corridor available. consider virtual corridor is directly in front of robot
-            return 0.0
+            # there is no virtual corridor available. zou cannot consider in front of the robot as coridor. because there may be no passable corridor at all
+            return None
         
         best_corridor = min(valid_corridors, key=corridor_cost) # it iterates over the list of dicts and passes each dict to corridor_cost
 
@@ -472,7 +542,7 @@ class PassabilityCheckerNode:
             subsample=self.subsample, roi_polygon=None
         )
         
-        _, _, final_points = self.passability_checker.run(
+        _, image, final_points = self.passability_checker.run(
             self.depth_image,
             self.color_image,
             x_left_limit,
@@ -491,7 +561,54 @@ class PassabilityCheckerNode:
             rospy.logwarn("Cannot find any valid points for virtual corridor definition. consider virtual corridor is directly in front of robot.")
             x_virtual_corridor_center_cam = 0.0
         
-        return x_virtual_corridor_center_cam
+        return x_virtual_corridor_center_cam, image
+
+    def relative_robot_motion(self):
+        """
+        Computes relative robot motion in since start.
+        """
+
+        dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
+        dy = self.current_pose[1] - self.start_pose_at_corridor_definition[1]
+        delta_yaw = self.current_yaw - self.start_yaw_at_corridor_definition
+        delta_yaw = np.arctan2(np.sin(delta_yaw), np.cos(delta_yaw))
+
+        # Rotation matrix (start -> current)
+        R = np.array([
+            [ np.cos(delta_yaw), -np.sin(delta_yaw)],
+            [ np.sin(delta_yaw),  np.cos(delta_yaw)]
+        ])
+
+        t = np.array([dy, dx]) # odom is in world coordinate. but in the place where we use t, we expect first element to be left/right and second element to be forward/backward. so we need to swap dx and dy to make it consistent with that expectation. this is because in our odometry convention, x is forward and y is left. but in the place where we use t, we expect first element to be left/right and second element to be forward/backward. so we need to swap dx and dy to make it consistent with that expectation.
+
+        return R, t
+
+    def propagate_corridor_point(self, corridor_point_R0,R, t):
+        """
+        Propagates corridor point into current robot frame.
+        """
+
+        # Extract x,z (planar)
+        p0 = np.array([
+            corridor_point_R0[0],
+            corridor_point_R0[1]
+        ])
+
+        # Inverse robot motion
+        p_now = R.T @ (p0 - t)
+
+        return p_now  # [X_forward, Y_lateral] in robot frame
+
+    def corridor_errors_robot_frame(self, corridor_point_R_now):
+        """
+        Returns forward and lateral error in robot frame.
+        """
+
+        forward_error  = corridor_point_R_now[1]   # Z direction
+        lateral_error  = corridor_point_R_now[0]   # X direction
+
+        return forward_error, lateral_error
+
 
 
 
@@ -531,33 +648,109 @@ class PassabilityCheckerNode:
                     self.corridor_middle_point_depth_first_time = self.door_depth_from_frame_detection_node
                     # Convert door mid-frame pixel to X (meters)
                     x_center_frame_cam_first_time = (self.mid_frame_x_px_from_frame_detection_node - self.cx) * self.corridor_middle_point_depth_first_time / self.fx
-                    # x direction in camera frame is y direction in robot base frame
-                    # z direction in camera frame is x direction in robot base frame
-                    x_center_frame_start_yaw_frame_first_time = ( self.corridor_middle_point_depth_first_time * np.sin(self.start_yaw_at_corridor_definition) + x_center_frame_cam_first_time * np.cos(self.start_yaw_at_corridor_definition))
+                    Pc_mid_frame_first_time = np.array([x_center_frame_cam_first_time, 0.0, self.corridor_middle_point_depth_first_time]) # in camera frame
+                    # transform mid frame point from camera frame to robot base frame at start yaw frame. 
+                    Pr_mid_frame_first_time_3d = self.R_rc @ Pc_mid_frame_first_time + self.t_rc
+                    # vector from robot to mid frame point in robot base frame at start yaw frame. because we are interested in the relative position of mid frame point with respect to robot, so we need to subtract the camera translation in robot base frame
+                    # projection to ground plane
+                    Pr_mid_frame_first_time_2d = np.array([Pr_mid_frame_first_time_3d[0], Pr_mid_frame_first_time_3d[2]]) # only consider x and z because we are interested in the ground plane
+                    
+                    
+                    self.plane_info_norm /= np.linalg.norm(self.plane_info_norm) # normalize plane normal vector
+                    plane_info_norm_robot_base = self.R_rc @ self.plane_info_norm 
+                    rospy.loginfo(f"Plane normal in robot base frame: {plane_info_norm_robot_base}")
+                    corridor_forward_2d_unit_vector = np.array([
+                        plane_info_norm_robot_base[0],   # X
+                        plane_info_norm_robot_base[2]    # Z
+                    ]) # y component of the normal is ignored. because that describe the tilt of the plane which is not relevant for corridor definition. we only care about the normal direction parallel to the ground plane which is defined by x and z in robot base frame
+                    rospy.loginfo(f"Corridor forward 2D vector before normalization: {corridor_forward_2d_unit_vector}")
+                    norm = np.linalg.norm(corridor_forward_2d_unit_vector)
+                    if norm < 1e-6:
+                        raise ValueError("Plane normal is nearly vertical — cannot define corridor axis")
+                    corridor_forward_2d_unit_vector /= norm
 
+                    # Ensure corridor axis points away from robot. After this: forward means “towards the corridor”
+                    if np.dot(corridor_forward_2d_unit_vector, Pr_mid_frame_first_time_2d) < 0:
+                        corridor_forward_2d_unit_vector *= -1.0
+        
+                    corridor_lateral_2d_unit_vector = np.array([
+                                                -corridor_forward_2d_unit_vector[1],
+                                                corridor_forward_2d_unit_vector[0]
+                                            ])
+                    corridor_lateral_2d_unit_vector /= np.linalg.norm(corridor_lateral_2d_unit_vector)  # left or right direction parallel to the ground plane and perpendicular to the corridor forward direction
+                    half_width = (self.robot_width + self.safety_margin_robot_width) / 2.0
+                    
+
+                    
+                    #x_center_frame_start_yaw_frame_first_time = x_center_frame_cam_first_time
+                    #rospy.loginfo(f"Door state is {self.door_status_from_frame_detection_node}, mid frame x pixel from frame detection node is {self.mid_frame_x_px_from_frame_detection_node} px, door depth from frame detection node is {self.door_depth_from_frame_detection_node:.3f} m. Initial x center frame in camera frame: {x_center_frame_cam_first_time:.3f} m, Initial x center frame in world frame: {x_center_frame_start_yaw_frame_first_time:.3f} m")
                     # ---------------------------------------
                     # Define robot-centric traversal corridor for corridor passability check
                     # ---------------------------------------
                     if self.door_status_from_frame_detection_node == "open_left":
-                        x_left_limit_corridor_cam_first_time   = x_center_frame_cam_first_time - (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
-                        x_right_limit_corridor_cam_first_time  = x_center_frame_cam_first_time - self.door_frame_margin
-                        self.x_corridor_center_cam_first_time = (x_left_limit_corridor_cam_first_time + x_right_limit_corridor_cam_first_time) / 2.0 
+                        #x_left_limit_corridor_cam_first_time   = x_center_frame_cam_first_time - (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
+                        #x_right_limit_corridor_cam_first_time  = x_center_frame_cam_first_time - self.door_frame_margin
+                        #self.x_corridor_center_cam_first_time = (x_left_limit_corridor_cam_first_time + x_right_limit_corridor_cam_first_time) / 2.0 
 
-                        x_left_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time - (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
-                        x_right_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time - self.door_frame_margin
-                        self.x_corridor_center_start_yaw_frame_first_time = (x_left_boundary_start_yaw_frame_first_time + x_right_boundary_start_yaw_frame_first_time) / 2.0
+                        #x_left_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time - (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
+                        #x_right_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time - self.door_frame_margin
+                        #self.x_corridor_center_start_yaw_frame_first_time = (x_left_boundary_start_yaw_frame_first_time + x_right_boundary_start_yaw_frame_first_time) / 2.0
+                       
+                        sign = 1.0 # for open_left, corridor center is on the left side of mid frame point in camera frame, which means negative x direction in camera frame
 
                     else: # means "open_right":
-                        x_left_limit_corridor_cam_first_time   = x_center_frame_cam_first_time + self.door_frame_margin
-                        x_right_limit_corridor_cam_first_time  = x_center_frame_cam_first_time + (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
-                        self.x_corridor_center_cam_first_time = (x_left_limit_corridor_cam_first_time + x_right_limit_corridor_cam_first_time) / 2.0 
-                        rospy.loginfo(f"Door frame based corridor definition. x_left_limit_corridor_cam_first_time: {x_left_limit_corridor_cam_first_time:.3f} m, x_right_limit_corridor_cam_first_time: {x_right_limit_corridor_cam_first_time:.3f} m, x_corridor_center_cam_first_time: {self.x_corridor_center_cam_first_time:.3f} m")
+                        #x_left_limit_corridor_cam_first_time   = x_center_frame_cam_first_time + self.door_frame_margin
+                        #x_right_limit_corridor_cam_first_time  = x_center_frame_cam_first_time + (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
+                        #self.x_corridor_center_cam_first_time = (x_left_limit_corridor_cam_first_time + x_right_limit_corridor_cam_first_time) / 2.0 
+                        #rospy.loginfo(f"Door frame based corridor definition. x_left_limit_corridor_cam_first_time: {x_left_limit_corridor_cam_first_time:.3f} m, x_right_limit_corridor_cam_first_time: {x_right_limit_corridor_cam_first_time:.3f} m, x_corridor_center_cam_first_time: {self.x_corridor_center_cam_first_time:.3f} m")
                         
-                        x_left_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time + self.door_frame_margin
-                        x_right_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time + (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
-                        self.x_corridor_center_start_yaw_frame_first_time = (x_left_boundary_start_yaw_frame_first_time + x_right_boundary_start_yaw_frame_first_time) / 2.0
+                        #x_left_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time + self.door_frame_margin
+                        #x_right_boundary_start_yaw_frame_first_time = x_center_frame_start_yaw_frame_first_time + (self.door_frame_margin + self.robot_width + self.safety_margin_robot_width)
+                        #self.x_corridor_center_start_yaw_frame_first_time = (x_left_boundary_start_yaw_frame_first_time + x_right_boundary_start_yaw_frame_first_time) / 2.0
+
+                        sign = -1.0 # for open_right, corridor center is on the right side of mid frame point in camera frame, which means positive x direction in camera frame
+
                     
-                    rospy.loginfo(f"Initial x corridor center in camera frame: {self.x_corridor_center_cam_first_time:.3f} m, corridor mid depth: {self.corridor_middle_point_depth_first_time:.3f} m, Initial x corridor center in world frame: {self.x_corridor_center_start_yaw_frame_first_time:.3f} m")
+                    self.define_new_corridor_req_from_frame_detection = False  # corridor defined, no need to define again until next activation or next corridor definition request
+                    
+                    offset = sign * half_width * corridor_lateral_2d_unit_vector
+                    self.x_corridor_center_start_yaw_frame_first_time = Pr_mid_frame_first_time_2d + offset
+                    
+                    # Store FIXED distance ( starting distance) of corridor center along corridor axis
+                    self.corridor_center_distance_along_corridor_axis_first_time = np.dot(
+                        self.x_corridor_center_start_yaw_frame_first_time,
+                        corridor_forward_2d_unit_vector
+                    )#Distance of corridor center along corridor axis at start time
+
+                    self.corridor_center_distance_perpendicular_to_corridor_axis_first_time = np.dot(
+                        self.x_corridor_center_start_yaw_frame_first_time,
+                        corridor_lateral_2d_unit_vector
+                    )#Distance of corridor center perpendicular to corridor axis at start time. this value should be close to 0 because we are considering the corridor center is on the corridor axis. but it may not be exactly 0 because of noise in the data from frame detection node and also because of the fact that we are considering the mid frame point as reference for corridor definition which may not be exactly on the corridor axis because of noise and errors in the data from frame detection node. but it should be close to 0 ideally.
+                    
+                    self.start_yaw_at_corridor_definition = self.current_yaw  # store the yaw at corridor definition time
+                    self.start_pose_at_corridor_definition = self.current_pose  # store the pose at corridor definition time
+                    rospy.loginfo(f"Initial x corridor center in camera frame: {self.x_corridor_center_cam_first_time} m, corridor mid depth: {self.corridor_middle_point_depth_first_time} m, Initial x corridor center in world frame: {self.x_corridor_center_start_yaw_frame_first_time} m")
+                    # Numerically robust angle computation: clip dot to [-1, 1]
+                    robot_forward_2d = np.array([
+                        np.cos(self.start_yaw_at_corridor_definition),
+                        np.sin(self.start_yaw_at_corridor_definition)
+                    ])
+                    robot_forward_2d = np.array([1.0, 0.0])
+
+                    dot_val = float(np.clip(
+                        np.dot(corridor_forward_2d_unit_vector, robot_forward_2d),
+                        -1.0,
+                        1.0
+                    ))
+
+                    angle_deg = float(np.degrees(np.arccos(dot_val)))
+
+                    rospy.loginfo(
+                        f"angle between robot forward (at corridor definition) "
+                        f"and corridor axis (deg): {angle_deg:.3f}"
+                    )
+
+ 
                 
                 elif self.door_status_from_frame_detection_node in ["No_door_plane_detected", "no_frame_detected"]:
                     self.corridor_middle_point_depth_first_time = self.door_depth_from_frame_detection_node# only useful information from frame detection node in this case. they cannot provide mid frame x px because no door frame detected
@@ -566,21 +759,29 @@ class PassabilityCheckerNode:
                     z_min = self.minimum_depth_for_back_projection
                     z_max = self.corridor_middle_point_depth_first_time + self.maximum_depth_beyond_corridor_center_point_for_back_projection
                     reference_depth = self.corridor_middle_point_depth_first_time
-                    min_clearance =  self.corridor_middle_point_depth_first_time + self.min_corridor_clearance_beyond_door_to_trigger_traversal_node
-                    self.x_corridor_center_cam_first_time = self.find_a_virtual_corridor(z_min, z_max, reference_depth, min_clearance)
+                    min_clearance =  self.corridor_middle_point_depth_first_time + clearance_needed_beyond_mid_corridor
+                    self.x_corridor_center_cam_first_time , passability_view = self.find_a_virtual_corridor(z_min, z_max, reference_depth, min_clearance)
                     # once virtual corridor is found, we can consider corridor defined for next iterations
                     # calculate x coordinate of corridor center in robot base frame at start yaw frame
-                    
-                    self.x_corridor_center_start_yaw_frame_first_time =  ( reference_depth * np.sin(self.start_yaw_at_corridor_definition) + self.x_corridor_center_cam_first_time * np.cos(self.start_yaw_at_corridor_definition))
+                    if self.x_corridor_center_cam_first_time is not None:
+                        #self.x_corridor_center_start_yaw_frame_first_time =  ( reference_depth * np.sin(self.start_yaw_at_corridor_definition) + self.x_corridor_center_cam_first_time * np.cos(self.start_yaw_at_corridor_definition))
+                        #self.x_corridor_center_start_yaw_frame_first_time = self.x_corridor_center_cam_first_time # because we are considering camera frame and robot base frame are parallel to each other at start yaw frame. and x direction in camera frame is y direction in robot base frame. so the value of x_corridor_center will be same in both frames at start yaw frame
+                        self.x_corridor_center_start_yaw_frame_first_time = self.R_rc @ np.array([self.x_corridor_center_cam_first_time, 0.0, reference_depth]) + self.t_rc
+                        self.start_yaw_at_corridor_definition = self.current_yaw  # store the yaw at corridor definition time
+                        self.start_pose_at_corridor_definition = self.current_pose  # store the pose at corridor definition time
+                        self.define_new_corridor_req_from_frame_detection = False  # corridor defined, no need to define again until next activation or next corridor definition request
+                    else:
+                        self.define_new_corridor_req_from_frame_detection = True  # corridor is not yet defined, so need to run corridor definition again in next iteration. this can happen when virtual corridor finding fails to find a valid corridor center. in that case we can try again in next iteration because new data may come in and it may help to find a valid virtual corridor center. 
+                        self.x_corridor_center_start_yaw_frame_first_time = None # because corridor is not defined yet, we cannot calculate x_corridor_center_start_yaw_frame_first_time. so set it to None. it will be calculated in next iteration once corridor is defined. and during this iteration, since corridor is not defined, we will skip passability check and wait for next iteration when corridor is defined.
                 
                 else:
                     rospy.logwarn("Unknown door open side state during corridor definition.")
                     self.rate.sleep()
                     continue
                 
-                
+                rospy.loginfo(f"corridor definition is {self.define_new_corridor_req_from_frame_detection} and door status from frame detection node is {self.door_status_from_frame_detection_node}, corridor middle point depth at first time is {self.corridor_middle_point_depth_first_time} m, x corridor center in camera frame at first time is {self.x_corridor_center_cam_first_time} m, x corridor center in start yaw frame at first time is {self.x_corridor_center_start_yaw_frame_first_time} m")
                 type_of_passability_check = 1  # after corridor definiton, first do corridor passability check
-                self.define_new_corridor_req_from_frame_detection = False  # corridor defined, no need to define again until next activation or next corridor definition request
+                
             
             
             elif self.define_new_corridor_req_from_traversal: #need to find a virtual corridor because, there is no fixed corridor. fixed corridor will be defined only when door is open left or open right (i.e frame detection has data)
@@ -594,19 +795,30 @@ class PassabilityCheckerNode:
                 z_max = self.corridor_middle_point_depth_first_time + self.maximum_depth_beyond_corridor_center_point_for_back_projection
                 reference_depth = self.corridor_middle_point_depth_first_time
                 min_clearance = self.corridor_middle_point_depth_first_time + clearance_needed_beyond_mid_corridor # door traversal node request this value based on the total corridor length it is trying to traverse. so always publish half of the value
-                self.x_corridor_center_cam_first_time = self.find_a_virtual_corridor(z_min, z_max, reference_depth, min_clearance)
+                self.x_corridor_center_cam_first_time , passability_view= self.find_a_virtual_corridor(z_min, z_max, reference_depth, min_clearance)
                 # once virtual corridor is found, we can consider corridor defined for next iterations
                 # calculate x coordinate of corridor center in robot base frame at start yaw frame
-                
-                self.x_corridor_center_start_yaw_frame_first_time =  ( reference_depth * np.sin(self.start_yaw_at_corridor_definition) + self.x_corridor_center_cam_first_time * np.cos(self.start_yaw_at_corridor_definition))
-                
+                if self.x_corridor_center_cam_first_time is not None:
+                    #self.x_corridor_center_start_yaw_frame_first_time =  ( reference_depth * np.sin(self.start_yaw_at_corridor_definition) + self.x_corridor_center_cam_first_time * np.cos(self.start_yaw_at_corridor_definition))
+                    #self.x_corridor_center_start_yaw_frame_first_time = self.x_corridor_center_cam_first_time
+                    self.x_corridor_center_start_yaw_frame_first_time = self.R_rc @ np.array([self.x_corridor_center_cam_first_time, 0.0, reference_depth]) + self.t_rc
+                    self.start_yaw_at_corridor_definition = self.current_yaw  # store the yaw at corridor definition time
+                    self.start_pose_at_corridor_definition = self.current_pose  # store the pose at corridor definition time
+                    self.define_new_corridor_req_from_traversal = False  # corridor defined, no need to define again until next request
+                else:
+                    self.define_new_corridor_req_from_traversal = True  # corridor is not yet defined, so need to run corridor definition again in next iteration. this can happen when virtual corridor finding fails to find a valid corridor center. in that case we can try again in next iteration because new data may come in and it may help to find a valid virtual corridor center.
+                    self.x_corridor_center_start_yaw_frame_first_time = None # because corridor is not defined yet, we cannot calculate x_corridor_center_start_yaw_frame_first_time. so set it to None. it will be calculated in next iteration once corridor is defined. and during this iteration, since corridor is not defined, we will skip passability check and wait for next iteration when corridor is defined.
                 type_of_passability_check = 1  # after corridor definiton, first do corridor passability check
                 # no need to publish this in door frame detection node based corridor definition. because at that stage we also checking the corridor passability and then only triggering the traversal node.
                 #  but in traversal node requested corridor definition,  we need to send an ack back to traversal node that new corridor is defined and info received by traversal node is for this new virtual corridor
-                self.virtual_corridor_definition_finished_pub.publish(True)
-                self.define_new_corridor_req_from_traversal = False  # reset the request flag
+                self.virtual_corridor_definition_finished_pub.publish(not self.define_new_corridor_req_from_traversal)
+                rospy.loginfo(f"New corridor definition requested by traversal node. corridor definition is {not self.define_new_corridor_req_from_traversal} and corridor middle point depth at first time is {self.corridor_middle_point_depth_first_time} m, x corridor center in camera frame at first time is {self.x_corridor_center_cam_first_time} m, x corridor center in start yaw frame at first time is {self.x_corridor_center_start_yaw_frame_first_time} m")
 
-
+            if self.define_new_corridor_req_from_frame_detection or self.define_new_corridor_req_from_traversal:
+                # if corridor is not yet defined, we cannot do passability check. so skip the rest of the loop and wait for next iteration when corridor is defined
+                self.passability_view_pub.publish(self.bridge.cv2_to_imgmsg(passability_view, encoding="bgr8"))
+                self.rate.sleep()
+                continue
 
             # ---- INITIALIZE ALL PUBLISHER OUTPUTS ----
             front_clearance = None
@@ -624,13 +836,82 @@ class PassabilityCheckerNode:
             # ---------------------------------------
             # Dynamic update of corridor based on odometry once the corridor is defined
             # ---------------------------------------
-            self.corridor_middle_point_depth_dynamic = self.corridor_middle_point_depth_first_time - self.get_forward_displacement_since_start()
-            self.x_corridor_center_cam_dynamic = self.x_corridor_center_cam_first_time + self.calculate_dynamic_x_corridor_center_in_cameraframe()
-            self.x_corridor_center_start_yaw_frame_dynamic = self.x_corridor_center_start_yaw_frame_first_time + self.get_lateral_displacement_since_start()
+            #self.corridor_middle_point_depth_dynamic = self.corridor_middle_point_depth_first_time - self.get_forward_displacement_since_start()
+            #self.x_corridor_center_cam_dynamic = self.x_corridor_center_cam_first_time + self.calculate_dynamic_x_corridor_center_in_cameraframe()
+            #self.x_corridor_center_start_yaw_frame_dynamic = self.x_corridor_center_start_yaw_frame_first_time + self.get_lateral_displacement_since_start()
             
+            # ---- Every control cycle ----
+            R, t = self.relative_robot_motion()#t = robot displacement since corridor definition # robot displacement in start frame
+
+            #t is in the same frame as corridor_forward_2d_unit_vector
+            # corridor center expressed in CURRENT robot frame
+            Pr_now = self.propagate_corridor_point(self.x_corridor_center_start_yaw_frame_first_time, R, t) # corridor point now in robot frame
+            
+            corridor_forward_2d_unit_vector_now = R.T @ corridor_forward_2d_unit_vector
+            corridor_lateral_2d_unit_vector_now = R.T @ corridor_lateral_2d_unit_vector  
+
+            # normalize the vectors to ensure they remain unit vectors after rotation. because due to numerical errors, the length of the vectors may change after rotation, which can affect the accuracy of the forward and lateral motion calculation. by normalizing them, we ensure that they remain unit vectors and the motion calculation remains accurate.
+            corridor_forward_2d_unit_vector_now /= np.linalg.norm(corridor_forward_2d_unit_vector_now)
+            corridor_lateral_2d_unit_vector_now /= np.linalg.norm(corridor_lateral_2d_unit_vector_now)
+            
+            # this is value increase as robot go towards corridor. not a distance measure
+            #forward_motion = np.dot(Pr_now, corridor_forward_2d_unit_vector_now)
+
+
+            # Rotate robot displacement into corridor frame. ow much the robot has moved forward along the corridor axis
+
+            # Distance to corridor midpoint ALONG corridor axis
+            """
+            t_corridor_frame = np.array([
+                np.dot(t, corridor_forward_2d_unit_vector),
+                np.dot(t, corridor_lateral_2d_unit_vector)
+            ])
+
+            """
+            distance_along_corridor_axis = (
+                self.corridor_center_distance_along_corridor_axis_first_time
+                - np.dot(t, corridor_forward_2d_unit_vector)
+            )
+
+            lateral_distance_perpendicular_to_corridor_axis = (
+                self.corridor_center_distance_perpendicular_to_corridor_axis_first_time
+                + np.dot(t, corridor_lateral_2d_unit_vector)
+            )
+            
+            
+                        # Compute distances using CURRENT robot frame to avoid frame mismatches
+            # Project the propagated corridor center onto the CURRENT corridor axes
+            """
+            distance_along_corridor_axis = np.dot(
+                Pr_now,
+                corridor_forward_2d_unit_vector
+            )
+
+            lateral_distance_perpendicular_to_corridor_axis = np.dot(
+                Pr_now,
+                corridor_lateral_2d_unit_vector
+            )
+            """
+        
+            #lateral_motion = np.dot(Pr_now, corridor_lateral_2d_unit_vector_now)
+            
+            self.corridor_middle_point_depth_dynamic =  distance_along_corridor_axis
+            self.x_corridor_center_start_yaw_frame_dynamic = lateral_distance_perpendicular_to_corridor_axis 
+
+
+            Pc_now = self.R_rc.T @ (np.array([
+                    Pr_now[0],
+                    0.0,
+                    Pr_now[1]
+                ]) - self.t_rc)
+
+            self.x_corridor_center_cam_dynamic = Pc_now[0]
+
+
+            rospy.loginfo(f"corridor_middle_point_depth_dynamic is {self.corridor_middle_point_depth_dynamic}, x_corridor_center_cam_dynamic is {self.x_corridor_center_cam_dynamic}, x_corridor_center_start_yaw_frame_dynamic is {self.x_corridor_center_start_yaw_frame_dynamic}")
             corridor_middle_point_depth = self.corridor_middle_point_depth_dynamic
             x_corridor_center_cam = self.x_corridor_center_cam_dynamic
-            x_corridor_center_start_yaw_frame = self.x_corridor_center_start_yaw_frame_dynamic
+            x_corridor_center_start_yaw_frame = self.x_corridor_center_start_yaw_frame_dynamic # because lateral motion is the error in lateral direction, which means how much the corridor center has shifted in lateral direction in world frame at start yaw frame. and x direction in camera frame is y direction in robot base frame, so it is also the shift of corridor center in camera frame. so we can use this value for both x_corridor_center_cam and x_corridor_center_start_yaw_frame because they are parallel to each other at start yaw frame and we are considering only the shift of corridor center from initial position, so the value will be same for both frames.
 
             #once corridor is defined, we can do corridor passability check or local passability check based on request
        
@@ -729,6 +1010,7 @@ class PassabilityCheckerNode:
 
             except Exception as e:
                 rospy.logdebug(f"Viz publish exception: {e}")
+
 
             self.rate.sleep()
 

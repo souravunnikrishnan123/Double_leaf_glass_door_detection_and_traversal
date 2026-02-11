@@ -163,7 +163,7 @@
       door_status_detector:
         roi_width: 240
         margin: 10
-        threshold: 0.05
+        threshold: 0.01
     </rosparam>
   </node>
   <node pkg="robodog_glass_door_detection" type="passability_check_main.py" name="check_if_corridor_is_passable" output="screen" launch-prefix="$(eval str(arg('debug')).lower() == 'true' and 'python3 -m debugpy --listen 0.0.0.0:' + str(arg('debug_port_passability')) + ' --wait-for-client' or '')">
@@ -240,12 +240,12 @@
           omega_max: 0.4
           kp_lateral_movement: -1.2
         pre_align_position_state:
-          lateral_error_tolerance: 0.05 # meters
+          lateral_error_tolerance: 0.1 #  half of the width of robot in meters
           velocity: 0.06 # m/s    # minimum of 5 cm/s forward to ensure some movement by controller
           omega_max: 0.4
           kp_lateral_movement: -1.2
         align_state:
-          lateral_error_tolerance: 0.1 # meters
+          lateral_error_tolerance: 0.1 # half of the width of robot in meters 
           heading_error_tolerance: 0.02 # meters ( tigher than pre-align)
           omega_max: 0.5
           kp_heading_align_state : -1.2

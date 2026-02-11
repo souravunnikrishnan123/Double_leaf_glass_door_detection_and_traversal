@@ -286,6 +286,7 @@ class PlaneDetector:
         a, b, c, d = plane_model
         plane_norm = np.sqrt(a*a + b*b + c*c)
         distance_m = abs(d) / (plane_norm + 1e-12)
+        plane_norm_vector = np.array([a, b, c], dtype=np.float32) / plane_norm
 
         depth_mean = np.mean(depths_in_plane)
         depth_std = np.std(depths_in_plane)
@@ -299,7 +300,9 @@ class PlaneDetector:
             "depth_max": depth_max_p_95,
             "fraction_of_holes_in_plane": fraction_of_holes_in_plane,
             "inlier_density": inlier_density,
-            "distance_m": distance_m
+            "distance_m": distance_m,
+            "plane_norm_vector" : plane_norm_vector
+
         }
 
 

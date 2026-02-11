@@ -2,6 +2,7 @@
 import rospy
 import numpy as np
 from std_msgs.msg import String, Float32, Int32
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import message_filters
@@ -65,7 +66,7 @@ class DoorDetectionNode:
         self.door_depth_pub = rospy.Publisher("~door_depth", Float32, queue_size=10)
 
 
-        
+        self.plane_info_pub = rospy.Publisher("~plane_info", Twist, queue_size=10)
         # visualization publishers
         self.debug_pub = rospy.Publisher("~debug_image", Image, queue_size=1)
         self.viz_color_pub = rospy.Publisher("~viz/color_branch", Image, queue_size=1)
@@ -202,6 +203,22 @@ class DoorDetectionNode:
                 self.door_depth_pub.publish(Float32(data=float(dd)))
             except (ValueError, TypeError) as e:
                 rospy.logwarn_throttle(5.0, f"door_depth publish skipped (non-float): {e}")
+        
+        pd = self.sm.ctx.plane_result
+        if pd is not None and "distance_m" in pd and "plane_norm_vector" in pd:
+            try:
+                plane_distance = float(pd["distance_m"])
+                plane_norm = pd["plane_norm_vector"]
+                msg = Twist()
+                msg.linear.x = plane_distance
+                msg.angular.x = plane_norm[0]
+                msg.angular.y = plane_norm[1]
+                msg.angular.z = plane_norm[2]
+                self.plane_info_pub.publish(msg)
+            except (ValueError, TypeError, KeyError) as e:
+                rospy.logwarn_throttle(5.0, f"plane_info publish skipped (invalid data): {e}")
+                
+                
 
 
         # Publish visualizations

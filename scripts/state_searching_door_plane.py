@@ -61,12 +61,14 @@ class searching_door_plane_state(BaseState):
                 # if final_glass_width_m and final_frame_width_m are None, do not update the params (keep default valid values)
 
             ctx.color_image_for_plane_detection = vis_img
-            ctx.plane_result = result
+            
             self._no_candidate_count = 0 # reset counter on successful detection
 
             distance = float(result["plane_metrics"]["distance_m"])
             rospy.loginfo(f"Detected door plane at distance: {distance:.2f} m")
             rospy.set_param("~plane_detector/output/ransac_plane_distance", distance)
+            ctx.plane_result = {"distance_m": distance, "plane_norm_vector": result["plane_metrics"]["plane_norm_vector"]}
+            rospy.loginfo(f"plane detected at a distance of : {distance:.2f} m and its normal vector is {result['plane_metrics']['plane_norm_vector']}")
             """
             if abs(distance - self.reference_door_distance_m) < self.distance_range_m:
                 #return "parallel_detection_state"

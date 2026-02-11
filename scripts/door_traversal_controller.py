@@ -72,7 +72,7 @@ class DoorTraversalController:
         # pre-align position state
         spp = "pre_align_position_state"
         self.pre_align_position_heading_ref = 0.0
-        self.lateral_error_tolerance_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/lateral_error_tolerance", 0.05)  # meters
+        self.lateral_error_tolerance_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/lateral_error_tolerance", 0.35)  # half of the width of robot in meters
         self.velocity_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/velocity", 0.03)  # m/s
         self.omega_max_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/omega_max", 0.4)   # rad/s
         self.kp_lateral_movement_pre_align_position_state = rospy.get_param(f"{ns}/{spp}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
@@ -84,7 +84,7 @@ class DoorTraversalController:
         # Align state
         sa = "align_state"
         self.heading_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/heading_error_tolerance", 0.02)  # rad
-        self.lateral_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/lateral_error_tolerance", 0.1)  # meters
+        self.lateral_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/lateral_error_tolerance", 0.35)  # half of the width of robot in meters
         self.omega_max_align_state = rospy.get_param(f"{ns}/{sa}/omega_max", 0.5)   # rad/s
         # Heading control gains
         self.kp_heading_align_state = rospy.get_param(f"{ns}/{sa}/kp_heading_align_state", -1.2)
@@ -530,7 +530,7 @@ class DoorTraversalController:
                 distance_offset = abs(estimated_forward_distance_to_reach_corridor) - maximum_allowable_forward_distance_to_reach_corridor
                 rospy.loginfo(f"PRE_ALIGN_READJUST_HEADING: lateral_error={lateral_error_in_robot_base:.3f} m, estimated_forward_distance_to_reach_corridor={estimated_forward_distance_to_reach_corridor:.3f} m, maximum_allowable_forward_distance_to_reach_corridor={maximum_allowable_forward_distance_to_reach_corridor:.3f} m, distance_offset={distance_offset:.3f} m")
                 if distance_offset <= 0.1: # will reach corridor within allowable distance
-                    rospy.loginfo("PRE_ALIGN_READJUST_HEADING complete → PRE_ALIGN_POSITION_TO_CORRIDOR")
+                    rospy.loginfo("PRE_ALIGN_READJUST_HEADING complete → PRE-ALIGN_POSITION_TO_CORRIDOR")
                     self.stop_robot()
                     self.state = PRE_ALIGN_POSITION_TO_CORRIDOR
                     self.movement_is_started = False
@@ -623,7 +623,7 @@ class DoorTraversalController:
                     # but the lateral error may be still high, if the align state is reached from pre-align position state due to passability loss
                     lateral_error_in_robot_base = self.corridor_center_x_robot_base
                     #to check if the lateral error is also within tolerance. if not means we are not means robot body is not within corridor axis
-                    if abs(lateral_error_in_robot_base) <= self.lateral_error_tolerance_align_state:  # 10 cm tolerance
+                    if abs(lateral_error_in_robot_base) <= self.lateral_error_tolerance_align_state:  # half of the width of robot in meters
                         rospy.loginfo("ALIGN complete → TRAVERSE_DOOR")
                         self.stop_robot()
 

@@ -100,11 +100,9 @@ class DoorTraversalController:
         self.omega_max_traverse_state = rospy.get_param(f"{ns}/{st}/omega_max", 0.6)   # rad/s
         # Control gains
         self.k_clearance_traverse_state = rospy.get_param(f"{ns}/{st}/k_clearance", 0.3)
-        self.kp_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/k_center", -1.5)
-        self.kd_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/kd_center", 0.8)
-        self.scale_factor_traverse_state = rospy.get_param(f"{ns}/{st}/scale_factor", 0.1)  # for tanh scaling
-        self.kp_heading_traverse_state = rospy.get_param(f"{ns}/{st}/kp_heading_traverse_state", -0.8)
-
+        self.kp_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/kp_corridor_center", -1.5)
+        self.kd_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/kd_corridor_center", 0.8)
+  
         # MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state
         sd = "move_after_crossing_corridor_midpoint_state"
         self.move_after_crossing_corridor_midpoint_heading_ref = 0.0

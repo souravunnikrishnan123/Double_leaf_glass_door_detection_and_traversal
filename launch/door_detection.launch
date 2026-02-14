@@ -207,6 +207,7 @@
         traversal_params:
           min_corridor_clearance_beyond_door_to_trigger_traversal_node : 0.7  # meters. stil based on the length of robot. this is min distance beyond door plane to check for corridor passability. setting higher value cause detecting human as obstacle when the door is opening outward
           robot_width: 0.45  # meters ,robot  width
+          robot_length : 0.7  # meters
           safety_margin_robot_width: 0.05  # meters
           door_frame_margin: 0.05  # meters
           max_obstacle_height : -0.5  # meters
@@ -252,12 +253,11 @@
         traverse_state:
           v_max: 0.2
           v_min: 0.06
-          omega_max: 0.6
+          omega_max: 0.1
           k_clearance: 0.3
           kp_corridor_center: -1.5
           kd_corridor_center: 0.8
-          scale_factor: 0.1
-          kp_heading_traverse_state : -0.8
+
 
         move_after_crossing_corridor_midpoint_state:
           kp_heading_adjustment : -1.2

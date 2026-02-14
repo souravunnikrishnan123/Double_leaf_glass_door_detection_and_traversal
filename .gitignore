@@ -1,0 +1,12 @@
+*.pyc
+__pycache__/
+*.txt
+build/
+devel/
+*.bag
+*.zip
+*.tar.gz
+*.tar
+-file
+-sdf
+*.txt

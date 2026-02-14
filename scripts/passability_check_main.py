@@ -76,6 +76,7 @@ class PassabilityCheckerNode:
         # traversal corridor parameter
         self.min_corridor_clearance_beyond_door_to_trigger_traversal_node = rospy.get_param(f"{ns}/traversal_params/min_corridor_clearance_beyond_door_to_trigger_traversal_node", 1.0)  # meters
         self.robot_width = rospy.get_param(f"{ns}/traversal_params/robot_width", 0.45)  # meters ,robot  width
+        self.robot_length = rospy.get_param(f"{ns}/traversal_params/robot_length", 0.7)  # meters
         self.safety_margin_robot_width = rospy.get_param(f"{ns}/traversal_params/safety_margin_robot_width", 0.05)  # meters
         self.door_frame_margin = rospy.get_param(f"{ns}/traversal_params/door_frame_margin", 0.05)  # meters
         
@@ -196,7 +197,25 @@ class PassabilityCheckerNode:
         """
         Load camera extrinsics (R_rc, t_rc) from TF.
         Call ONCE after Gazebo is running.
+        Transform that expresses the camera optical frame
+        in the robot (trunk) frame
+
+        in camera frame
+            X → right
+            Y → down
+            Z → forward (into the scene)
+        For optical frame:
+            X = right
+            Y = down
+            Z = forward
+        in ROS, 
+        the standard convention for robot base frame (trunk) is:
+            X = forward
+            Y = left
+            Z = up
+
         """
+
 
         tf_buffer = tf2_ros.Buffer()
         tf_listener = tf2_ros.TransformListener(tf_buffer)
@@ -228,6 +247,11 @@ class PassabilityCheckerNode:
         R_rc = R.from_quat(quat).as_matrix()
 
         rospy.loginfo("Camera extrinsics loaded from TF")
+        print("R_rc =\n", R_rc)
+        test = np.array([0, 0, 1])  # camera forward
+        print("Camera forward in robot frame:", R_rc @ test)
+
+
 
         return R_rc, t_rc
 
@@ -599,17 +623,6 @@ class PassabilityCheckerNode:
 
         return p_now  # [X_forward, Y_lateral] in robot frame
 
-    def corridor_errors_robot_frame(self, corridor_point_R_now):
-        """
-        Returns forward and lateral error in robot frame.
-        """
-
-        forward_error  = corridor_point_R_now[1]   # Z direction
-        lateral_error  = corridor_point_R_now[0]   # X direction
-
-        return forward_error, lateral_error
-
-
 
 
     def run(self):
@@ -678,7 +691,7 @@ class PassabilityCheckerNode:
                                                 corridor_forward_2d_unit_vector[0]
                                             ])
                     corridor_lateral_2d_unit_vector /= np.linalg.norm(corridor_lateral_2d_unit_vector)  # left or right direction parallel to the ground plane and perpendicular to the corridor forward direction
-                    half_width = (self.robot_width + self.safety_margin_robot_width) / 2.0
+                    half_width = (self.robot_width /2.0) + self.safety_margin_robot_width
                     
 
                     
@@ -716,6 +729,15 @@ class PassabilityCheckerNode:
                     offset = sign * half_width * corridor_lateral_2d_unit_vector
                     self.x_corridor_center_start_yaw_frame_first_time = Pr_mid_frame_first_time_2d + offset
                     
+                    
+                    x_corridor_center_cam_first_time_array = self.R_rc.T @ (np.array([
+                    self.x_corridor_center_start_yaw_frame_first_time[0],
+                    0.0,
+                    self.x_corridor_center_start_yaw_frame_first_time[1]
+                ]   ) - self.t_rc)
+            
+                    self.x_corridor_center_cam_first_time = x_corridor_center_cam_first_time_array[0]
+
                     # Store FIXED distance ( starting distance) of corridor center along corridor axis
                     self.corridor_center_distance_along_corridor_axis_first_time = np.dot(
                         self.x_corridor_center_start_yaw_frame_first_time,
@@ -854,6 +876,11 @@ class PassabilityCheckerNode:
             corridor_forward_2d_unit_vector_now /= np.linalg.norm(corridor_forward_2d_unit_vector_now)
             corridor_lateral_2d_unit_vector_now /= np.linalg.norm(corridor_lateral_2d_unit_vector_now)
             
+            heading_error = np.arctan2(
+                    corridor_forward_2d_unit_vector_now[1],
+                    corridor_forward_2d_unit_vector_now[0]
+                )
+
             # this is value increase as robot go towards corridor. not a distance measure
             #forward_motion = np.dot(Pr_now, corridor_forward_2d_unit_vector_now)
 
@@ -861,13 +888,7 @@ class PassabilityCheckerNode:
             # Rotate robot displacement into corridor frame. ow much the robot has moved forward along the corridor axis
 
             # Distance to corridor midpoint ALONG corridor axis
-            """
-            t_corridor_frame = np.array([
-                np.dot(t, corridor_forward_2d_unit_vector),
-                np.dot(t, corridor_lateral_2d_unit_vector)
-            ])
 
-            """
             distance_along_corridor_axis = (
                 self.corridor_center_distance_along_corridor_axis_first_time
                 - np.dot(t, corridor_forward_2d_unit_vector)
@@ -892,22 +913,23 @@ class PassabilityCheckerNode:
                 corridor_lateral_2d_unit_vector
             )
             """
-        
+            
             #lateral_motion = np.dot(Pr_now, corridor_lateral_2d_unit_vector_now)
             
             self.corridor_middle_point_depth_dynamic =  distance_along_corridor_axis
             self.x_corridor_center_start_yaw_frame_dynamic = lateral_distance_perpendicular_to_corridor_axis 
 
-
+            """
             Pc_now = self.R_rc.T @ (np.array([
                     Pr_now[0],
                     0.0,
                     Pr_now[1]
                 ]) - self.t_rc)
-
+            
             self.x_corridor_center_cam_dynamic = Pc_now[0]
-
-
+            """
+            
+            self.x_corridor_center_cam_dynamic = self.x_corridor_center_cam_first_time + self.calculate_dynamic_x_corridor_center_in_cameraframe()
             rospy.loginfo(f"corridor_middle_point_depth_dynamic is {self.corridor_middle_point_depth_dynamic}, x_corridor_center_cam_dynamic is {self.x_corridor_center_cam_dynamic}, x_corridor_center_start_yaw_frame_dynamic is {self.x_corridor_center_start_yaw_frame_dynamic}")
             corridor_middle_point_depth = self.corridor_middle_point_depth_dynamic
             x_corridor_center_cam = self.x_corridor_center_cam_dynamic
@@ -920,11 +942,12 @@ class PassabilityCheckerNode:
                 # Define Z extents relative to door
                 z_min = self.minimum_depth_for_back_projection
                 z_max = self.corridor_middle_point_depth_dynamic + self.maximum_depth_beyond_corridor_center_point_for_back_projection
-                reference_depth = self.corridor_middle_point_depth_dynamic
-
+                #reference_depth = self.corridor_middle_point_depth_dynamic # we want to check the passability at the point which is half of robot length before the corridor center because that is the point where we want the robot to be when it is passing through the door. if we check passability at corridor center, it may be too late for the robot to react and adjust its trajectory to pass through the door. by checking passability at a point before the corridor center, we can give the robot more time to react and adjust its trajectory to successfully pass through the door. so that is why we use corridor_middle_point_depth_dynamic - 0.5*robot_length as reference depth for back projection in corridor passability check. but in local passability check, we can use corridor_middle_point_depth_dynamic as reference depth because local passability check is more focused on checking the immediate area around the robot for obstacles, so using the current position of the robot as reference depth is more appropriate for local passability check.
+                reference_depth = z_min + (z_max - z_min) / 2.0
+                # for perception we use camera and camera is 
                 # since we track corridor center dynamically.
-                x_left_limit   = self.x_corridor_center_cam_dynamic - ((self.robot_width + self.safety_margin_robot_width)/2.0)
-                x_right_limit  = self.x_corridor_center_cam_dynamic + ((self.robot_width + self.safety_margin_robot_width)/2.0)
+                x_left_limit   = self.x_corridor_center_cam_dynamic - ((self.robot_width/2) + self.safety_margin_robot_width)
+                x_right_limit  = self.x_corridor_center_cam_dynamic + ((self.robot_width/2) + self.safety_margin_robot_width)
                 data_valid = True
             
 
@@ -933,7 +956,7 @@ class PassabilityCheckerNode:
                 rospy.loginfo("Performing local passability check.")
                 z_min = self.minimum_depth_for_back_projection_local_passability_check  # closer range for local passability
                 z_max = self.maximum_depth_for_back_projection_local_passability_check  # only up to door
-                reference_depth = (z_max - z_min) / 2.0  # mid depth for local passability
+                reference_depth = z_min + (z_max - z_min) / 2.0  # mid depth for local passability
                 # ---------------------------------------
                 # Define robot-centric traversal corridor for local passability check
                 # ---------------------------------------

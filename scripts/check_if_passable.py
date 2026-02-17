@@ -24,7 +24,7 @@ class Passability_checker:
         # split eye level params
         # -----------------------------
         
-        self.robot_eye_level_y = rospy.get_param(f"{ns}/filter_points_params/split_eye_level/robot_eye_level_y", -0.1)
+        #self.robot_eye_level_y = rospy.get_param(f"{ns}/filter_points_params/split_eye_level/robot_eye_level_y", -0.1)
         
         # -----------------------------
         # RANSAC floor removal params
@@ -63,7 +63,7 @@ class Passability_checker:
         # -----------------------------
         # Traversal safety thresholds
         # -----------------------------
-        self.max_obstacle_height = rospy.get_param(f"{ns}/traversal_params/max_obstacle_height", -0.5)  # meters
+        
         self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
 
         # duration timer
@@ -84,7 +84,7 @@ class Passability_checker:
             pass
         return color_image
 
-
+    """
     def split_eye_level(self, points, uv):
         mask_below_robot_eye_level = points[:, 1] > self.robot_eye_level_y
         points_above_robot_eye_level = points[~mask_below_robot_eye_level]
@@ -97,6 +97,7 @@ class Passability_checker:
             points_below_robot_eye_level,
             uv_below_robot_eye_level,
         )
+    """
 
     def remove_floor_ransac(self, points, uv):
         #ransac
@@ -331,40 +332,14 @@ class Passability_checker:
 
 
 
-    def run(self, depth_image_in_meters, color_image, x_left_boundary, x_right_boundary, valid_points, uv, z_max):
+    def run(self, depth_image_in_meters, color_image, corridor_pts_input, corridor_uv_input, z_max):
 
         H, W = depth_image_in_meters.shape
         self.timer.start(f"check_if_passable--> main passability check")
 
-        self.timer.start(f"check_if_passable--> backprojection")
-        #color_image = self.visualize_roi(color_image, roi_polygon)
-
-
-        if len(valid_points) == 0: 
-            return z_max, color_image, None
-
-        
-        corridor_mask_before_filter = (
-            (valid_points[:, 0] > x_left_boundary) &
-            (valid_points[:, 0] < x_right_boundary) &
-            (valid_points[:, 1] > self.max_obstacle_height)
-        )
-        corridor_pts_before_filter = valid_points[corridor_mask_before_filter]
-        corridor_uv_before_filter = uv[corridor_mask_before_filter]
-
-
-        (
-            points_above_robot_eye_level,
-            uv_above_robot_eye_level,
-            points_below_robot_eye_level,
-            uv_below_robot_eye_level,
-        ) = self.split_eye_level(corridor_pts_before_filter, corridor_uv_before_filter)
-
-        self.timer.stop(f"check_if_passable--> backprojection")
-
         self.timer.start(f"check_if_passable--> floor removal")
         points_3_nofloor, uv_3_nofloor, floor_height = self.remove_floor_ransac(
-            points_below_robot_eye_level, uv_below_robot_eye_level
+            corridor_pts_input, corridor_uv_input
         )
         self.timer.stop(f"check_if_passable--> floor removal")
 
@@ -384,8 +359,9 @@ class Passability_checker:
             points_2_3d_outlier_removal, uv_2_3d_outlier_removal, W, H, floor_height
         )
         self.timer.stop(f"check_if_passable--> connected components")
-        final_points = np.vstack([points_5_remove_patches, points_above_robot_eye_level])
-        final_uv = np.vstack([uv_5_remove_patches, uv_above_robot_eye_level])
+
+        final_points = points_5_remove_patches
+        final_uv = uv_5_remove_patches
 
         
 
@@ -405,7 +381,7 @@ class Passability_checker:
             W,
             H,
             [
-                (uv, (0, 255, 0)), # green
+                (corridor_uv_input, (0, 255, 0)), # green
                 (uv_3_nofloor, (255, 0, 255)), # magenta
                 (uv_4_normal, (0, 165, 255)), # orange
                 (uv_2_3d_outlier_removal, (255, 0, 0)), # blue

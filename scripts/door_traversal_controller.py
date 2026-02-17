@@ -23,6 +23,7 @@ import numpy as np
 from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool , String, UInt8
+from robodog_glass_door_detection.msg import Robot_passability
 from tf.transformations import euler_from_quaternion
 from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
@@ -105,7 +106,6 @@ class DoorTraversalController:
   
         # MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state
         sd = "move_after_crossing_corridor_midpoint_state"
-        self.move_after_crossing_corridor_midpoint_heading_ref = 0.0
         self.start_pose_at_corridor_mid_point = None
         self.start_yaw_at_corridor_mid_point = None
         self.kp_heading_adjustment_move_after_crossing_corridor_midpoint_state = rospy.get_param(f"{ns}/{sd}/kp_heading_adjustment", -1.2)  # rad/s per meter lateral error
@@ -169,6 +169,7 @@ class DoorTraversalController:
         self.distance_to_corridor_mid_point = None
         self.minimum_clearance_beyond_corridor_mid_point = None
         self.corridor_center_x_robot_base = 0.0
+        self.heading_error_to_corridor = None
 
 
         # heading estimation
@@ -215,7 +216,7 @@ class DoorTraversalController:
 
         #  passability results
         rospy.Subscriber(
-            "/check_if_corridor_is_passable/door_passability", Twist, self.passability_callback
+            "/check_if_corridor_is_passable/door_passability", Robot_passability, self.passability_callback
         )
 
         # odometry
@@ -255,24 +256,25 @@ class DoorTraversalController:
     def passability_callback(self, msg):
         """
         EXPECTED CONVENTION (example):
-            msg.linear.x  -> front_clearance (m)
-            msg.linear.y  -> corridor_center_x_robot_base (m)
-            msg.linear.z  -> passable (1.0 or 0.0)
-            msg.angular.x -> x_corridor_center_cam (m)
-            msg.angular.y -> distance_to_corridor_mid_point (m)
-            msg.angular.z -> minimum_clearance_beyond_corridor_mid_point (m)
+            msg.front_clearance  -> front_clearance (m)
+            msg.x_corridor_center_start_yaw_frame  -> corridor_center_x_robot_base (m)
+            msg.type_of_passability_check  -> type_of_passability_check (1.0 or 2.0)
+            msg.x_corridor_center_cam -> x_corridor_center_cam (m)
+            msg.corridor_middle_point_depth -> distance_to_corridor_mid_point (m)
+            msg.clearance_needed_beyond_mid_corridor -> clearance_needed_beyond_mid_corridor (m)
+            msg.heading_error -> heading_error (rad)
 
 
         """
-        self.front_clearance = msg.linear.x
-        self.corridor_center_x_robot_base = msg.linear.y
-        self.x_corridor_center_cam = msg.angular.x
-        self.distance_to_corridor_mid_point = msg.angular.y
-        self.minimum_clearance_beyond_corridor_mid_point = msg.angular.z
-
+        self.front_clearance = msg.front_clearance
+        self.corridor_center_x_robot_base = msg.x_corridor_center_start_yaw_frame
+        self.x_corridor_center_cam = msg.x_corridor_center_cam
+        self.distance_to_corridor_mid_point = msg.corridor_middle_point_depth
+        self.minimum_clearance_beyond_corridor_mid_point = msg.clearance_needed_beyond_mid_corridor
+        self.heading_error_to_corridor = msg.heading_error
 
         # Raw passability from detector
-        if msg.linear.z == 1.0: # corridor passability check
+        if msg.type_of_passability_check == 1.0: # corridor passability check
             self.local_passable = False  # reset local passability. because we are doing corridor passability check now
             self.safe_seq_local = 0
             self.unsafe_seq_local = 0
@@ -299,7 +301,7 @@ class DoorTraversalController:
                     self.corridor_passable = False
             
              
-        elif msg.linear.z == 2.0: # local passability check
+        elif msg.type_of_passability_check == 2.0: # local passability check
             self.corridor_passable = False  # reset corridor passability. because we are doing local passability check now
             self.safe_seq_corridor = 0
             self.unsafe_seq_corridor = 0
@@ -613,8 +615,9 @@ class DoorTraversalController:
 
                 # no need to check local passability here because it is a rotation state no translation involved
                 
-                required_heading_correction = self.wrap_angle(self.current_yaw - self.start_yaw)
-                rospy.loginfo(f"ALIGN: start yaw is {self.start_yaw:.3f} rad, current yaw is {self.current_yaw:.3f} rad, required_heading_correction={required_heading_correction:.3f} rad")
+
+                required_heading_correction = 0 - self.heading_error_to_corridor
+                rospy.loginfo(f"ALIGN: current yaw is {self.current_yaw:.3f} rad, required_heading_correction={required_heading_correction:.3f} rad")
             
                 # If heading is good enough, start traversal
                 if abs(required_heading_correction) < self.heading_error_tolerance_align_state: # heading error tolerance
@@ -688,7 +691,6 @@ class DoorTraversalController:
                     
                     # set reference  for move after crossing corridor midpoint state.
                     #until now the traversal 
-                    self.move_after_crossing_corridor_midpoint_heading_ref = self.current_yaw
                     self.start_pose_at_corridor_mid_point = self.current_pose
                     self.start_yaw_at_corridor_mid_point = self.current_yaw
                     continue
@@ -708,6 +710,7 @@ class DoorTraversalController:
                 
                 # lateral offset from corridor center
                 x_c = self.corridor_center_x_robot_base
+                x_p_error = 0.0 - x_c  # desired corridor center is at x=0 in robot base frame
 
                 # ------------------------------------------------
                 # Lateral rate (implicit yaw damping)
@@ -716,8 +719,9 @@ class DoorTraversalController:
                 # ------------------------------------------------
                 # Angular velocity command (NO heading estimation)
                 # ------------------------------------------------
+                rospy.loginfo(f"TRAVERSE_DOOR: lateral error={x_c:.3f} m, lateral_kp_error={x_p_error:.3f} m, lateral error rate={x_dot:.3f} m/s")
                 omega = (
-                    self.kp_corridor_center_traverse_state * x_c + 
+                    self.kp_corridor_center_traverse_state * x_p_error + 
                     self.kd_corridor_center_traverse_state * x_dot
                 )   
                 omega = np.clip(omega, -self.omega_max_traverse_state, self.omega_max_traverse_state)
@@ -772,8 +776,6 @@ class DoorTraversalController:
                             msg.linear.y = (distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point)/2.0
 
                         self.request_new_corridor_definition_pub.publish(msg) # request new corridor definition
-
-                        self.move_after_crossing_corridor_midpoint_heading_ref = 0.0
                         self.movement_is_started = False
                         continue
                         
@@ -791,14 +793,13 @@ class DoorTraversalController:
                     self.stop_robot()
                     self.movement_is_started = False
                     self.state = DONE
-                    self.move_after_crossing_corridor_midpoint_heading_ref = 0.0
                     continue
                
                 # Heading hold (NOT lateral correction)
-                heading_error = self.wrap_angle(self.current_yaw - self.move_after_crossing_corridor_midpoint_heading_ref)
-
                 # Yaw bias steers robot toward corridor center
+                heading_error = 0 - self.heading_error_to_corridor
                 omega = self.kp_heading_adjustment_move_after_crossing_corridor_midpoint_state * heading_error
+
                 omega = np.clip(omega, -self.omega_max_move_after_crossing_corridor_midpoint_state, self.omega_max_move_after_crossing_corridor_midpoint_state)
 
                 

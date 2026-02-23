@@ -254,6 +254,7 @@
           omega_max: 0.1
           k_clearance: 0.3
           kp_corridor_center: -1.5
+          kp_heading : -0.8
           kd_corridor_center: 0.8
 
 

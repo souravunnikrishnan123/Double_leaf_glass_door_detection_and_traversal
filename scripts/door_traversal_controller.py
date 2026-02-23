@@ -102,6 +102,7 @@ class DoorTraversalController:
         # Control gains
         self.k_clearance_traverse_state = rospy.get_param(f"{ns}/{st}/k_clearance", 0.3)
         self.kp_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/kp_corridor_center", -1.5)
+        self.kp_heading_traverse_state = rospy.get_param(f"{ns}/{st}/kp_heading", -0.8)
         self.kd_corridor_center_traverse_state = rospy.get_param(f"{ns}/{st}/kd_corridor_center", 0.8)
   
         # MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state
@@ -680,7 +681,7 @@ class DoorTraversalController:
                 # -----------------------------
                 # Completion check
                 # -----------------------------
-                if self.distance_to_corridor_mid_point <= 0.05: # within 5 cm of door plane. now no chance to collide with closed glass door half
+                if self.distance_to_corridor_mid_point <= 0.0: # within 5 cm of door plane. now no chance to collide with closed glass door half
                     #at this point we also ensured that corridor in front has a clearance requested from passability node
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()
@@ -710,10 +711,11 @@ class DoorTraversalController:
                 
                 # lateral offset from corridor center
                 x_c = self.corridor_center_x_robot_base
+                heading_error_correction = 0.0 - self.heading_error_to_corridor
                 x_p_error = 0.0 - x_c  # desired corridor center is at x=0 in robot base frame
 
                 # ------------------------------------------------
-                # Lateral rate (implicit yaw damping)
+                # Lateral rate ( yaw damping)
                 # ------------------------------------------------
                 x_dot = (x_c - self.prev_corridor_center_x) / dt
                 # ------------------------------------------------
@@ -722,6 +724,7 @@ class DoorTraversalController:
                 rospy.loginfo(f"TRAVERSE_DOOR: lateral error={x_c:.3f} m, lateral_kp_error={x_p_error:.3f} m, lateral error rate={x_dot:.3f} m/s")
                 omega = (
                     self.kp_corridor_center_traverse_state * x_p_error + 
+                    self.kp_heading_traverse_state * heading_error_correction +
                     self.kd_corridor_center_traverse_state * x_dot
                 )   
                 omega = np.clip(omega, -self.omega_max_traverse_state, self.omega_max_traverse_state)
@@ -748,6 +751,9 @@ class DoorTraversalController:
             # =================================================
             elif self.state == MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT:
                 rospy.loginfo(" MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state")
+                # donot use the heading error from passability node. because we requested for local passability check just for checking the clearance in front after crossing the door plane. hence heading error estimation is no longer available.
+                # so we use the last heading and pose from traverse state as reference 
+                # calculating forward displacment along the heading direction at the time when we just crossed the corridor mid point (door plane). i.e in world frame( corridor frame no longer exists)
                 distance_travelled_beyond_corridor_mid_point = self.get_forward_displacement(self.start_pose_at_corridor_mid_point, self.start_yaw_at_corridor_mid_point)
                 
                 if not self.local_passable:
@@ -797,7 +803,10 @@ class DoorTraversalController:
                
                 # Heading hold (NOT lateral correction)
                 # Yaw bias steers robot toward corridor center
-                heading_error = 0 - self.heading_error_to_corridor
+                # cannot use  self.heading_error_to_corridor, because in this state we are in local passability check. hence the heading error estimation from passability node is no longer available. but we can still use the current yaw and the yaw at the time when we just crossed the corridor mid point to do heading hold to make sure the robot is moving along the right direction after crossing the door plane. because if the robot drifts too much in heading after crossing the door plane, it may collide with the door frame half or it may go out of the new corridor after crossing the door plane.
+                #heading_error = 0 - self.heading_error_to_corridor
+                heading_error = self.wrap_angle(self.current_yaw - self.start_yaw_at_corridor_mid_point)
+
                 omega = self.kp_heading_adjustment_move_after_crossing_corridor_midpoint_state * heading_error
 
                 omega = np.clip(omega, -self.omega_max_move_after_crossing_corridor_midpoint_state, self.omega_max_move_after_crossing_corridor_midpoint_state)

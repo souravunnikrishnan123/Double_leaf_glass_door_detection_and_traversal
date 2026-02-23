@@ -205,18 +205,25 @@ class DoorDetectionNode:
                 rospy.logwarn_throttle(5.0, f"door_depth publish skipped (non-float): {e}")
         
         pd = self.sm.ctx.plane_result
-        if pd is not None and "distance_m" in pd and "plane_norm_vector" in pd:
-            try:
-                plane_distance = float(pd["distance_m"])
-                plane_norm = pd["plane_norm_vector"]
-                msg = Twist()
-                msg.linear.x = plane_distance
-                msg.angular.x = plane_norm[0]
-                msg.angular.y = plane_norm[1]
-                msg.angular.z = plane_norm[2]
-                self.plane_info_pub.publish(msg)
-            except (ValueError, TypeError, KeyError) as e:
-                rospy.logwarn_throttle(5.0, f"plane_info publish skipped (invalid data): {e}")
+        if pd is not None:
+            plane_distance = float(pd["distance_m"])
+            plane_norm = pd["plane_norm_vector"]
+            msg = Twist()
+            msg.linear.x = plane_distance
+            msg.angular.x = plane_norm[0]
+            msg.angular.y = plane_norm[1]
+            msg.angular.z = plane_norm[2]
+        else:
+            msg = Twist()
+            msg.linear.x = 0.0  # send 0 distance if no plane detected, to avoid issues with downstream consumers expecting a distance value. The normal vector will be set to a default value which can be ignored by downstream consumers since the distance is 0, which can be used by downstream consumers to identify that no plane was detected.
+            msg.angular.x = 0.0
+            msg.angular.y = 0.0
+            msg.angular.z = 1.0  # send a default normal vector pointing straight out if no plane detected, to avoid issues with downstream consumers expecting a normal vector. The distance will be None which can be used by downstream consumers to identify that no plane was detected.
+
+        self.plane_info_pub.publish(msg)
+
+        
+
                 
                 
 

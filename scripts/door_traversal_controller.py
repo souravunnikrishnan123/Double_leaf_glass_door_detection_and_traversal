@@ -68,7 +68,7 @@ class DoorTraversalController:
         spr = "pre_align_readjust_heading_state"
         self.fraction_distance_to_corridor_mid_point_for_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/fraction_distance_to_corridor_mid_point_for_readjust_heading", 0.3)  # fraction of distance to door
         self.omega_max_pre_align_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/omega_max", 0.4)   # rad/s
-        self.kp_lateral_movement_pre_align_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/kp_lateral_movement", -1.2)  # rad/s per meter lateral error
+        self.kp_lateral_movement_pre_align_readjust_heading_state = rospy.get_param(f"{ns}/{spr}/kp_lateral_movement", 1.2)  # rad/s per meter lateral error
 
         # pre-align position state
         spp = "pre_align_position_state"
@@ -88,7 +88,7 @@ class DoorTraversalController:
         self.lateral_error_tolerance_align_state = rospy.get_param(f"{ns}/{sa}/lateral_error_tolerance", 0.35)  # half of the width of robot in meters
         self.omega_max_align_state = rospy.get_param(f"{ns}/{sa}/omega_max", 0.5)   # rad/s
         # Heading control gains
-        self.kp_heading_align_state = rospy.get_param(f"{ns}/{sa}/kp_heading_align_state", -1.2)
+        self.kp_heading_align_state = rospy.get_param(f"{ns}/{sa}/kp_heading_align_state", 1.2)
 
         # TRAVERSAL state
         st = "traverse_state"
@@ -542,7 +542,7 @@ class DoorTraversalController:
                 
 
                 # Yaw bias steers robot toward corridor center
-                omega = self.kp_lateral_movement_pre_align_readjust_heading_state * distance_offset
+                omega = self.kp_lateral_movement_pre_align_readjust_heading_state * distance_offset * np.sign(lateral_error_in_robot_base)
                 omega = np.clip(omega, -self.omega_max_pre_align_readjust_heading_state, self.omega_max_pre_align_readjust_heading_state)
                 
                 self.publish_cmd_vel(0.0 , 0.0, omega)
@@ -617,11 +617,10 @@ class DoorTraversalController:
                 # no need to check local passability here because it is a rotation state no translation involved
                 
 
-                required_heading_correction = 0 - self.heading_error_to_corridor
-                rospy.loginfo(f"ALIGN: current yaw is {self.current_yaw:.3f} rad, required_heading_correction={required_heading_correction:.3f} rad")
+                rospy.loginfo(f"ALIGN: current yaw is {self.current_yaw:.3f} rad, heading_error_to_corridor={self.heading_error_to_corridor:.3f} rad")
             
                 # If heading is good enough, start traversal
-                if abs(required_heading_correction) < self.heading_error_tolerance_align_state: # heading error tolerance
+                if abs(self.heading_error_to_corridor) < self.heading_error_tolerance_align_state: # heading error tolerance
                     # but the lateral error may be still high, if the align state is reached from pre-align position state due to passability loss
                     lateral_error_in_robot_base = self.corridor_center_x_robot_base
                     #to check if the lateral error is also within tolerance. if not means we are not means robot body is not within corridor axis
@@ -646,7 +645,7 @@ class DoorTraversalController:
                         continue
 
                 # Rotate to reduce lateral error
-                omega = self.kp_heading_align_state * required_heading_correction
+                omega = self.kp_heading_align_state * self.heading_error_to_corridor
                 omega = np.clip(omega, -self.omega_max_align_state, self.omega_max_align_state)
 
                 # Very small forward creep to stabilize yaw estimation
@@ -669,19 +668,34 @@ class DoorTraversalController:
                         # if passability lost here means, traversal were already started and then passabililty lost( that is self.corridor_passable is False not due to temporal smoothing)
                         # temporal smoothing already done and also hysteresis done in passability callback
                         # so if the passability is lost here, we abort immediately( it is not due to glitch )
-                        rospy.logwarn("Passability lost → ABORT")
-                        self.stop_robot()
-                        self.state = ABORT
-                        self.movement_is_started = False
-                        continue
-                        
+                        if self.virtual_corridor_definition_requested_from_traversal_node is False:
+                            rospy.logwarn("Passability lost → ABORT")
+                            self.stop_robot()
+                            self.state = ABORT
+                            self.movement_is_started = False
+                            continue
+                        else:
+                            rospy.logwarn("Passability lost but virtual corridor definition already requested → LOOK_FOR_A_VIRTUAL_CORRIDOR")
+                            self.stop_robot()
+                            self.movement_is_started = False
+                            distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
+                            self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                            self.state = MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
+                            # set reference  for move after crossing corridor midpoint state.
+                            # here virtual corridor is not passable now. but we consider it as mid point is reached so that we can go the next state
+                            # here actually we didnt reach the mid point thats why value of self.distance_to_corridor_mid_point is added to distance_to_move_beyond_corridor_mid_point. 
+                            #until now the traversal 
+                            self.start_pose_at_corridor_mid_point = self.current_pose
+                            self.start_yaw_at_corridor_mid_point = self.current_yaw
+                            continue
+
 
                 self.movement_is_started = True
                 
                 # -----------------------------
                 # Completion check
                 # -----------------------------
-                if self.distance_to_corridor_mid_point <= 0.0: # within 5 cm of door plane. now no chance to collide with closed glass door half
+                if self.distance_to_corridor_mid_point <= 0.3: # within 5 cm of door plane. now no chance to collide with closed glass door half
                     #at this point we also ensured that corridor in front has a clearance requested from passability node
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()
@@ -782,6 +796,7 @@ class DoorTraversalController:
                             msg.linear.y = (distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point)/2.0
 
                         self.request_new_corridor_definition_pub.publish(msg) # request new corridor definition
+                        self.virtual_corridor_definition_requested_from_traversal_node = True
                         self.movement_is_started = False
                         continue
                         
@@ -827,6 +842,7 @@ class DoorTraversalController:
                     continue
                 else: # new corridor is defined
                     rospy.loginfo("LOOK_FOR_A_VIRTUAL_CORRIDOR complete → IDLE")
+                    self.request_local_passability_check_pub.publish(UInt8(data=1)) # check corridor passability for the new corridor
                     self.state = IDLE
                     self.stop_robot()
                     continue
@@ -840,6 +856,7 @@ class DoorTraversalController:
 
                 # Back off a small distance
                 backoff_start = self.current_pose
+                self.virtual_corridor_definition_requested_from_traversal_node = False # reset this flag so that after abort we will not request for new corridor definition until we reach pre-align position state again. because we only want to request for new corridor definition when we are at pre-align position state and find local passability lost, which means the corridor we are following is no longer valid when we are at pre-align position state. but if we are at traverse state and find local passability lost, we will abort and then go to align state. at align state we dont want to request for new corridor definition until we reach pre-align position state again. because at align state, the robot is still in the original corridor, just with some heading misalignment. so it is still safe to do heading alignment at align state without requesting for new corridor definition until we reach pre-align position state again.
                 while not rospy.is_shutdown():
                     self.publish_cmd_vel(self.abort_backoff_speed, 0.0, 0.0)
 
@@ -862,6 +879,7 @@ class DoorTraversalController:
             elif self.state == DONE:
                 self.stop_robot()
                 self.done_pub.publish(Bool(data=True))
+                self.virtual_corridor_definition_requested_from_traversal_node = False # reset this flag after traversal is done. because after the traversal is done, we dont want to request for new corridor definition until we reach pre-align position state again. but if we are at traverse state and find local passability lost, we will abort and then go to align state. at align state we dont want to request for new corridor definition until we reach pre-align position state again. because at align state, the robot is still in the original corridor, just with some heading misalignment. so it is still safe to do heading alignment at align state without requesting for new corridor definition until we reach pre-align position state again.
                 # publish done signal in the DONE state  
                 return
 

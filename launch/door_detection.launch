@@ -178,8 +178,8 @@
           minimum_depth : 0.1  # meters
           maximum_depth_beyond_corridor_center_point : 1.5  # meters
           subsample: 4
-          minimum_depth_local_passability_check : 0.05  # meters
-          maximum_depth_local_passability_check : 0.5  # meters
+          minimum_depth_local_passability_check : 0.05  # meters.
+          maximum_depth_local_passability_check : 1.0  # meters
         virtual_corridor_search:
           slide_step_x_direction: 0.1  # meters
         
@@ -218,7 +218,7 @@
     <rosparam>
       door_traversal_controller:
         control_rate_hz: 5
-        min_front_clearance_local_passability_check: 0.2  # meters
+        min_front_clearance_local_passability_check: 0.6  # meters. this limit is set because, gazebo mode, min depth available is 0.4m
         robot_length : 0.7  # meters
 
 
@@ -237,7 +237,7 @@
         pre_align_readjust_heading_state:
           fraction_distance_to_corridor_mid_point_for_readjust_heading: 0.3  # fraction of distance to the mid of corridor
           omega_max: 0.4
-          kp_lateral_movement: -1.2
+          kp_lateral_movement: 1.2
         pre_align_position_state:
           lateral_error_tolerance: 0.05 # 
           velocity: 0.2 # m/s    # minimum of 5 cm/s forward to ensure some movement by controller
@@ -247,7 +247,7 @@
           lateral_error_tolerance: 0.1 # half of the width of robot in meters 
           heading_error_tolerance: 0.02 # meters ( tigher than pre-align)
           omega_max: 0.5
-          kp_heading_align_state : -1.2
+          kp_heading_align_state : 1.2
         traverse_state:
           v_max: 0.2
           v_min: 0.06
@@ -260,7 +260,7 @@
 
         move_after_crossing_corridor_midpoint_state:
           kp_heading_adjustment : -1.2
-          velocity: 0.2  # m/s
+          velocity: 0.02  # m/s
           omega_max: 0.4   # rad/s
         abort:
           abort_backoff_distance: 0.25

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Optional, Tuple
 import cv2
-import open3d as o3d
+import math
 
 class Preprocessor:
 
@@ -58,10 +58,11 @@ class LineFilter:
         return depth_range[0] <= center_depth <= depth_range[1]
 
 
-    def get_median_depth_along_line(self, depth_image_in_meters, line, num_samples, min_num_of_valid_depths):
+    def get_median_depth_along_line(self, depth_image_in_meters, line, min_num_of_valid_depths):
         """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
         x1, y1, x2, y2 = line[0]
-
+        pixel_length = math.hypot(x2 - x1, y2 - y1)
+        num_samples = int(pixel_length)
         H, W = depth_image_in_meters.shape
 
 

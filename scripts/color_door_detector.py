@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass
-import math
 from typing import Optional, Tuple
 import cv2
 import numpy as np
@@ -107,24 +106,21 @@ class ColorDoorDetector:
         
 
     def process_frame(self, ctx) -> ColorDetectionResult:
-
+        self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
  
         # Detect vertical lines in color image using Canny + Hough
-        vertical_lines = []
-        depth_of_each_lines = []
-
-        self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
+        valid_lines = []
+        depth_of_valid_lines = []
         H = ctx.color_image_color_based.shape[0]
         W = ctx.color_image_color_based.shape[1]
-
 
 
         color_image_scaled = self.preprocessor.resize_by_scale(ctx.color_image_color_based, self.scale)
         filtered_grey_image = self.preprocessor.gaussian_blur_filter(color_image_scaled, self.blur)
         edges_scaled = self.edge_detector.canny_edge_detection(filtered_grey_image, self.canny)
-        lines = self.line_detector.detect(edges_scaled, self.hough, self.scale)
+        color_lines = self.line_detector.detect(edges_scaled, self.hough, self.scale)
         edges = self.preprocessor.restore_size(edges_scaled, W, H, self.scale)
         
 
@@ -133,117 +129,25 @@ class ColorDoorDetector:
 
         self.timer.start("color_image_based_frame_detection line processing")
 
-        if lines is not None:
-            lines = self.line_filter.angle_filter(lines, self.angle_threshold)
+        if color_lines is not None:
+            color_lines = self.line_filter.angle_filter(color_lines, self.angle_threshold)
 
 
-            for line in lines:
-                filtered_segment = []
+            for line in color_lines:
                 x1, y1, x2, y2 = line[0]
-                #angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-                #cv2.line(color_image, (x1, y1), (x2, y2), (255, 0, 0), 2)  # All lines: blue
-                #if 80 < abs(angle) < 100:  # near-vertical
                 cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
-
-
-                # Extract smooth portion along detected Hough line
-                pixel_length = math.hypot(x2 - x1, y2 - y1)
-                num_samples = int(pixel_length)
-
-
-                line_depth = self.line_filter.get_median_depth_along_line(ctx.depth_image_in_meters, line , num_samples, self.min_num_of_valid_depths_for_depth_estimation)
-                # Compute median depth and center
+                # Estimate Z-depth of the line robustly
+                line_depth = self.line_filter.get_median_depth_along_line(ctx.depth_image_in_meters, line , self.min_num_of_valid_depths_for_depth_estimation)
+                # Compute median depth
                 
-
                 if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
                     continue  # skip invalid depth lines
 
-                filtered_segment.append((x1, y1))
-                filtered_segment.append((x2, y2))
-                
-                # Draw vertical_lines in cyan
-                
+                valid_lines.append(((x1, y1), (x2, y2)))
+                depth_of_valid_lines.append(line_depth)
+                 
                 cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
 
-            
-                # Use first and last points of filtered segment
-                start_fwd = filtered_segment[-1] # take only x and y coordinate. donot take depth
-                start_back = filtered_segment[0]
-
-                # Compute direction vector of the line (normalized)
-                dx = x2 - x1
-                dy = y2 - y1
-                norm = np.hypot(dx, dy)
-                if norm == 0:
-                    continue
-                dx /= norm
-                dy /= norm
-                
-                # Extrapolate forward/backward (kept for parity; result unused)
-                _, _, full_line_segment = self.line_extender.extend(
-                    ctx.depth_image_in_meters,
-                    start_fwd,
-                    start_back,
-                    (dx, dy),
-                    line_depth,
-                    self.extrapolation["gradient_threshold_for_extrapolation"],
-                    self.extrapolation["window_size_for_extrapolation"],
-                )
-
-                # Combine all
-                #full_line_segment = extrapolated_backward[::-1] + filtered_segment + extrapolated_forward
-                
-                # For simplicity, just use filtered_segment as full_line_segment for now
-                full_line_segment = filtered_segment
-                
-
-                if len(full_line_segment) >= 2:
-                    
-                    cv2.line(ctx.color_image_color_based, full_line_segment[0], full_line_segment[-1], (0, 255, 0), 2)  # Green
-                    vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(line_depth)
-                
-                """
-                if len(filtered_segment) >= 2:
-                    pt1 = tuple(map(int, filtered_segment[0][:2]))
-                    pt2 = tuple(map(int, filtered_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (255, 255, 0), 2)  # Cyan
-                
-                if len(full_line_segment) >= 2:
-                    pt1 = tuple(map(int, full_line_segment[0][:2]))
-                    pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)  # Magenta
-                
-
-                # Append clipped vertical line
-                MIN_LINE_LENGTH = 50  # Minimum number of points required. because otherwise a small line segment
-                #on the frame ( which is clipped by the previous logic) will be still considered as valid line and cause issue with detection
-
-                if len(full_line_segment) >= MIN_LINE_LENGTH:
-                    vertical_lines.append(full_line_segment)
-                    depth_of_each_lines.append(line_depth)
-                    # Draw vertical_lines in green
-                    pt1 = tuple(map(int, full_line_segment[0][:2]))
-                    pt2 = tuple(map(int, full_line_segment[-1][:2]))
-                    cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green
-                    #print(f"filtered_segment depth {line_depth:.2f}m")
-                """
-            
-            
-            # there were some problem with stable_lines calculation. it was not working properly. so commenting it out for now
-            # Instead, we will just use vertical_lines directly for pairing
-            #update_line_history(vertical_lines, line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK, color_image)
-
-
-            # Pass only line points to filter function
-            #stable_line_points = [line_pts for avg_x, line_pts, confidence in stable_lines]
-            
-            # Visualize stable_line_points (lines passed to filter_vertical_lines_glass_contact)
-            #for line_pts in stable_line_points:
-                #if len(line_pts) >= 2:
-                    #pt1 = tuple(map(int, line_pts[0][:2]))
-                    #pt2 = tuple(map(int, line_pts[-1][:2]))
-                    #cv2.line(color_image, pt1, pt2, (0, 255, 0), 2)  # Green for stable lines
             self.timer.stop("color_image_based_frame_detection line processing")
 
 
@@ -251,8 +155,8 @@ class ColorDoorDetector:
                 ctx.depth_image_in_meters,
                 ctx.color_image_color_based,
                 ctx.fx,
-                vertical_lines,
-                depth_of_each_lines,
+                valid_lines,
+                depth_of_valid_lines,
                 self.door_geometry,
                 DEPTH_RANGE,
                 keyword="depth"

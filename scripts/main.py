@@ -73,7 +73,6 @@ class DoorDetectionNode:
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
         
-        self.viz_passability_pub = rospy.Publisher("~viz/passability_view", Image, queue_size=1)
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
         color_sub = message_filters.Subscriber(color_topic, Image)

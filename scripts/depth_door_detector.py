@@ -96,14 +96,10 @@ class DepthDoorDetector:
         H = ctx.depth_image_in_meters.shape[0]
         W = ctx.depth_image_in_meters.shape[1]
 
-        depth_image_in_meters = ctx.depth_image_in_meters.astype(np.float32, copy=False)
-
 
         depth_scaled = self.preprocessor.resize_by_scale(depth_image_in_meters, self.scale)
-        filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)
-            
-        # Gradient along X (detect vertical edges in depth)
-        depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel)
+        filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)        
+        depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel) # Gradient along X (detect vertical edges in depth)
         
         # Apply mask (keep only valid + relevant regions)
         # After computing depth_scaled
@@ -127,8 +123,6 @@ class DepthDoorDetector:
         # Overlay depth edges in red
         sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
 
-
-
         depth_lines = self.line_detector.detect(depth_edges, self.hough, self.scale)
         sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
         
@@ -143,25 +137,22 @@ class DepthDoorDetector:
 
             for line in depth_lines:
                 x1, y1, x2, y2 = line[0]
-
+                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
                 # Estimate Z-depth of the line robustly
                 line_depth = self.line_filter.get_median_depth_by_roi_around(ctx.depth_image_in_meters, line , self.roi_width_for_depth_estimation)
-                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
-
+                
                 if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
                     continue
-                    
-                valid_lines.append((x1, y1, x2, y2))
+
+                valid_lines.append(((x1, y1), (x2, y2)))
                 depth_of_valid_lines.append(line_depth)
                 # show the midpoint used for normals
                 cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
                 #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
-    
-            merged_lines, merged_lines_depths = cluster_and_merge_lines(ctx.color_image_depth_based, valid_lines, depth_of_valid_lines, x_thresh=self.merge_lines["x_threshold_to_merge_lines"], min_merged_line_length = self.merge_lines["MIN_LINE_LENGTH_after_merging"])  # only merging lines that are vertical, valid, and within depth range
 
-            
+            merged_lines, merged_lines_depths = cluster_and_merge_lines(ctx.color_image_depth_based, valid_lines, depth_of_valid_lines, x_thresh=self.merge_lines["x_threshold_to_merge_lines"], min_merged_line_length = self.merge_lines["MIN_LINE_LENGTH_after_merging"])  # only merging lines that are vertical, valid, and within depth range
 
             self.timer.stop("depth_based_edge_detection line processing")
 

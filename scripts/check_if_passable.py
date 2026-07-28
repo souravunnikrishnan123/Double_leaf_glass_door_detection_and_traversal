@@ -16,9 +16,78 @@ class Passability_checker:
     The stages remove the floor, reject unsuitable normals and statistical
     outliers, then discard small disconnected image-space patches. If too few
     obstacle points survive, the requested range is treated as clear.
+
+    Attributes:
+        subsample:
+            Depth backprojection stride used to scale connected-component area
+            thresholds.
+
+        max_planes:
+            Maximum number of RANSAC plane attempts during floor removal.
+
+        ransac_n:
+            Number of points sampled for each plane hypothesis.
+
+        distance_threshold:
+            Maximum RANSAC point-to-plane distance in meters.
+
+        num_iterations:
+            RANSAC iterations per plane attempt.
+
+        min_inliers:
+            Minimum inlier count for accepting a plane.
+
+        horizontal_tol:
+            Tolerance for classifying a plane normal as camera-Y aligned.
+
+        radius:
+            Neighborhood radius used for normal estimation.
+
+        max_nn:
+            Maximum neighbors used for normal estimation.
+
+        ny_thr:
+            Maximum absolute normal Y component retained as obstacle-like.
+
+        nb_neighbors:
+            Neighbor count used by statistical outlier removal.
+
+        std_ratio:
+            Standard-deviation multiplier used by outlier removal.
+
+        near_z:
+            Depth separating near and far connected-component thresholds.
+
+        min_area_near:
+            Minimum image-space area for near components.
+
+        minimum_area_far:
+            Minimum image-space area for farther components.
+
+        min_z:
+            Configured lower depth bound reserved for connected-component
+            threshold scaling.
+
+        max_z:
+            Configured upper depth bound reserved for connected-component
+            threshold scaling.
+
+        minimum_depth_points_after_filtering:
+            Minimum surviving point count required to report a measured
+            obstacle rather than the far range.
+
+        timer:
+            Shared named-stage duration recorder.
     """
 
     def __init__(self):
+        """
+        Load passability-filter parameters from the ROS parameter server.
+
+        All parameters live below the historical
+        ``~passabilility_check`` namespace. Defaults are chosen for the
+        configured camera resolution and point-cloud subsampling.
+        """
         ns = "~passabilility_check"
         # -----------------------------
         # Backprojection parameters
@@ -76,7 +145,23 @@ class Passability_checker:
 
 
     def visualize_roi(self, color_image, roi_polygon):
-        """Draw a translucent polygon showing the passability input region."""
+        """
+        Draw a translucent polygon showing the passability input region.
+
+        Args:
+            color_image:
+                BGR image modified in place. ``None`` is accepted.
+
+            roi_polygon:
+                Polygon convertible to an int32 OpenCV point array.
+
+        Returns:
+            The same image reference, including any successfully drawn overlay.
+
+        Notes:
+            Drawing failures are deliberately ignored so diagnostics cannot
+            interrupt the safety pipeline.
+        """
         # Visualization: translucent ROI fill + outline
         try:
             if color_image is not None:
@@ -106,11 +191,28 @@ class Passability_checker:
     """
 
     def remove_floor_ransac(self, points, uv):
-        """Remove the first sufficiently large horizontal RANSAC plane.
+        """
+        Remove the first sufficiently large horizontal RANSAC plane.
+
+        Plane fitting stops when a camera-Y-aligned normal is found. Inlier
+        points belonging to that plane are removed while UV correspondence is
+        preserved.
+
+        Args:
+            points:
+                ``N x 3`` camera-frame point array.
+
+            uv:
+                ``N x 2`` image coordinates paired with ``points``.
 
         Returns:
-            Non-floor points, their matching pixels, and the estimated camera
-            frame Y coordinate of the floor.
+            Tuple ``(non_floor_points, non_floor_uv, floor_height)``.
+            ``floor_height`` is the mean camera-frame Y of floor inliers, or
+            ``None`` when no horizontal plane is found.
+
+        Notes:
+            The method assumes the first accepted horizontal plane is the
+            floor. When fitting fails, all input points are retained.
         """
         #ransac
         floor_inliers = None
@@ -170,7 +272,24 @@ class Passability_checker:
         return points_3_nofloor, uv_3_nofloor, floor_height
 
     def normal_filtering(self, points, uv):
-        """Keep obstacle-like surfaces and preserve their pixel correspondence."""
+        """
+        Keep obstacle-like surfaces and preserve their pixel correspondence.
+
+        Args:
+            points:
+                ``N x 3`` floor-filtered point array.
+
+            uv:
+                ``N x 2`` pixel coordinates paired with ``points``.
+
+        Returns:
+            Tuple of points and UV coordinates whose estimated normals satisfy
+            ``abs(normal_y) < ny_thr``.
+
+        Notes:
+            If Open3D normal estimation fails, the original arrays are returned
+            unchanged.
+        """
         # 4) Keep points whose normals are close to camera Z axis (door plane direction)
         pc_nf = o3d.geometry.PointCloud()
         pc_nf.points = o3d.utility.Vector3dVector(points)
@@ -191,7 +310,23 @@ class Passability_checker:
         return points_4_normal, uv_4_normal
 
     def outlier_removal(self, points, uv):
-        """Apply Open3D statistical outlier removal to points and UV pairs."""
+        """
+        Apply Open3D statistical outlier removal to paired points and pixels.
+
+        Args:
+            points:
+                ``N x 3`` point array.
+
+            uv:
+                ``N x 2`` pixel array aligned with ``points``.
+
+        Returns:
+            Filtered ``(points, uv)`` tuple. If Open3D reports no inliers, two
+            empty arrays are returned.
+
+        Notes:
+            Exceptions from Open3D fall back to the unfiltered inputs.
+        """
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
         #print(f"number of points before S3O {len(points)}")
         try:
@@ -211,7 +346,37 @@ class Passability_checker:
         return points_2_3d_outlier_removal, uv_2_3d_outlier_removal
 
     def connected_components_filter(self, points, uv, W, H, floor_height):
-        """Reject small or depth-incoherent point patches in image space."""
+        """
+        Reject small or depth-incoherent point patches in image space.
+
+        The sparse UV samples are dilated to restore connectivity lost through
+        subsampling. Each connected component is gated by area, median depth,
+        floor-relative height, and median absolute depth deviation.
+
+        Args:
+            points:
+                ``N x 3`` camera-frame point array.
+
+            uv:
+                ``N x 2`` pixel coordinates paired with ``points``.
+
+            W:
+                Image width in pixels.
+
+            H:
+                Image height in pixels.
+
+            floor_height:
+                Estimated camera-frame floor Y coordinate, or ``None``.
+
+        Returns:
+            Tuple of retained points and their UV coordinates.
+
+        Notes:
+            On an unexpected processing error, the method returns the original
+            input arrays. When the generated mask has no foreground component,
+            it returns empty arrays.
+        """
         #print(f"number of points before CC {len(points)}")
         # --- Remove small patches in image space (connected components) ---
         try:
@@ -332,7 +497,28 @@ class Passability_checker:
         return points_5_remove_patches, uv_5_remove_patches
 
     def visualize_points(self, color_image, W, H, uv_sets_with_color):
-        """Overlay several UV point sets using caller-supplied BGR colors."""
+        """
+        Overlay several UV point sets using caller-supplied BGR colors.
+
+        Args:
+            color_image:
+                BGR image modified in place. ``None`` is accepted.
+
+            W:
+                Image width used for bounds checking.
+
+            H:
+                Image height used for bounds checking.
+
+            uv_sets_with_color:
+                Iterable of ``(uv_array, bgr_color)`` pairs.
+
+        Returns:
+            The input image after all valid point sets have been drawn.
+
+        Notes:
+            Visualization errors are ignored because the overlay is diagnostic.
+        """
         #  mark kept points on the image for debugging
         try:
             if color_image is not None:
@@ -349,17 +535,37 @@ class Passability_checker:
 
 
     def run(self, depth_image_in_meters, color_image, corridor_pts_input, corridor_uv_input, z_max):
-        """Run all filters and estimate unobstructed distance in front.
+        """
+        Run the complete obstacle-filtering and clearance pipeline.
+
+        Stages execute in the following order: floor removal, normal filtering,
+        statistical outlier rejection, and image-space component filtering.
+        The nearest surviving Z value becomes the front clearance.
 
         Args:
-            depth_image_in_meters: Aligned metric depth image.
-            color_image: Image modified with filter-stage diagnostics.
-            corridor_pts_input: Camera-frame 3D points inside the corridor.
-            corridor_uv_input: Pixels corresponding one-to-one with the points.
-            z_max: Far limit used when no obstacle survives filtering.
+            depth_image_in_meters:
+                Aligned ``H x W`` metric depth image.
+
+            color_image:
+                BGR image modified with filter-stage diagnostics.
+
+            corridor_pts_input:
+                Camera-frame 3D points already restricted to the corridor.
+
+            corridor_uv_input:
+                Pixels corresponding one-to-one with the input points.
+
+            z_max:
+                Far limit reported when no meaningful obstacle survives.
 
         Returns:
-            ``(front_clearance, visualization, final_points)``.
+            Tuple ``(front_clearance, visualization, final_points)`` where
+            clearance is in meters and ``final_points`` contains the surviving
+            obstacle cloud.
+
+        Notes:
+            If no more than ``minimum_depth_points_after_filtering`` points
+            survive, the region is treated as clear up to ``z_max``.
         """
 
         H, W = depth_image_in_meters.shape

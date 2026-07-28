@@ -17,7 +17,12 @@ from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Pre
 
 
 class LineExtender:
-    """Extend both ends of a line while its sampled depth stays consistent."""
+    """
+    Extend both ends of a line while sampled depth stays consistent.
+
+    This stateless helper applies the same extrapolation rule in opposite
+    directions and joins the accepted pixels with the original endpoints.
+    """
 
     def extend(
         self,
@@ -29,10 +34,35 @@ class LineExtender:
         gradient_threshold: float,
         window: int,
     ) -> Tuple[list, list, list]:
-        """Extrapolate a segment forward and backward through the depth map.
+        """
+        Extrapolate a segment forward and backward through the depth map.
+
+        Args:
+            depth_image_in_meters:
+                ``H x W`` aligned metric depth image.
+
+            start_fwd:
+                Endpoint from which to extrapolate along ``direction``.
+
+            start_back:
+                Endpoint from which to extrapolate opposite ``direction``.
+
+            direction:
+                ``(dx, dy)`` step vector along the line.
+
+            center_depth:
+                Reference depth in meters used by both extrapolations.
+
+            gradient_threshold:
+                Maximum accepted depth deviation from ``center_depth``.
+
+            window:
+                Moving-average width used to smooth sampled depths.
 
         Returns:
-            Backward points, forward points, and the combined full segment.
+            Tuple containing backward points, forward points, and the combined
+            full segment ordered from the backward extension to the forward
+            extension.
         """
         dx, dy = direction
         extrapolated_forward = extrapolate_along_line_segment(
@@ -57,11 +87,65 @@ class LineExtender:
 
 class ColorDoorDetector:
     """
-    OO facade for the color-based door frame detection pipeline.
-    Wraps existing functional code and maintains FrameContext updates.
+    Detect depth-consistent vertical door-frame lines from a color image.
+
+    The detector equalizes and smooths grayscale intensity, runs Canny and a
+    probabilistic Hough transform, keeps nearly vertical segments, and rejects
+    segments whose sampled metric depth is outside the confirmed plane band.
+
+    Attributes:
+        ransac_error:
+            Fractional tolerance applied around the latest plane distance.
+
+        scale:
+            Image scale used for edge and Hough processing.
+
+        canny:
+            Median-based Canny threshold factors.
+
+        blur:
+            Gaussian kernel and sigma configuration.
+
+        hough:
+            Probabilistic Hough configuration in original-image pixels.
+
+        angle_threshold:
+            Maximum horizontal direction component accepted as vertical.
+
+        min_num_of_valid_depths_for_depth_estimation:
+            Minimum finite line samples required for a median depth.
+
+        extrapolation:
+            Depth-gradient and smoothing settings retained for line extension.
+
+        preprocessor:
+            Shared image preprocessing helper.
+
+        edge_detector:
+            Canny/Sobel edge helper.
+
+        line_detector:
+            Scale-aware Hough segment detector.
+
+        line_filter:
+            Orientation and depth validation helper.
+
+        line_extender:
+            Bidirectional depth-guided line extrapolator.
+
+        timer:
+            Named pipeline-stage duration recorder.
     """
 
     def __init__(self):
+        """
+        Load color-branch configuration and construct processing helpers.
+
+        Notes:
+            ``~plane_detector/output/ransac_error`` is required without a
+            fallback value. The latest plane distance itself is read for every
+            frame because the plane state may update it at runtime.
+        """
         ns = "~color_image_based_door_detector"
 
         self.ransac_error = rospy.get_param("~plane_detector/output/ransac_error")
@@ -100,15 +184,26 @@ class ColorDoorDetector:
         
 
     def process_frame(self, ctx):
-        """Extract depth-consistent vertical line candidates from one frame.
+        """
+        Extract depth-consistent vertical line candidates from one frame.
+
+        Canny and Hough operate on a scaled branch image. Hough endpoints are
+        restored to original coordinates before aligned depth is sampled along
+        each segment.
 
         Args:
-            ctx: Shared frame context containing the color image, aligned
-                metric depth, and branch-specific visualization buffer.
+            ctx:
+                Shared frame context containing ``color_image_color_based``,
+                aligned metric depth, and the current camera-frame artifacts.
 
         Returns:
-            ``(valid_lines, line_depths, edges)``. Lines use
-            ``((x1, y1), (x2, y2))`` coordinates at the original image size.
+            Tuple ``(valid_lines, line_depths, edges)``. Lines use
+            ``((x1, y1), (x2, y2))`` coordinates at original resolution.
+            When Hough finds no lines, the first two values are ``None``.
+
+        Notes:
+            The method draws all vertical candidates in orange and accepted
+            depth-consistent lines in cyan on ``ctx.color_image_color_based``.
         """
         self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance")

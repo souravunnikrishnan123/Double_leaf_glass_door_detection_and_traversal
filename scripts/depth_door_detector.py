@@ -19,11 +19,73 @@ from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Pre
 
 class DepthDoorDetector:
     """
-    OO facade wrapping the depth-based door frame detection pipeline.
-    Coordinates per-frame processing and encapsulates runtime configuration.
+    Detect vertical door-frame lines from metric depth discontinuities.
+
+    The detector smooths the depth map, computes its horizontal Sobel response,
+    restricts gradients to the confirmed plane band, applies adaptive and
+    physical thresholds, and merges nearby Hough segments.
+
+    Attributes:
+        ransac_error:
+            Fractional tolerance applied around the latest plane distance.
+
+        PHYSICAL_GRADIENT_THRESHOLD:
+            Minimum absolute metric Sobel response accepted as a real depth
+            discontinuity.
+
+        scale:
+            Processing scale for depth filtering, Sobel, and Hough detection.
+
+        hough:
+            Probabilistic Hough configuration.
+
+        bilateral:
+            Edge-preserving depth smoothing configuration.
+
+        sobel:
+            Sobel kernel configuration.
+
+        adaptive:
+            Statistical gradient-threshold configuration.
+
+        angle_threshold:
+            Maximum horizontal component accepted as a vertical segment.
+
+        roi_width_for_depth_estimation:
+            Width sampled on each side of a detected segment.
+
+        merge_lines:
+            Horizontal clustering and minimum merged-length configuration.
+
+        line_filter:
+            Orientation and depth validation helper.
+
+        edge_detector:
+            Sobel and adaptive-threshold helper.
+
+        line_detector:
+            Scale-aware Hough detector.
+
+        preprocessor:
+            Depth resizing and bilateral-filter helper.
+
+        timer:
+            Named pipeline-stage duration recorder.
     """
 
     def __init__(self):
+        """
+        Load depth-branch parameters and construct processing helpers.
+
+        Hough, bilateral-filter, Sobel, geometric-line, and merge settings are
+        read from ``~depth_image_based_door_detector``. The resulting helpers
+        are retained so each frame can be processed without rebuilding filter
+        objects.
+
+        Notes:
+            ROS must be initialized before construction so private parameters
+            resolve in the intended node namespace.
+        """
         ns = "~depth_image_based_door_detector"
         
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
@@ -66,9 +128,22 @@ class DepthDoorDetector:
 
     def process_frame(self, ctx):
         """
-        Process a single frame using the existing functional pipeline.
-        Updates `ctx.*` fields to preserve the current contract and
-        returns detected lines and their depths for downstream use.
+        Extract and merge vertical depth-edge candidates from one frame.
+
+        Args:
+            ctx:
+                Shared frame context containing aligned metric depth and
+                ``color_image_depth_based`` for diagnostic overlays.
+
+        Returns:
+            Tuple ``(merged_lines, merged_depths, sobel_visualization)``.
+            Merged lines use endpoint-pair coordinates at original resolution.
+            If Hough detects no line, the first two values are ``None``.
+
+        Notes:
+            The adaptive threshold is computed only from gradients whose depth
+            lies inside the current plane-distance band. A second fixed
+            physical threshold removes weak internal frame texture.
         """
         # Ensure the color image used for depth overlays matches the depth resolution.
         # If aligned depth resolution differs from RGB, resize the color image to depth size

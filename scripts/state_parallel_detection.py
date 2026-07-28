@@ -13,14 +13,47 @@ import rospkg
 import os
 
 class dual_branch_frame_detection_state(BaseState):
-    """Run both detector branches and store their independent status results.
+    """
+    Run both detector branches and store their independent status results.
 
     Despite the historical state name, both branches currently execute
     sequentially in one callback. Separate door-status instances carry the
     keyword used to select color- or depth-specific context fields.
+
+    Attributes:
+        ransac_error:
+            Fractional depth tolerance around the latest plane distance.
+
+        color_frame_detection_state:
+            Color Canny/Hough line detector.
+
+        depth_frame_detection_state:
+            Depth Sobel/Hough line detector.
+
+        glass_frame_detector_based_on_color:
+            Pairing and ROI processor for color-derived lines.
+
+        glass_frame_detector_based_on_depth:
+            Pairing and ROI processor for depth-derived lines.
+
+        detecting_door_status_based_on_color:
+            Branch-specific side-depth classifier.
+
+        detecting_door_status_based_on_depth:
+            Branch-specific side-depth classifier.
+
+        door_geometry:
+            Latest physical geometry mapping, refreshed per frame.
     """
 
     def __init__(self):
+        """
+        Construct reusable processing objects for both detector branches.
+
+        Notes:
+            Instances persist across frames to avoid rebuilding configuration
+            and to keep branch-specific status keywords.
+        """
         super().__init__("dual_branch_frame_detection_state")
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
 
@@ -37,7 +70,23 @@ class dual_branch_frame_detection_state(BaseState):
 
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
-        """Process both branches, create debug views, and request fusion."""
+        """
+        Process both branches, create debug views, and request fusion.
+
+        Args:
+            ctx:
+                Shared context with aligned color/depth input, intrinsics, and
+                branch-specific visualization images.
+
+        Returns:
+            Always returns ``"combine_door_state"`` after both branch results
+            have been written to ``ctx``.
+
+        Notes:
+            Door geometry and plane distance are re-read each frame because the
+            plane-search state can update them at runtime. A branch without
+            valid ROIs receives the label ``"no_frame_detected"``.
+        """
         # get the latest door geometry and distance from ROS params
         # these values are changed during runtime. hence need to load the door geometry and plane distance in this state as well to make sure the latest value is used for detection
 
@@ -148,7 +197,6 @@ class dual_branch_frame_detection_state(BaseState):
         except Exception as e:
             rospy.logwarn(f"Failed to write door states: {e}")
         return "combine_door_state"
-
 
 
 

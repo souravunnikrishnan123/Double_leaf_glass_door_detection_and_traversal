@@ -26,9 +26,74 @@ from scipy.spatial.transform import Rotation as R
 
 
 class PassabilityCheckerNode:
-    """Coordinate sensor input, corridor geometry, and passability results."""
+    """
+    Define traversable corridors and monitor their obstacle clearance.
+
+    The node is activated by a door-opening result. It combines the detected
+    door geometry, aligned RGB-D data, camera-to-robot extrinsics, and odometry
+    to build a corridor in a fixed reference frame. As the robot moves, the
+    stored corridor is propagated into the current robot frame before the next
+    clearance measurement is published to the traversal controller.
+
+    The same processing loop can also perform short-range, robot-centric
+    checks and can search the visible scene for a virtual corridor when the
+    original door corridor is no longer usable.
+
+    Attributes:
+        active:
+            Whether image and odometry processing is enabled.
+
+        color_image:
+            Latest BGR color frame, or ``None`` before one is received.
+
+        depth_image:
+            Latest aligned depth image in meters.
+
+        fx:
+            Camera focal length along the image x axis, in pixels.
+
+        R_rc:
+            Rotation matrix that maps camera-frame vectors into the robot
+            ``trunk`` frame.
+
+        t_rc:
+            Camera origin expressed in the robot frame, in meters.
+
+        requested_type_of_passability_check_from_traversal_node:
+            Requested mode: ``0`` disables checks, ``1`` checks the stored
+            corridor, and ``2`` checks the space directly ahead.
+
+        corridor_middle_point_depth_dynamic_along_corridor_axis:
+            Current signed distance to the corridor midpoint, measured along
+            the corridor axis in meters.
+
+        passability_checker:
+            Point-cloud filtering pipeline used to find the nearest obstacle.
+    """
 
     def __init__(self):
+        """
+        Initialize corridor state, parameters, and ROS interfaces.
+
+        The constructor creates the always-on control subscribers and result
+        publishers. High-bandwidth image topics and odometry remain
+        unsubscribed until a suitable door state activates the node. Finally,
+        the camera extrinsics are read from TF.
+
+        Raises:
+            tf2_ros.LookupException:
+                If the requested camera transform is unavailable.
+
+            tf2_ros.ConnectivityException:
+                If TF cannot connect the two requested frames.
+
+            tf2_ros.ExtrapolationException:
+                If TF cannot provide a transform at the requested time.
+
+        Notes:
+            The ROS node itself is initialized by :func:`main`, before this
+            class is constructed.
+        """
         self.enable_visualization = rospy.get_param("~enable_visualization", False)
         self.color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
@@ -211,24 +276,37 @@ class PassabilityCheckerNode:
                                 camera_frame="realsense_d455_optical_frame"
                                 ):
         """
-        Load camera extrinsics (R_rc, t_rc) from TF.
-        Call ONCE after Gazebo is running.
-        Transform that expresses the camera optical frame
-        in the robot (trunk) frame
+        Read the camera pose in the robot frame from TF.
 
-        in camera frame
-            X → right
-            Y → down
-            Z → forward (into the scene)
-        For optical frame:
-            X = right
-            Y = down
-            Z = forward
-        in ROS, 
-        the standard convention for robot base frame (trunk) is:
-            X = forward
-            Y = left
-            Z = up
+        The returned transform maps an optical-frame point ``p_c`` to the
+        robot frame as ``p_r = R_rc @ p_c + t_rc``. The camera optical axes are
+        right, down, and forward; the robot axes are forward, left, and up.
+
+        Args:
+            robot_frame:
+                Target robot frame in which points should be expressed.
+
+            camera_frame:
+                Source optical frame attached to the depth camera.
+
+        Returns:
+            A tuple ``(R_rc, t_rc)`` containing a ``3 x 3`` rotation matrix and
+            a three-element translation vector in meters.
+
+        Raises:
+            tf2_ros.LookupException:
+                If no transform is available for the named frames.
+
+            tf2_ros.ConnectivityException:
+                If the TF tree cannot connect the frames.
+
+            tf2_ros.ExtrapolationException:
+                If TF cannot satisfy the requested timestamp.
+
+        Notes:
+            This method is intended to run once after the robot and camera
+            frames have been published. It waits up to five seconds in the
+            initial availability check.
 
         """
 
@@ -273,6 +351,18 @@ class PassabilityCheckerNode:
 
 
     def _activate_node_cb(self, msg):
+        """
+        Activate passability processing for an eligible door state.
+
+        Args:
+            msg:
+                ROS ``String`` containing the detected door state.
+
+        Notes:
+            ``open_left``, ``open_right``, ``No_door_plane_detected``, and
+            ``no_frame_detected`` start a new cycle. The first accepted state is
+            retained as the basis for corridor definition.
+        """
         if msg.data in ["open_left", "open_right", "No_door_plane_detected", "no_frame_detected"]: # one time activation on these states
             if not self.active:
                 rospy.loginfo("PassabilityChecker: activated")
@@ -287,6 +377,18 @@ class PassabilityCheckerNode:
             
 
     def _deactivate_node_cb(self, msg):
+        """
+        End the active passability cycle after traversal completes.
+
+        Args:
+            msg:
+                ROS ``Bool`` message. Only a true value causes deactivation.
+
+        Notes:
+            The callback unregisters conditional subscribers, clears
+            cycle-specific geometry, and asks the door detector to start its
+            next detection cycle.
+        """
         if msg.data:  # only deactivate on True
             if self.active:
                 rospy.loginfo("PassabilityChecker: deactivated by traversal done signal")
@@ -314,7 +416,13 @@ class PassabilityCheckerNode:
     # Conditional subscriptions
     # -----------------------------
     def activate_camera(self):
-        """Subscribe to camera topics while passability checking is active."""
+        """
+        Subscribe to the color, aligned-depth, and camera-info topics.
+
+        Notes:
+            Each subscriber is created only if it is not already active, so
+            repeated activation requests are safe.
+        """
         if self.color_sub is None:
             self.color_sub = rospy.Subscriber(
                 self.color_topic,
@@ -338,7 +446,13 @@ class PassabilityCheckerNode:
             )
     
     def deactivate_camera(self):
-        """Unregister camera subscriptions and discard cached frames."""
+        """
+        Unregister camera subscribers and discard their cached data.
+
+        Notes:
+            Clearing the cached frames forces a later activation cycle to wait
+            for fresh camera data instead of reusing an old observation.
+        """
         for sub in [self.color_sub, self.depth_sub, self.info_sub]:
             if sub is not None:
                 sub.unregister()
@@ -356,7 +470,13 @@ class PassabilityCheckerNode:
         
 
     def get_odom(self):
-        """Subscribe to odometry when it is not already active."""
+        """
+        Subscribe to robot odometry when it is not already active.
+
+        Notes:
+            The first odometry sample received after subscription establishes
+            the node-activation reference pose.
+        """
         if self.odom_sub is None:
             self.odom_sub = rospy.Subscriber(
                 "/odom_bridge_output",
@@ -366,7 +486,13 @@ class PassabilityCheckerNode:
             )
 
     def deactivate_odom(self):
-        """Unregister odometry and clear its activation reference pose."""
+        """
+        Unregister odometry and clear all cached planar poses.
+
+        Notes:
+            Both the current pose and the activation reference are reset so
+            that the next cycle starts in a new local reference frame.
+        """
         if self.odom_sub is not None:
             self.odom_sub.unregister()
             self.odom_sub = None
@@ -380,9 +506,33 @@ class PassabilityCheckerNode:
     # Callbacks (store only!)
     # -----------------------------
     def _color_cb(self, color_msg):
+        """
+        Convert and cache the latest ROS color image.
+
+        Args:
+            color_msg:
+                ROS ``Image`` converted to an OpenCV BGR image with
+                ``CvBridge``.
+
+        Raises:
+            cv_bridge.CvBridgeError:
+                If the message cannot be converted as ``bgr8``.
+        """
         self.color_image = self.bridge.imgmsg_to_cv2(color_msg, "bgr8")
 
     def _depth_cb(self, depth_msg):
+        """
+        Convert and cache the latest depth image in meters.
+
+        Args:
+            depth_msg:
+                ROS ``Image`` containing millimeter ``16UC1``/``mono16`` depth
+                or a floating-point depth representation.
+
+        Raises:
+            cv_bridge.CvBridgeError:
+                If the ROS image cannot be converted.
+        """
         img = self.bridge.imgmsg_to_cv2(depth_msg, "passthrough")
 
         if depth_msg.encoding in ("16UC1", "mono16"):
@@ -394,6 +544,18 @@ class PassabilityCheckerNode:
         self.depth_image = depth_m
 
     def _info_cb(self, info_msg: CameraInfo):
+        """
+        Cache camera calibration from the first camera-info message.
+
+        Args:
+            info_msg:
+                ROS ``CameraInfo`` whose intrinsic matrix follows the standard
+                row-major ``K`` layout.
+
+        Notes:
+            Calibration is treated as constant during a run; later messages
+            are ignored.
+        """
         # storing the camera intrinsics only once. it will not change during runtime
         if self.latest_info is None:
             self.latest_info = info_msg
@@ -403,6 +565,17 @@ class PassabilityCheckerNode:
             rospy.loginfo("Camera intrinsics received and stored.")
     
     def _mid_frame_x_px_cb(self, msg):
+        """
+        Store the first valid door-frame midpoint pixel of an active cycle.
+
+        Args:
+            msg:
+                ROS ``Int32`` containing the horizontal image coordinate.
+
+        Notes:
+            Non-positive values and samples received while inactive are
+            ignored.
+        """
         if msg.data <= 0: # invalid pixel
             return
         # only update if not set. which means take only first valid pixel after activation
@@ -411,6 +584,19 @@ class PassabilityCheckerNode:
             self.mid_frame_x_px_from_frame_detection_node = msg.data
 
     def _plane_info_cb(self, msg):
+        """
+        Store the first valid detected door-plane measurement.
+
+        Args:
+            msg:
+                ROS ``Twist`` used as a compact container. ``linear.x`` is
+                plane distance in meters, while ``angular.(x, y, z)`` contains
+                the camera-frame normal.
+
+        Notes:
+            A non-positive distance is invalid. Only the first valid sample in
+            an active cycle is retained.
+        """
         # plane info is published as Twist for simplicity, where:
         # linear.x = distance_m, angular.x = plane_norm_x, angular.y = plane_norm_y, angular.z = plane_norm_z
         if msg.linear.x <= 0.0: # invalid distance
@@ -421,10 +607,30 @@ class PassabilityCheckerNode:
             rospy.loginfo(f"Received plane info from frame detection node: distance {self.plane_info_distance_m:.2f} m, normal vector {self.plane_info_norm_camera_frame}")
 
     def _request_local_passability_check_cb(self, msg):
+        """
+        Store the passability mode requested by the traversal controller.
+
+        Args:
+            msg:
+                ROS ``UInt8``: ``0`` disables checking, ``1`` requests the
+                corridor mode, and ``2`` requests the local mode.
+        """
         if msg.data in [0, 1, 2]: # 1 for corridor , 2 for local
             self.requested_type_of_passability_check_from_traversal_node = msg.data
     
     def _request_new_corridor_definition_cb(self, msg):
+        """
+        Record a traversal-side request for a virtual corridor.
+
+        Args:
+            msg:
+                ROS ``Twist`` used as a request container. A truthy
+                ``linear.x`` enables the request and ``linear.y`` supplies the
+                desired corridor-midpoint depth in meters.
+
+        Notes:
+            Requests are accepted only while the node is active.
+        """
         if msg.linear.x:  # only activate on True
             if self.active:
                 rospy.loginfo("PassabilityChecker: New corridor definition requested by traversal node")
@@ -434,6 +640,17 @@ class PassabilityCheckerNode:
 
     
     def _door_depth_cb(self, msg):
+        """
+        Store the first valid detected door depth of an active cycle.
+
+        Args:
+            msg:
+                ROS ``Float32`` containing depth in meters.
+
+        Notes:
+            Non-positive samples and later samples from the same cycle are
+            ignored.
+        """
         if msg.data <= 0.0: # invalid depth
             return
         # only update if not set. which means take only first valid depth after activation
@@ -442,6 +659,18 @@ class PassabilityCheckerNode:
             self.door_depth_from_frame_detection_node = msg.data
 
     def _odom_callback(self, msg):
+        """
+        Cache planar odometry and establish the activation reference pose.
+
+        Args:
+            msg:
+                ROS ``Odometry`` containing the robot position and quaternion
+                orientation.
+
+        Notes:
+            The first sample after activation is stored separately so later
+            displacement can be measured relative to the start of the cycle.
+        """
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
 
@@ -463,7 +692,13 @@ class PassabilityCheckerNode:
     # -----------------------------
 
     def first_time_data_ready_after_node_activation(self):
-        """Check that the first corridor definition has all required inputs."""
+        """
+        Check whether initial corridor-definition inputs are available.
+
+        Returns:
+            ``True`` when color, depth, intrinsics, door state, door depth, and
+            the activation pose have all been received; otherwise ``False``.
+        """
         return (
             self.color_image is not None and
             self.depth_image is not None and
@@ -476,8 +711,15 @@ class PassabilityCheckerNode:
 
     def get_forward_displacement_since_start(self):
         """
-        Computes displacement along initial heading.
-        Robust to yaw corrections.
+        Measure motion along the corridor-definition heading.
+
+        Returns:
+            Signed displacement in meters along the yaw recorded when the
+            current corridor was defined.
+
+        Notes:
+            Projecting world translation onto a fixed heading keeps the result
+            independent of later yaw corrections.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -487,8 +729,15 @@ class PassabilityCheckerNode:
     
     def get_lateral_displacement_since_start(self):
         """
-        Computes lateral displacement perpendicular to initial heading.
-        Robust to yaw corrections.
+        Measure motion perpendicular to the corridor-definition heading.
+
+        Returns:
+            Signed lateral displacement in meters in the reference frame that
+            was active when the corridor was defined.
+
+        Notes:
+            The sign follows the left-handed lateral basis produced by
+            ``(-sin(yaw), cos(yaw))``.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -498,7 +747,18 @@ class PassabilityCheckerNode:
     
     def calculate_dynamic_x_corridor_center_in_cameraframe(self):
         """
-        Calculates dynamic x_center_frame based on odometry.
+        Estimate the apparent lateral corridor shift from odometry.
+
+        Translation perpendicular to the initial heading and the image shift
+        caused by accumulated yaw are added together.
+
+        Returns:
+            Estimated horizontal corridor-center displacement in meters.
+
+        Notes:
+            The rotational term uses the current distance to the corridor
+            midpoint, so the estimate grows as heading error acts over a longer
+            viewing distance.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -527,11 +787,35 @@ class PassabilityCheckerNode:
     
 
     def find_best_corridor_center_based_on_final_points(self, final_points_robot_frame, z_max, min_clearance):
-        """Slide a robot-width window and choose the nearest clear centerline.
+        """
+        Slide a robot-width window and choose a clear centerline.
 
         Candidate centers span the camera field of view in corridor
         coordinates. A candidate is valid when its nearest obstacle is beyond
-        ``min_clearance``; ties are biased toward the current forward axis.
+        ``min_clearance``. Among valid candidates, the center closest to the
+        robot's current forward axis is preferred.
+
+        Args:
+            final_points_robot_frame:
+                ``N x 2`` array of filtered obstacle points on the robot-frame
+                ground plane, in meters.
+
+            z_max:
+                Far search distance in meters. It defines the visible lateral
+                span and is used as clearance when a candidate contains no
+                obstacle points.
+
+            min_clearance:
+                Minimum acceptable forward clearance in meters.
+
+        Returns:
+            Lateral center coordinate of the best corridor in meters, or
+            ``None`` when no robot-width candidate meets the clearance
+            requirement.
+
+        Notes:
+            Candidate width includes the configured robot half-width and safety
+            margin.
         """
         # find best corridor center based on final points obtained from passability checker
         # final points are in robot frame
@@ -584,6 +868,16 @@ class PassabilityCheckerNode:
                 })
 
         def corridor_cost(c):
+            """
+            Score one valid corridor by distance from the forward axis.
+
+            Args:
+                c:
+                    Dictionary with ``x_center`` and ``clearance`` entries.
+
+            Returns:
+                Non-negative lateral cost in meters. Smaller is preferred.
+            """
             lateral_cost   = abs(c["x_center"] - 0.0)  # prefer corridors near center of robot fov (x=0 in camera frame)
 
             return lateral_cost
@@ -600,7 +894,33 @@ class PassabilityCheckerNode:
     
 
     def find_a_virtual_corridor(self, z_min, z_max, min_clearance):
-        """Search the full depth view for a clear robot-width corridor."""
+        """
+        Search the full depth image for a clear robot-width corridor.
+
+        Depth pixels in the requested range are back-projected, filtered by the
+        normal/outlier/connected-component pipeline, transformed to the robot
+        frame, and passed to the sliding-window corridor search.
+
+        Args:
+            z_min:
+                Nearest depth included in the search, in meters.
+
+            z_max:
+                Farthest depth included in the search, in meters.
+
+            min_clearance:
+                Required obstacle-free distance in meters.
+
+        Returns:
+            A tuple ``(center, image)``. ``center`` is the selected lateral
+            coordinate in the corridor frame, ``0.0`` when filtering finds no
+            obstacles, or ``None`` when obstacles leave no valid candidate.
+            ``image`` is the passability visualization.
+
+        Notes:
+            An empty point cloud is interpreted as open space within the
+            requested depth interval, so the forward axis is selected.
+        """
         rospy.loginfo("Finding virtual corridor for passability check.")
        
 
@@ -651,7 +971,16 @@ class PassabilityCheckerNode:
 
     def relative_robot_motion(self):
         """
-        Computes relative robot motion in since start.
+        Compute robot motion since the current corridor was defined.
+
+        Returns:
+            A tuple ``(R, t)``. ``R`` is the planar rotation from the corridor
+            definition orientation to the current orientation, and ``t`` is
+            current translation expressed in the definition frame.
+
+        Notes:
+            Yaw difference is wrapped to ``[-pi, pi]`` before constructing the
+            rotation matrix.
         """
 
         dx_world = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -675,7 +1004,23 @@ class PassabilityCheckerNode:
 
     def propagate_corridor_point(self, corridor_point_R0,R, t):
         """
-        Propagates corridor point into current robot frame.
+        Propagate a fixed corridor point into the current robot frame.
+
+        Args:
+            corridor_point_R0:
+                Two-element corridor point expressed in the robot frame at
+                corridor-definition time.
+
+            R:
+                Current planar rotation relative to the definition frame, as
+                returned by :meth:`relative_robot_motion`.
+
+            t:
+                Current planar translation in the definition frame.
+
+        Returns:
+            Two-element ``[forward, lateral]`` point in the current robot
+            frame.
         """
 
         # Extract x,z (planar)
@@ -690,7 +1035,17 @@ class PassabilityCheckerNode:
         return p_now  # [X_forward, Y_lateral] in robot frame
     
     def project_to_pixel(self, P_cam):
-        """Project one camera-frame 3D point into integer image coordinates."""
+        """
+        Project one camera-frame point into image coordinates.
+
+        Args:
+            P_cam:
+                Three-element ``(X, Y, Z)`` camera-frame point in meters.
+
+        Returns:
+            Integer ``(u, v)`` pixel coordinates, or ``None`` when the point is
+            on or behind the camera plane.
+        """
         X, Y, Z = P_cam
         if Z <= 0:
             return None
@@ -700,7 +1055,31 @@ class PassabilityCheckerNode:
 
 
     def run(self):
-        """Run corridor definition and clearance checks until ROS shutdown."""
+        """
+        Define, propagate, and evaluate corridors until ROS shuts down.
+
+        On activation, the loop first defines a corridor from detected door
+        geometry. A later traversal request can replace it with a virtual
+        corridor selected from the visible free space. Each iteration uses
+        odometry to express the fixed corridor in the current robot frame,
+        chooses either corridor or local passability mode, filters the
+        relevant RGB-D points, and publishes clearance and alignment data.
+
+        The traversal trigger is latched after the original corridor first
+        provides enough clearance through and beyond the door. Optional
+        visualization projects the evaluated corridor boundaries back into the
+        color image.
+
+        Raises:
+            cv_bridge.CvBridgeError:
+                If a generated visualization cannot be converted to a ROS
+                image outside the guarded visualization-publish block.
+
+        Notes:
+            This is a blocking node loop. Subscriber callbacks only cache
+            state; all expensive point-cloud work is performed here at the
+            configured five-hertz rate.
+        """
         while not rospy.is_shutdown():
             if not self.active: # node inactive, skip processing. node will be activated when door state is open_left or open_right and 
                 #de activated when traversal done signal is received
@@ -1234,7 +1613,16 @@ class PassabilityCheckerNode:
     
 
 def main():
-    """Initialize and run the corridor passability node."""
+    """
+    Start the ROS corridor-passability node.
+
+    The function initializes ROS, creates :class:`PassabilityCheckerNode`, and
+    enters its blocking processing loop.
+
+    Raises:
+        rospy.ROSInterruptException:
+            If ROS interrupts the node while it is running.
+    """
     rospy.init_node("check_if_corridor_is_passable")
     node = PassabilityCheckerNode()
     rospy.loginfo("Check if corridor is passable node started.")

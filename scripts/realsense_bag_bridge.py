@@ -34,7 +34,28 @@ import math
 # replace the old intrinsics_to_camera_info with this corrected one
 def intrinsics_to_camera_info(intr, frame_id):
     """
-    Build a sensor_msgs.msg.CameraInfo from a pyrealsense2 intrinsics object.
+    Convert RealSense video intrinsics to a ROS camera-info message.
+
+    The intrinsic and projection matrices use the RealSense focal lengths and
+    principal point. Rectification is set to identity, and RealSense
+    distortion coefficients are copied when they are readable.
+
+    Args:
+        intr:
+            ``pyrealsense2.intrinsics``-compatible object providing image
+            dimensions, focal lengths, principal point, and distortion
+            coefficients.
+
+        frame_id:
+            ROS coordinate-frame name assigned to the message header.
+
+    Returns:
+        Populated ``sensor_msgs.msg.CameraInfo`` message.
+
+    Notes:
+        If distortion coefficients are absent or malformed, five zero
+        coefficients are used. The distortion model is reported as
+        ``plumb_bob``.
     """
     ci = CameraInfo()
     ci.header.frame_id = frame_id
@@ -88,8 +109,34 @@ def intrinsics_to_camera_info(intr, frame_id):
 
 def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float) -> CameraInfo:
     """
-    Calculate CameraInfo for the depth image in Gazebo mode.
-    Assumes typical RealSense D455 intrinsics.
+    Derive pinhole camera intrinsics for a Gazebo image.
+
+    Focal lengths are calculated from image dimensions and the configured
+    horizontal and vertical fields of view. The principal point is placed at
+    the image center and distortion is assumed to be zero.
+
+    Args:
+        color_msg:
+            Gazebo color ``Image`` whose header and dimensions are copied.
+
+        hfov:
+            Horizontal field of view in radians.
+
+        vfov:
+            Vertical field of view in radians. When ``None``, the horizontal
+            focal length is also used vertically.
+
+    Returns:
+        ``CameraInfo`` with pinhole ``K`` and ``P`` matrices, identity
+        rectification, and zero distortion.
+
+    Raises:
+        ZeroDivisionError:
+            If a zero field of view is supplied.
+
+    Notes:
+        This helper does not read calibration from Gazebo. Its result is valid
+        only when the supplied fields of view match the simulated sensor.
     """
     ci = CameraInfo()
     ci.header = color_msg.header
@@ -152,7 +199,32 @@ def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float)
 
 
 def main():
-    """Run the bag/Gazebo input bridge and publish normalized ROS streams."""
+    """
+    Publish a normalized RGB-D stream from a bag file or Gazebo.
+
+    In ``bag`` mode, RealSense frames are read as synchronized sets and depth
+    is aligned to color through ``rs.align``. In ``gazebo`` mode, color and
+    depth callbacks are intentionally independent so downstream approximate
+    synchronization can pair their original timestamps. Both modes optionally
+    resize frames and publish BGR color, aligned depth, and camera information
+    in ``camera_color_frame``.
+
+    Raises:
+        RuntimeError:
+            If the RealSense pipeline cannot start or deliver frames and
+            playback recovery also fails.
+
+        cv_bridge.CvBridgeError:
+            If an OpenCV image cannot be converted to or from a ROS message.
+
+        rospy.ROSException:
+            If ROS communication or node initialization fails.
+
+    Notes:
+        Relevant private parameters include ``input_mode``, ``bag_file``,
+        ``loop``, output topic names, ``frame_skip``, and ``resize_scale``.
+        The RealSense pipeline is stopped in a ``finally`` block.
+    """
     rospy.init_node('realsense_bag_bridge', anonymous=False)
     rospy.loginfo("realsense_bag_bridge node started.")
     input_mode = rospy.get_param('~input_mode', 'bag')  # 'bag' or 'gazebo'
@@ -186,12 +258,28 @@ def main():
         
 
         def color_cb(msg):
+            """
+            Cache the newest Gazebo color message.
+
+            Args:
+                msg:
+                    ROS color ``Image``. Its original timestamp is preserved
+                    when the converted frame is republished.
+            """
             nonlocal last_color_msg, new_color
             rospy.loginfo_once("COLOR CALLBACK FIRING")
             last_color_msg = msg
             new_color = True
 
         def depth_cb(msg):
+            """
+            Cache the newest Gazebo depth message.
+
+            Args:
+                msg:
+                    ROS depth ``Image``. Color synchronization is deliberately
+                    left to downstream consumers.
+            """
             nonlocal last_depth_msg, new_depth
             rospy.loginfo_once("DEPTH CALLBACK FIRING")
             last_depth_msg = msg

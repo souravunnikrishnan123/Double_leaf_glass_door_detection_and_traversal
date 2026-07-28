@@ -7,12 +7,49 @@ from Frame_data import BaseState, FrameContext
 import os
 
 class idle_state(BaseState):
-    """Wait for a start request and reset per-run diagnostic logs."""
+    """
+    Wait for a start request and reset per-run diagnostic logs.
+
+    The state truncates the raw and smoothed door-state log files while it is
+    idle, then transitions to plane search after the start flag is received.
+
+    Attributes:
+        name:
+            Fixed state-machine key ``"idle_state"`` inherited from
+            :class:`BaseState`.
+    """
 
     def __init__(self):
+        """
+        Initialize the idle state with its registered transition key.
+
+        Notes:
+            Per-cycle data is reset by the surrounding state-machine workflow;
+            construction only assigns the state name.
+        """
         super().__init__("idle_state")
+
     def do_action(self, ctx: FrameContext):
-        """Clear old log output and enter plane search when requested."""
+        """
+        Clear old log output and enter plane search when requested.
+
+        Args:
+            ctx:
+                Shared context containing ``start_door_frame_detection``.
+
+        Returns:
+            ``"searching_door_plane_state"`` when detection is requested;
+            otherwise ``None``.
+
+        Raises:
+            OSError:
+                If the package log directory or either log file cannot be
+                created or written.
+
+        Notes:
+            This method currently rewrites the two log headers on every idle
+            frame, not only when the state is first entered.
+        """
         pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
         log_dir = os.path.join(pkg_path, 'scripts')
         os.makedirs(log_dir, exist_ok=True)

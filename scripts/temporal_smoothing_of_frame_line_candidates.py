@@ -9,13 +9,30 @@ import cv2
 
 def update_line_history(filtered_lines, line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK, color_image):
     """
-    Add detected lines from current frame to history.
+    Add the current line candidates to history and draw stable tracks.
+
+    Each line is reduced to its mean x-coordinate for cross-frame clustering,
+    while the original point samples are retained for visualization.
+
     Args:
-        filtered_lines: list of lines (each is a list of (x,y) tuples)
-        line_history: Bounded history updated in place.
-        DISTANCE_THRESHOLD: Maximum horizontal distance for one line cluster.
-        MAX_LINES_TO_TRACK: Maximum number of stable clusters to retain.
-        color_image: Image receiving the stable-line overlay.
+        filtered_lines:
+            Iterable of lines, where each line is a sequence of ``(x, y)``
+            pixel coordinates.
+
+        line_history:
+            Bounded deque updated in place with the current frame's lines.
+
+        DISTANCE_THRESHOLD:
+            Maximum horizontal distance in pixels for one line cluster.
+
+        MAX_LINES_TO_TRACK:
+            Maximum number of stable clusters to draw.
+
+        color_image:
+            BGR image modified by the stable-line overlay.
+
+    Returns:
+        ``None``. History and ``color_image`` are modified in place.
     """
     frame_lines = []
     for pts in filtered_lines:
@@ -30,9 +47,27 @@ def update_line_history(filtered_lines, line_history, DISTANCE_THRESHOLD, MAX_LI
 
 def get_stable_lines(line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK):
     """
-    Analyze history and return the most stable lines.
+    Cluster historical lines by horizontal position and rank their stability.
+
+    Args:
+        line_history:
+            Sequence of per-frame ``(mean_x, points)`` collections.
+
+        DISTANCE_THRESHOLD:
+            Maximum x-distance in pixels for adding a line to an existing
+            cluster.
+
+        MAX_LINES_TO_TRACK:
+            Maximum number of ranked clusters to return.
+
     Returns:
-        List of tuples (avg_x, line_points, confidence)
+        List of ``(average_x, recent_line_points, confidence)`` tuples ordered
+        by decreasing confidence. Fewer than five history entries returns an
+        empty list.
+
+    Notes:
+        Confidence is the number of lines assigned to a cluster divided by the
+        number of frames in history.
     """
     if len(line_history) < 5:
         return []  # Not enough history
@@ -77,8 +112,20 @@ def get_stable_lines(line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK):
 
 def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
     """
-    Draws stable lines on the image.
-    stable_lines: list of (avg_x, pts_array, score)
+    Draw stable line tracks and confidence labels on an image.
+
+    Args:
+        image:
+            BGR image modified in place.
+
+        stable_lines:
+            Iterable of ``(average_x, point_array, score)`` tuples.
+
+        color:
+            BGR line and text color.
+
+    Returns:
+        ``None``. Invalid or single-point line arrays are skipped.
     """
     for avg_x, pts, score in stable_lines:
         # Ensure pts is a numpy array of points
@@ -92,4 +139,3 @@ def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
         cv2.line(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-

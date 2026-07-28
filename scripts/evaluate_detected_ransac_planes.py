@@ -12,13 +12,46 @@ import cv2
 # ---------------------------------------------------------
 def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H, W):
     """
-    Given inlier pixel coordinates and points, compute:
-      - bounding box in pixels
-      - pixel-level hole fraction inside bbox (fraction of pixels with invalid depth)
-      - inlier density (inliers / nonzero pixels in ROI)
-      - largest connected inlier component area fraction vs bbox
-      - physical extents of inlier points (width, height in meters)
-    Returns a dict of statistics used for decision heuristics.
+    Measure the image-space and physical quality of one RANSAC plane.
+
+    The function builds the plane's pixel bounding box, measures missing depth,
+    closes small gaps in its inlier mask, finds the largest connected region,
+    and reports the 3D width and height of the inlier cloud.
+
+    Args:
+        depth_m:
+            Full ``H x W`` depth image in meters.
+
+        uv_all:
+            Pixel coordinates for the source point cloud. Retained for API
+            compatibility; the current implementation does not use it.
+
+        uv_inliers:
+            ``N x 2`` integer pixel coordinates for plane inliers.
+
+        points_inliers:
+            ``N x 3`` camera-frame coordinates corresponding to
+            ``uv_inliers``.
+
+        roi:
+            Plane ROI supplied by the caller. Retained for API compatibility;
+            the current implementation evaluates the inlier bounding box.
+
+        H:
+            Image height in pixels.
+
+        W:
+            Image width in pixels.
+
+    Returns:
+        Dictionary of quality statistics. An empty inlier set returns
+        ``{"valid": False}``; otherwise the dictionary includes the bounding
+        box, hole and connectivity fractions, physical extents, inlier count,
+        and a copy of the inlier pixels.
+
+    Notes:
+        Physical width uses camera X and physical height uses camera Y.
+        Morphological closing uses a fixed 5-by-5 kernel.
     """
     # prepare full image-level valid mask (non-zero depth)
     nonzero_mask_full = (depth_m > 0.0) & np.isfinite(depth_m)

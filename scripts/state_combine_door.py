@@ -12,9 +12,55 @@ import cv2
 from collections import deque, defaultdict
 
 class TemporalSmoother:
-    """Majority-vote label smoother with warm-up and switch hysteresis."""
+    """
+    Smooth categorical door states with majority voting and hysteresis.
+
+    A bounded window supplies the majority candidate. Initial output is held
+    until enough consistent samples exist, and an optional hysteresis rule
+    prevents weak candidates from replacing an established result.
+
+    Attributes:
+        window_size:
+            Maximum number of recent labels retained.
+
+        min_consistent:
+            Minimum majority count required for a candidate.
+
+        hysteresis:
+            Whether switching away from the stable label is guarded.
+
+        stable_hold:
+            Minimum majority count used by the switch guard.
+
+        buffer:
+            Bounded deque of recent labels.
+
+        current_stable:
+            Label currently exposed to downstream states, or ``None`` during
+            warm-up.
+
+        stable_count:
+            Confidence-like count maintained for the current stable label.
+    """
 
     def __init__(self, window_size=10, min_consistent=3, hysteresis=True, stable_hold=2):
+        """
+        Initialize an empty categorical smoothing window.
+
+        Args:
+            window_size:
+                Maximum retained labels.
+
+            min_consistent:
+                Minimum repeated-label count required during warm-up and
+                candidate selection.
+
+            hysteresis:
+                Enable guarded switching between stable labels.
+
+            stable_hold:
+                Minimum candidate count required before switching.
+        """
         self.window_size = window_size
         self.min_consistent = min_consistent
         self.hysteresis = hysteresis
@@ -24,7 +70,22 @@ class TemporalSmoother:
         self.stable_count = 0
 
     def update(self, label: str) -> Optional[str]:
-        """Add one label and return the current stable label when available."""
+        """
+        Add one observation and return the current stable label.
+
+        Args:
+            label:
+                Current fused door-state observation.
+
+        Returns:
+            Stable label, or ``None`` while the initial window lacks
+            ``min_consistent`` evidence.
+
+        Notes:
+            Majority ties follow insertion order in the frequency mapping.
+            With hysteresis disabled, every sufficiently supported majority
+            replaces the current stable label immediately.
+        """
         # Push new value
         self.buffer.append(label)
 
@@ -70,9 +131,34 @@ class TemporalSmoother:
             return self.current_stable
 
 class combine_door_state(BaseState):
-    """Resolve disagreements between detector branches and route the FSM."""
+    """
+    Resolve detector-branch disagreements and route the state machine.
+
+    A fixed decision table chooses a label, source pipeline, and door depth.
+    Matching open-side polygons are compared with intersection-over-union.
+    The selected label is then temporally smoothed before navigation outputs
+    are written to the frame context.
+
+    Attributes:
+        height:
+            Current branch image height used to rasterize ROI masks.
+
+        width:
+            Current branch image width used to rasterize ROI masks.
+
+        smoother:
+            :class:`TemporalSmoother` applied to fused labels.
+    """
 
     def __init__(self):
+        """
+        Initialize ROI dimensions and the final-label temporal smoother.
+
+        The image dimensions remain zero until the first pair of detector
+        results is fused. The smoother requires three consistent labels within
+        an eight-frame window and briefly holds the last stable result while
+        evidence changes.
+        """
         super().__init__("combine_door_state")
         self.height = 0
         self.width = 0
@@ -80,7 +166,27 @@ class combine_door_state(BaseState):
         self.smoother = TemporalSmoother(window_size=8, min_consistent=3, hysteresis=True, stable_hold=2)
 
     def rois_match(self, roi1, roi2, iou_threshold):
-        """Check polygon agreement using image-space intersection over union."""
+        """
+        Check polygon agreement using image-space intersection over union.
+
+        Args:
+            roi1:
+                First ``N x 2`` polygon, or ``None``.
+
+            roi2:
+                Second ``N x 2`` polygon, or ``None``.
+
+            iou_threshold:
+                Minimum intersection-over-union required for a match.
+
+        Returns:
+            ``True`` when both polygons have nonzero union and meet the
+            threshold; otherwise ``False``.
+
+        Notes:
+            :attr:`height` and :attr:`width` must be set for the current image
+            before this method is called.
+        """
         mask1 = np.zeros((self.height, self.width), dtype=np.uint8)
         mask2 = np.zeros((self.height, self.width), dtype=np.uint8)
 
@@ -102,11 +208,43 @@ class combine_door_state(BaseState):
 
 
     def resolve_door_status(self, color_pipline_result, depth_pipline_result, roi_open_side_color_based, roi_open_side_depth_based, door_depth_m_color_based, door_depth_m_depth_based, iou_threshold):
-        """Apply the branch-fusion decision table.
+        """
+        Apply the color/depth branch-fusion decision table.
+
+        Depth detections are trusted when color is weak, while valid color
+        detections fill gaps when depth finds no frame. Direct conflicts fall
+        back to an unknown/full-image result. Matching open labels must also
+        agree spatially.
+
+        Args:
+            color_pipline_result:
+                Color-branch label.
+
+            depth_pipline_result:
+                Depth-branch label.
+
+            roi_open_side_color_based:
+                Color-branch opening polygon, if any.
+
+            roi_open_side_depth_based:
+                Depth-branch opening polygon, if any.
+
+            door_depth_m_color_based:
+                Color-branch door-depth estimate.
+
+            door_depth_m_depth_based:
+                Depth-branch door-depth estimate.
+
+            iou_threshold:
+                ROI agreement threshold for matching open labels.
 
         Returns:
             A dictionary with the final label, trusted pipeline, selected door
             depth, escalation flag, and a human-readable reason.
+
+        Notes:
+            The dictionary always contains ``final_door_status``, ``pipeline``,
+            ``ask_human``, ``door_depth``, and ``reason``.
         """
 
         # Default result container
@@ -255,7 +393,26 @@ class combine_door_state(BaseState):
 
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
-        """Fuse one frame, update context outputs, and select the next state."""
+        """
+        Fuse one frame, update navigation outputs, and select the next state.
+
+        Args:
+            ctx:
+                Shared frame context containing both branch results and ROIs.
+
+        Returns:
+            Next state name. Open labels go to ``"final_state"``; a stable
+            no-frame label goes to ``"full_image_passability_check_state"``;
+            other labels return to ``"dual_branch_frame_detection_state"``.
+
+        Raises:
+            OSError:
+                If the smoothed-state diagnostic file cannot be written.
+
+        Notes:
+            For an open-left result the 95th ROI x-percentile marks the central
+            frame edge; open-right uses the 5th percentile.
+        """
         self.height, self.width = ctx.color_image_color_based.shape[:2]
 
         result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, ctx.door_depth_m_color_based, ctx.door_depth_m_depth_based, iou_threshold=0.5)
@@ -291,6 +448,4 @@ class combine_door_state(BaseState):
             ctx.mid_frame_x_px_for_passability_check = None
             #loop back to parallel detection, because still need to monitor for door opening
             return "dual_branch_frame_detection_state"
-
-
 

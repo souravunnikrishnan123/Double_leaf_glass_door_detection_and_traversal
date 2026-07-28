@@ -6,24 +6,69 @@ import time
 
 
 class StateMachine:
-    """Register states, execute the active state, and apply its transitions.
+    """
+    Register states, execute the active state, and apply its transitions.
 
     A state's ``do_action`` method returns another registered state name to
     request a transition, or ``None`` to remain active for the next frame.
+
+    Attributes:
+        states:
+            Mapping from state names to :class:`Frame_data.BaseState` objects.
+
+        current_state:
+            State currently receiving frame updates.
+
+        ctx:
+            Most recent shared frame context.
+
+        state_start_time:
+            Wall-clock timestamp recorded when the current state was entered.
     """
 
     def __init__(self, ctx=None):
+        """
+        Initialize an empty state registry.
+
+        Args:
+            ctx:
+                Optional initial frame context. It can be replaced on every
+                call to :meth:`update`.
+        """
         self.states = {}
         self.current_state = None
         self.ctx = ctx
         self.state_start_time = None  # Track when the current state was entered
 
     def add_state(self, state) -> None:
-        """Register a state under its ``state.name`` value."""
+        """
+        Register a state under its ``state.name`` value.
+
+        Args:
+            state:
+                State object implementing the ``BaseState`` interface.
+
+        Notes:
+            Registering another state with the same name replaces the previous
+            mapping.
+        """
         self.states[state.name] = state
 
     def set_state(self, name) -> None:
-        """Switch to a new state by name."""
+        """
+        Switch to a registered state by name.
+
+        The current state's exit hook runs before the new state's entry hook.
+        State residence time is printed for runtime diagnostics.
+
+        Args:
+            name:
+                Key of the state to activate.
+
+        Raises:
+            KeyError:
+                If ``name`` has not been registered.
+        """
         if self.current_state:
             start_exit_action = time.time()
             self.current_state.exit_action(self.ctx)
@@ -43,7 +88,18 @@ class StateMachine:
 
 
     def update(self, ctx) -> None:
-        """Run one state-machine step with the newest frame context."""
+        """
+        Run one state-machine step with the newest frame context.
+
+        Args:
+            ctx:
+                Shared context for the current synchronized frame.
+
+        Notes:
+            Unknown transition names are ignored, leaving the current state
+            active. If no state has been selected, the method returns without
+            invoking any state hook.
+        """
         if not self.current_state:
             return
         # keep latest context

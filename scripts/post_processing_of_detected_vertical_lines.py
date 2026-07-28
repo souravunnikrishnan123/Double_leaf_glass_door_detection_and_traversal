@@ -9,15 +9,42 @@ import cv2
 def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction_vector, center_depth,
                                    gradient_threshold=0.1, window=5, max_steps=100):
     """
-    Fully vectorized extrapolation along a line in a depth frame.
-    Skips invalid depths entirely (no zero fill).
-    Stops when smoothed depth deviates from center_depth beyond threshold.
+    Extrapolate a line while sampled depth remains near a reference depth.
 
-    Returns: list of (x, y, depth) tuples.
+    Candidate pixels are generated in one vectorized operation. Out-of-bounds
+    and invalid-depth samples are removed, the remaining depth sequence is
+    smoothed, and the segment is truncated at its first large deviation.
 
-    Note:
+    Args:
+        depth_image_in_meters:
+            ``H x W`` aligned depth image in meters.
+
+        start_point:
+            Starting ``(x, y)`` pixel. Sampling begins one step beyond it.
+
+        direction_vector:
+            Per-step ``(dx, dy)`` direction, normally a unit vector.
+
+        center_depth:
+            Reference line depth in meters.
+
+        gradient_threshold:
+            Maximum allowed absolute difference from ``center_depth``.
+
+        window:
+            Width of the moving-average kernel.
+
+        max_steps:
+            Maximum number of pixels sampled along the ray.
+
+    Returns:
+        List of accepted ``(x, y)`` pixels in sampling order. Returns an empty
+        list when no in-bounds pixel has valid depth.
+
+    Notes:
         The current implementation returns pixel ``(x, y)`` pairs; depth is
-        used only to decide where extrapolation should stop.
+        used only to decide where extrapolation should stop. Convolution uses
+        zero-padding and the result is front-padded with its edge value.
     """
     
 
@@ -80,15 +107,36 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
 
 def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, min_merged_line_length ):
     """
-    Cluster vertical lines by proximity in x-coordinate and merge into one line per cluster.
+    Cluster nearby vertical lines and merge each cluster into one segment.
+
+    Lines are sorted by average x-coordinate. Adjacent lines closer than
+    ``x_thresh`` join the same cluster, whose output spans the minimum to
+    maximum endpoint y-coordinate and carries the mean input depth.
+
     Args:
-        lines: list of ((x1, y1), (x2, y2))
-        depth_of_valid_lines: Metric depth associated with each input line.
-        x_thresh: max horizontal distance (in pixels) to group lines
-        min_merged_line_length: Minimum vertical span retained after merging.
+        color_image:
+            BGR image modified with green merged-line overlays.
+
+        lines:
+            List of ``((x1, y1), (x2, y2))`` segments.
+
+        depth_of_valid_lines:
+            Metric depth associated one-to-one with each input line.
+
+        x_thresh:
+            Maximum horizontal distance in pixels used to group adjacent lines.
+
+        min_merged_line_length:
+            Minimum vertical span in pixels retained after merging.
+
     Returns:
-        merged_lines: list of merged ((xavg, ymin), (xavg, ymax))
-        merged_lines_depths: mean metric depth for each merged cluster
+        Tuple ``(merged_lines, merged_depths)``. Each merged line is
+        ``((average_x, minimum_y), (average_x, maximum_y))`` and its matching
+        depth is the cluster mean.
+
+    Notes:
+        ``lines`` and ``depth_of_valid_lines`` are paired with ``zip``; extra
+        elements in the longer input are ignored.
     """
     if not lines:
         return [], []

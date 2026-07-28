@@ -7,12 +7,35 @@ import numpy as np
 
 
 def _noop(*args, **kwargs):
+    """
+    Accept and ignore an arbitrary OpenCV drawing call.
+
+    Args:
+        args:
+            Positional arguments supplied to the patched OpenCV function.
+
+        kwargs:
+            Keyword arguments supplied to the patched OpenCV function.
+
+    Returns:
+        Always ``None``.
+    """
     # No operation for disabled visualization; return minimal defaults
     return None
 
 def setup_visualization_mode(enable: bool):
-    """If visualization is disabled, replace heavy cv2 drawing calls with no-ops.
-    This avoids CPU overhead from drawing while keeping functionality intact.
+    """
+    Enable normal drawing or globally replace selected OpenCV calls with no-ops.
+
+    Args:
+        enable:
+            When false, patch common drawing and window functions in the
+            imported ``cv2`` module.
+
+    Notes:
+        The patch is process-wide and is not reversed by calling this function
+        later with ``True``. Image-producing operations such as color mapping
+        remain available.
     """
     if enable:
         return
@@ -29,7 +52,27 @@ def setup_visualization_mode(enable: bool):
 
 
 def get_z_depth(depth_frame, x, y):
-    """Read a valid metric depth at a pixel from a RealSense-like frame."""
+    """
+    Read a valid metric depth at a pixel from a RealSense-like frame.
+
+    Args:
+        depth_frame:
+            Native RealSense frame or :class:`ros_frame_adapter.DepthFrameAdapter`.
+
+        x:
+            Horizontal pixel coordinate.
+
+        y:
+            Vertical pixel coordinate.
+
+    Returns:
+        Positive finite depth in meters, or ``None`` when the pixel is outside
+        the frame or has invalid depth.
+
+    Notes:
+        Older bindings that lack direct width/height methods are supported
+        through ``frame.profile.as_video_stream_profile()``.
+    """
     # Return Z in meters directly; no deprojection needed for Z
     xi, yi = int(x), int(y)
     try:
@@ -48,7 +91,28 @@ def get_z_depth(depth_frame, x, y):
     
 
 def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame):
-    """Return stacked color/depth/edges visualization image (no display)."""
+    """
+    Build a side-by-side color, depth, and edge visualization.
+
+    Args:
+        color_image:
+            BGR image that defines the output panel dimensions.
+
+        MIN_DEPTH:
+            Minimum displayed depth in meters.
+
+        MAX_DEPTH:
+            Maximum displayed depth in meters.
+
+        edges:
+            Optional grayscale or BGR edge visualization.
+
+        depth_frame:
+            RealSense-like frame whose data is stored in millimeters.
+
+    Returns:
+        BGR image containing the three horizontally stacked panels.
+    """
     depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
     target_height, target_width = color_image.shape[:2]
@@ -64,7 +128,38 @@ def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_
     return stacked
 
 def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, window_name="Color | Depth | Edges+ Lines", screen_width=1920, screen_height=1080):
-    """Display stacked visualization (legacy interactive window)."""
+    """
+    Display a scaled color, depth, and edge stack in an OpenCV window.
+
+    Args:
+        color_image:
+            BGR image used for the first panel.
+
+        MIN_DEPTH:
+            Minimum displayed depth in meters.
+
+        MAX_DEPTH:
+            Maximum displayed depth in meters.
+
+        edges:
+            Optional grayscale or BGR edge visualization.
+
+        depth_frame:
+            RealSense-like depth frame.
+
+        window_name:
+            OpenCV window title.
+
+        screen_width:
+            Maximum display width in pixels.
+
+        screen_height:
+            Maximum display height in pixels.
+
+    Notes:
+        Display is skipped when the ROS parameter ``~enable_visualization`` is
+        false. The stack is resized without changing its aspect ratio.
+    """
     # Respect global visualization toggle; no functionality changes otherwise
     try:
         if not rospy.get_param("~enable_visualization", True):
@@ -104,7 +199,25 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
 # Convert raw depth image to color for visualization
 # -------------------------------
 def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
-    """Convert a millimeter depth image into a clipped JET color map."""
+    """
+    Convert a millimeter depth image into a clipped JET color map.
+
+    Args:
+        depth_image:
+            ``H x W`` depth array in millimeters.
+
+        MIN_DEPTH:
+            Lower visualization limit in meters.
+
+        MAX_DEPTH:
+            Upper visualization limit in meters.
+
+    Returns:
+        ``H x W x 3`` uint8 BGR color-map image.
+
+    Notes:
+        Values outside the requested interval are clipped before conversion.
+    """
     # Clip depth image to desired range
     depth_scaled = np.clip(depth_image, MIN_DEPTH*1000, MAX_DEPTH*1000)
     # Convert depth to 8-bit for color mapping
@@ -116,7 +229,29 @@ def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
 # Mouse click event for checking depth at pixel
 # -------------------------------
 def click_event(event, x, y, flags, param):
-    """Print the original-frame depth corresponding to a display click."""
+    """
+    Print the original-frame depth corresponding to a display click.
+
+    Args:
+        event:
+            OpenCV mouse-event code.
+
+        x:
+            Horizontal coordinate in the resized display.
+
+        y:
+            Vertical coordinate in the resized display.
+
+        flags:
+            OpenCV event flags. They are accepted but not used.
+
+        param:
+            Tuple ``(depth_frame, scale_factor)`` registered with the callback.
+
+    Notes:
+        Only left-button presses are handled. Display coordinates are divided
+        by ``scale_factor`` before reading depth.
+    """
     if event == cv2.EVENT_LBUTTONDOWN:
         depth_frame, scale_factor = param  # unpack parameters
         # Map coordinates back to original resolution

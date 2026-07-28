@@ -8,10 +8,43 @@ import cv2
 
 class DoorTypeDetector():
     """
-    Estimate glass and frame widths from RANSAC plane inliers only.
-    Robust to glass transparency, bottom metal frames, depth clipping, and camera skew.
+    Estimate glass-pane and frame widths from RANSAC plane inliers.
+
+    The door width is divided into metric X bins. Each bin is classified from
+    its vertical occupancy: a structural frame tends to support plane inliers
+    over most of the door height, whereas transparent glass has sparse or local
+    support. Adjacent classifications are consolidated into physical segments.
+
+    Attributes:
+        bin_width:
+            Physical width of each horizontal bin in meters.
+
+        min_vertical_support:
+            Minimum occupied-height fraction required to label a bin as frame.
+
+        min_points_per_bin:
+            Minimum inlier count required to evaluate a horizontal bin.
+
+        min_glass_width:
+            Minimum glass-segment width retained during consolidation.
+
+        max_glass_width:
+            Maximum glass width considered during final adjacency selection.
+
+        num_vertical_slices:
+            Number of slices used to measure vertical occupancy.
+
+        min_points_per_vertical_slice:
+            Minimum points required to mark one vertical slice occupied.
     """
+
     def __init__(self):
+        """
+        Load door-width classification parameters from ROS.
+
+        Parameters are read from the ``~door_type_detector`` namespace and are
+        kept for the lifetime of the detector.
+        """
         self.bin_width = rospy.get_param("~door_type_detector/bin_width", 0.02)              # meters (2 cm)
         self.min_vertical_support = rospy.get_param("~door_type_detector/min_vertical_support", 0.6)    # fraction of door height
         self.min_points_per_bin = rospy.get_param("~door_type_detector/min_points_per_bin", 5)
@@ -24,39 +57,27 @@ class DoorTypeDetector():
         inlier_points
     ):
         """
-        Estimate glass and frame widths using ONLY RANSAC plane inliers,
-        robust to:
-        - glass transparency
-        - bottom metal frames
-        - depth clipping (e.g. 1–3 m)
-        - camera skew / robot orientation
+        Estimate glass and frame widths from one confirmed plane's inliers.
 
         The key idea:
         A true frame supports the plane over MOST of the door height.
         Glass supports the plane only locally (bottom / sides).
 
-        Parameters
-        ----------
-        plane_model : tuple (a, b, c, d)
-            Plane equation ax + by + cz + d = 0 from RANSAC
-        inlier_points : (N, 3) ndarray
-            XYZ coordinates of RANSAC plane inliers
-        bin_width : float
-            Width of bins along the door horizontal axis (meters)
-        min_vertical_support : float
-            Minimum fraction of door height that must be supported
-            to classify a bin as "frame"
-        min_points_per_bin : int
-            Minimum inlier points required to evaluate a bin
+        Args:
+            inlier_points:
+                ``N x 3`` camera-frame XYZ coordinates of RANSAC inliers.
 
-        Returns
-        -------
-        result : dict with keys
-            - bins : list of (x_start, x_end)
-            - bin_labels : list of "frame" or "glass"
-            - segments : list of (x_start, x_end, label)
-            - glass_widths_m : list of widths in meters
-            - frame_widths_m : list of widths in meters
+        Returns:
+            Dictionary containing metric bins, per-bin labels, consolidated
+            segments, selected frame/glass widths, and selected segment
+            indices. Returns ``None`` when the robust door height is not
+            positive.
+
+        Notes:
+            Door extents use the 2nd and 98th percentiles to limit isolated
+            points. Final selection prefers a frame flanked by valid glass; if
+            unavailable, a single valid glass segment may be paired with an
+            adjacent frame.
         """
 
         # Horizontal (width) coordinate
@@ -228,24 +249,24 @@ class DoorTypeDetector():
         door_y_max
     ):
         """
-        Robust vertical support estimation using OCCUPANCY RATIO.
+        Measure how much of the door height is supported in one width bin.
 
-        Parameters
-        ----------
-        y_vals : (N,) ndarray
-            Door-local vertical coordinates of inlier points in ONE width bin
-        door_y_min : float
-            Robust lower bound of door vertical extent
-        door_y_max : float
-            Robust upper bound of door vertical extent
-        num_slices : int
-            Number of vertical slices across door height
-        min_points_per_slice : int
-            Minimum inlier points required to mark a slice as occupied
+        Args:
+            y_vals:
+                Camera-frame Y coordinates belonging to one horizontal bin.
 
-        Returns
-        -------
-        vertical_occupancy_ratio : float in [0, 1]
+            door_y_min:
+                Robust lower bound of the full door extent.
+
+            door_y_max:
+                Robust upper bound of the full door extent.
+
+        Returns:
+            Occupied vertical-slice fraction in the interval ``[0, 1]``.
+
+        Notes:
+            A slice is occupied only when it contains at least
+            ``min_points_per_vertical_slice`` inliers.
         """
 
 
@@ -274,23 +295,19 @@ class DoorTypeDetector():
     def consolidate_door_segments(self,
     segments):
         """
-        Consolidate over-segmented door geometry into
-        meaningful glass and frame widths.
+        Remove tiny glass runs and merge adjacent equal-label segments.
 
-        Parameters
-        ----------
-        segments : list of (x_start, x_end, label)
-            Output from vertical-support algorithm
-        min_segment_width : float
-            Minimum width to consider a GLASS segment meaningful.
-            Frame segments are kept regardless of width.
+        Args:
+            segments:
+                Sequence of ``(x_start, x_end, label)`` metric segments.
 
+        Returns:
+            Consolidated segment list. If every input segment is removed, the
+            current implementation returns ``([], [])``.
 
-        Returns
-        -------
-        dict with:
-            glass_widths_m : list
-            frame_widths_m : list
+        Notes:
+            Frame segments are retained regardless of width. Glass segments
+            narrower than ``min_glass_width`` are discarded before merging.
         """
 
         # --------------------------------------------------
@@ -337,12 +354,42 @@ class DoorTypeDetector():
         color_image
     ):
         """
-        Visualize:
-        - Width bins (based on world X)
-        - Bin classification (glass / frame)
-        - Final detected glass & frame widths
+        Draw width-bin classifications and selected segments.
 
-        Output: OpenCV BGR image for ROS publishing
+        Args:
+            inlier_points:
+                Plane inliers used to fit the world-X to image-u mapping.
+
+            bin_edges:
+                Iterable of metric ``(x_start, x_end)`` bins.
+
+            bin_labels:
+                ``"frame"`` or ``"glass"`` label for each bin.
+
+            segments:
+                Consolidated ``(x_start, x_end, label)`` segments.
+
+            final_glass_index:
+                Index of the selected glass segment, or ``None``.
+
+            final_frame_index:
+                Index of the selected frame segment, or ``None``.
+
+            fx:
+                Horizontal focal length in pixels.
+
+            cx:
+                Horizontal principal point in pixels.
+
+            color_image:
+                Source BGR image.
+
+        Returns:
+            Annotated BGR image copy suitable for ROS publication.
+
+        Notes:
+            Per-bin translucent colors show the raw classification. Thick
+            outlines and text identify consolidated and final segments.
         """
 
         vis = color_image.copy()
@@ -354,6 +401,16 @@ class DoorTypeDetector():
         a, b = self.map_world_x_to_image_u(inlier_points, fx, cx)
 
         def world_x_to_img_u(x):
+            """
+            Convert one metric X coordinate using the fitted linear mapping.
+
+            Args:
+                x:
+                    Camera-frame X coordinate in meters.
+
+            Returns:
+                Approximate horizontal image coordinate as an integer.
+            """
             return int(a * x + b)
 
         # --------------------------------------------------
@@ -426,10 +483,24 @@ class DoorTypeDetector():
 
     def map_world_x_to_image_u(self, inlier_points, fx, cx):
         """
-        Build a linear mapping from world X coordinate
-        to image u pixel coordinate using pinhole projection.
+        Fit a linear mapping from camera-frame X to horizontal image pixels.
 
-        This avoids door-plane coordinates and uses raw X,Z.
+        Args:
+            inlier_points:
+                ``N x 3`` camera-frame point array.
+
+            fx:
+                Horizontal focal length in pixels.
+
+            cx:
+                Horizontal principal point in pixels.
+
+        Returns:
+            Tuple ``(slope, intercept)`` for ``u ≈ slope * X + intercept``.
+
+        Notes:
+            Each source point is first projected with its own Z value, then a
+            least-squares linear model is fitted against X.
         """
 
         xs = inlier_points[:, 0]
@@ -441,5 +512,4 @@ class DoorTypeDetector():
         # Fit linear mapping: u ≈ a * X + b
         a, b = np.polyfit(xs, us, 1)
         return a, b
-
 

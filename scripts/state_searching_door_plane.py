@@ -7,9 +7,47 @@ from Frame_data import BaseState, FrameContext
 from detect_glass_door_plane import PlaneDetector
 
 class searching_door_plane_state(BaseState):
-    """Confirm a door plane and update its estimated physical geometry."""
+    """
+    Confirm a door plane and update its estimated physical geometry.
+
+    The state runs plane RANSAC until temporal confirmation succeeds. Confirmed
+    inliers are then analyzed for pane and center-frame widths, which can update
+    ROS parameters used by both line branches.
+
+    Attributes:
+        find_door_plane:
+            Stateful plane detector and temporal tracker.
+
+        door_type_detector:
+            Physical pane/frame width estimator.
+
+        max_no_candidate_frames:
+            Consecutive empty frames tolerated before full-image fallback.
+
+        reference_door_distance_m:
+            Nominal door distance from configuration.
+
+        global_map_distance_accuracy_to_door_plane:
+            Fractional uncertainty applied to the nominal map distance.
+
+        distance_range_m:
+            Derived accepted distance error around the nominal door position.
+
+        _no_candidate_count:
+            Consecutive frames with no plane candidate.
+
+        margin_for_glass_width_inaccuracy:
+            Fraction subtracted from estimated pane width as a safety margin.
+    """
 
     def __init__(self):
+        """
+        Initialize plane search, width estimation, and fallback thresholds.
+
+        Notes:
+            The plane detector is intentionally reused so its temporal history
+            survives across calls to :meth:`do_action`.
+        """
         super().__init__("searching_door_plane_state")
         self.find_door_plane = PlaneDetector()
         self.door_type_detector = DoorTypeDetector()
@@ -23,7 +61,24 @@ class searching_door_plane_state(BaseState):
         self.margin_for_glass_width_inaccuracy = rospy.get_param(f"{ns}/margin_for_glass_width_inaccuracy", 0.2)  # 20% margin of safety
 
     def do_action(self, ctx: FrameContext):
-        """Search the current depth frame and choose the next detection path."""
+        """
+        Search the current depth frame and choose the next detection path.
+
+        Args:
+            ctx:
+                Shared frame context containing metric depth, plane-overlay
+                image, and camera intrinsics.
+
+        Returns:
+            ``"dual_branch_frame_detection_state"`` after a confirmed plane;
+            ``"full_image_passability_check_state"`` after too many frames
+            without candidates; otherwise ``None`` to continue searching.
+
+        Notes:
+            Frames containing an unconfirmed candidate reset the empty-frame
+            counter. Successful width estimates update ``~door_geometry`` ROS
+            parameters before line detection begins.
+        """
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
         result = self.find_door_plane.detect(ctx.color_image_for_plane_detection, ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy)

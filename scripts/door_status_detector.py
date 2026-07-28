@@ -14,14 +14,44 @@ from processing_classes import backproject_depth_to_points
 
 
 class Door_Status_Detector:
-    """Classify a color- or depth-derived frame pair using side ROI depths.
+    """
+    Classify a color- or depth-derived frame pair using side ROI depths.
 
     ``keyword`` selects the matching fields on ``FrameContext``; for example,
     ``"color_based"`` reads ``roi_left_color_based`` and draws on
     ``color_image_color_based``.
+
+    Attributes:
+        keyword:
+            Branch suffix used for dynamic context attribute lookup.
+
+        roi_width:
+            Configured ROI width retained for the status detector namespace.
+
+        margin:
+            Horizontal pixel offset applied away from each frame edge.
+
+        threshold:
+            Minimum fraction of near-door points required to call a side
+            consistent with a closed pane.
+
+        timer:
+            Named duration recorder used for computation and visualization.
     """
 
     def __init__(self, keyword: str = "color_based"):
+        """
+        Initialize one branch-specific door-status detector.
+
+        Args:
+            keyword:
+                Context suffix, normally ``"color_based"`` or
+                ``"depth_based"``.
+
+        Notes:
+            Separate instances are used by the current dual-branch state so
+            branch selection remains immutable during detection.
+        """
         ns = "~door_status_detector"
         self.keyword = keyword
         # Core ROI params
@@ -35,8 +65,22 @@ class Door_Status_Detector:
     
     def offset_roi_polygon(self, roi_polygon, side="left"):
         """
-        Offset the ROI polygon horizontally by margin.
-        For left ROI, shift left; for right ROI, shift right.
+        Shift a side ROI away from the detected frame line.
+
+        Args:
+            roi_polygon:
+                ``N x 2`` polygon of image coordinates, or ``None``.
+
+            side:
+                ``"left"`` applies a negative x offset; any other value applies
+                a positive offset.
+
+        Returns:
+            Shifted copy of the polygon, or ``None`` when no polygon is given.
+
+        Notes:
+            Moving the ROI away from the frame reduces contamination when a
+            Hough line lies slightly inside the physical frame boundary.
         """
         if roi_polygon is None:
             return None
@@ -53,6 +97,44 @@ class Door_Status_Detector:
 
         Points are backprojected from the polygon, compared with the frame
         depth, and filtered by surface normal to reduce floor influence.
+
+        Args:
+            depth_image_in_meters:
+                Aligned ``H x W`` metric depth image.
+
+            fx:
+                Horizontal focal length in pixels.
+
+            fy:
+                Vertical focal length in pixels.
+
+            cx:
+                Horizontal principal point in pixels.
+
+            cy:
+                Vertical principal point in pixels.
+
+            color_image:
+                Optional BGR image modified with polygon and point overlays.
+
+            roi_polygon:
+                Image-space polygon defining the side region.
+
+            door_depth:
+                Reference frame depth in meters.
+
+            color:
+                BGR color used to outline the ROI.
+
+        Returns:
+            Fraction of backprojected ROI points that remain within five
+            percent of ``door_depth`` after normal filtering. Empty
+            backprojection returns ``0.0``.
+
+        Notes:
+            Backprojection begins at 90 percent of the door depth and uses a
+            stride of four. Candidate points are blue and matching points are
+            cyan in the diagnostic image.
         """
 
         self.timer.start(f"check_side_roi_against_door {self.keyword}")
@@ -128,11 +210,29 @@ class Door_Status_Detector:
     def detect(self, ctx):
 
         """
-        Decide OPEN/CLOSED based on ROIs and door depth reference.
+        Classify the door from left- and right-side depth consistency.
 
         A side is consistent when enough points remain near the door plane.
         Two consistent sides mean closed; one inconsistent side identifies the
-        opening direction. Returns the label and the open-side ROI, if any.
+        opening direction.
+
+        Args:
+            ctx:
+                Shared frame context containing branch-specific ROIs, frame
+                depth, visualization image, metric depth, and intrinsics.
+
+        Returns:
+            Tuple ``(door_state, open_side_roi)``. ``door_state`` is one of
+            ``"closed"``, ``"open_left"``, ``"open_right"``, or ``"unknown"``.
+            The polygon is returned only for an open-side label.
+
+        Raises:
+            AttributeError:
+                If context fields for the configured ``keyword`` do not exist.
+
+        Notes:
+            The method draws the decision and both side-match fractions on the
+            branch visualization image.
         """
 
         #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to

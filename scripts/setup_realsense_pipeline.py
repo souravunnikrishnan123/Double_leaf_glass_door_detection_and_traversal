@@ -7,14 +7,28 @@ import numpy as np
 import cv2
 
 def setup_realsense_pipeline(bag_file=None):
-    """Start a RealSense pipeline from a bag file or the default live device.
+    """
+    Start a RealSense pipeline from a bag file or the default live device.
+
+    The SDK chooses the recorded/default streams. Returned depth frames can be
+    passed through the aligner so their pixels correspond to the color stream.
 
     Args:
-        bag_file: Optional path to a recorded RealSense bag.
+        bag_file:
+            Optional path to a recorded RealSense bag. ``None`` selects the
+            SDK's default live-device configuration.
 
     Returns:
-        A ``(pipeline, config, align)`` tuple. The caller owns the running
-        pipeline and is responsible for stopping it.
+        Tuple ``(pipeline, config, align)`` containing the running pipeline,
+        its configuration, and a depth-to-color aligner.
+
+    Raises:
+        RuntimeError:
+            If the bag/device cannot be opened or streaming cannot start.
+
+    Notes:
+        The caller owns the running pipeline and must eventually call
+        ``pipeline.stop()``.
     """
     # -------------------------------
     # Initialize RealSense Pipeline

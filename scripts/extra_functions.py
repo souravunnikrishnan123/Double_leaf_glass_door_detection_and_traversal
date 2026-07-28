@@ -6,8 +6,20 @@ import open3d as o3d
 
 def extract_roi_corners(roi_polygon):
     """
-    Extract the 4 corner points of a parallelogram-shaped ROI.
-    Works even if roi_polygon has many intermediate points.
+    Reduce a sampled ROI polygon to four ordered corner points.
+
+    A convex hull and polygon approximation are used first. If approximation
+    does not yield four vertices, an axis-aligned box built from hull extrema
+    provides a stable fallback.
+
+    Args:
+        roi_polygon:
+            Polygon or sampled boundary convertible to an ``N x 2`` array.
+
+    Returns:
+        Integer corner array ordered as top-left, top-right, bottom-right, and
+        bottom-left. Inputs with fewer than four points are returned directly
+        after conversion to int32.
     """
     roi = np.asarray(roi_polygon, dtype=np.float32).reshape(-1, 2)
     if roi.shape[0] < 4:
@@ -53,10 +65,22 @@ def extract_roi_corners(roi_polygon):
 
 def extend_roi_polygon_to_full_height(roi_polygon, image_height):
     """
-    Robustly extend a 4-point ROI (parallelogram) to full image height.
-    - Handles arbitrary ordering of the 4 points.
-    - Preserves the left/right slant by using x of the top pair for y=0
-      and x of the bottom pair for y=image_height-1.
+    Extend a four-corner ROI from the top to the bottom image row.
+
+    Args:
+        roi_polygon:
+            Four polygon points in arbitrary order.
+
+        image_height:
+            Image height in pixels.
+
+    Returns:
+        Four int32 points ordered clockwise from the top-left corner.
+
+    Notes:
+        The top pair supplies x-coordinates at row zero and the bottom pair
+        supplies x-coordinates at row ``image_height - 1``, preserving the
+        left/right slant of the input.
     """
     roi = np.asarray(roi_polygon).reshape(-1, 2)
 
@@ -84,9 +108,28 @@ def extend_roi_polygon_to_full_height(roi_polygon, image_height):
 
 def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image_height=None):
     """
-    Build rectangular ROI offset from a vertical line.
-    - margin: how many pixels to leave empty next to the line
-    - roi_width: width of ROI strip
+    Build a rectangular strip beside a vertical line.
+
+    Args:
+        line_points:
+            Sequence of ``(x, y)`` samples describing the line.
+
+        side:
+            ``"left"`` places the strip left of the line; any other value
+            places it on the right.
+
+        roi_width:
+            Width of the strip in pixels.
+
+        margin:
+            Empty pixel margin between the line and strip.
+
+        image_height:
+            Optional image height retained for backward compatibility. The
+            current implementation uses the line's y extent.
+
+    Returns:
+        Four-point int32 rectangular polygon.
     """
     xs = [p[0] for p in line_points]
     ys = [p[1] for p in line_points]
@@ -124,8 +167,44 @@ def find_planes(points,
                          min_inliers=10000,
                          max_planes=4):
   """
-  Iteratively find up to max_planes vertical planes in the point cloud.
-  Returns a list of (plane_model, inlier_indices) for vertical planes.
+  Iteratively segment and classify planes in a point cloud.
+
+  Core inliers are removed after each RANSAC fit while some boundary points
+  remain available to later iterations. Front-facing planes are classified as
+  vertical and camera-Y-normal planes as horizontal.
+
+  Args:
+      points:
+          ``N x 3`` point cloud.
+
+      distance_threshold:
+          Maximum point-to-plane distance in meters for a RANSAC inlier.
+
+      ransac_n:
+          Number of points sampled for each plane hypothesis.
+
+      num_iterations:
+          Maximum RANSAC iterations per plane.
+
+      vertical_tol:
+          Tolerance applied to ``abs(normal_z)`` for front-facing planes.
+
+      horizontal_tol:
+          Tolerance applied to ``abs(normal_y)`` for floor-like planes.
+
+      min_inliers:
+          Minimum accepted RANSAC inlier count.
+
+      max_planes:
+          Maximum plane fits attempted.
+
+  Returns:
+      Tuple containing vertical planes, horizontal planes, and all fitted
+      planes. Each entry contains a plane model, source indices, and inlier
+      points.
+
+  Notes:
+      Plane models use ``a*x + b*y + c*z + d = 0``.
   """
 
   remaining_points = points.copy()
@@ -211,14 +290,24 @@ def ransac_plane_from_points(points,
                              ransac_n=3,
                              num_iterations=1000):
     """
-    Fit a plane to a set of 3D points using Open3D's RANSAC.
-    - points: (N,3) numpy array
-    - distance_threshold: in meters, maximum distance from model to be considered an inlier
-    - ransac_n: minimal points to estimate plane (3)
-    - num_iterations: RANSAC iterations
+    Fit one plane to 3D points with Open3D RANSAC.
+
+    Args:
+        points:
+            ``N x 3`` point array.
+
+        distance_threshold:
+            Maximum point-to-model distance in meters for an inlier.
+
+        ransac_n:
+            Minimum number of sampled points used to estimate a plane.
+
+        num_iterations:
+            Number of RANSAC hypothesis iterations.
+
     Returns:
-      plane_model: [a,b,c,d] as floats for plane ax+by+cz+d=0
-      inlier_indices: list of indices into the input points that are inliers
+        Tuple ``(plane_model, inlier_indices)``. Invalid or empty point arrays
+        return ``(None, [])``.
     """
     # convert numpy points to Open3D point cloud
     if points is None or len(points) == 0 or points.shape[1] != 3:
@@ -238,31 +327,36 @@ def check_passable_birdeye(self, points_above_floor,
                         z_min,
                         z_max):
     """
-    BEV passability check that (a) computes x_min/x_max from the provided ROI
-    polygon (in image pixel coordinates) if available, and (b) ignores obstacles
-    whose height (Y coordinate in camera frame) is above max_obstacle_height.
+    Rasterize obstacle points into a bird's-eye occupancy map.
 
     Args:
-        points_above_floor (np.ndarray): Nx3 points in camera frame (already floor-removed).
-        door_depth (float): Z (depth) of door plane in same camera frame units (meters).
-        roi_polygon_uv (np.ndarray or list, optional): polygon in image pixel coords (Nx2).
-            If provided together with uv_pts, the function will compute x_min/x_max from the
-            3D points that project inside this polygon.
-        uv_pts (np.ndarray, optional): Nx2 array of (u,v) pixel coordinates mapping one-to-one
-            with points_above_floor. Required if roi_polygon_uv is passed.
-        roi_width (float): fallback ROI width (meters) used if roi_polygon_uv not supplied.
-        grid_res (float): BEV cell resolution in meters.
-        required_clearance (float): required horizontal corridor width (m) for passability.
-        max_obstacle_height (float): ignore points with Y > max_obstacle_height (meters). set to 1.5m. because robot will only go through 
-            the place where human can go through.
-            - Camera-frame convention assumed: Y is vertical (positive upward).
-            - This value should be the maximum height at which an obstacle would block the robot.
-            Example: if robot body top is at 0.35 m from floor and camera origin is approximately
-            at floor-level + camera_mount_height, pick accordingly. Tune as needed.
-        visualize (bool): show BEV image when True.
+        self:
+            Object providing ``max_obstacle_height``, ``grid_res``, and
+            ``required_clearance`` configuration attributes.
+
+        points_above_floor:
+            ``N x 3`` floor-filtered points in camera coordinates.
+
+        x_min:
+            Left boundary of the evaluated region in meters.
+
+        x_max:
+            Right boundary of the evaluated region in meters.
+
+        z_min:
+            Near boundary in meters.
+
+        z_max:
+            Far boundary in meters.
 
     Returns:
-        max_clearance_m (float), passable (bool), occ_map (np.ndarray or None)
+        Tuple ``(maximum_clear_width_m, passable, bev_image)``. Empty inputs or
+        empty filtered regions return zero clearance, ``False``, and ``None``.
+
+    Notes:
+        Cells are marked occupied from observed points. Columns with no
+        occupied cell are treated as clear, and the widest contiguous clear
+        run determines passability.
     """
 
     # 1) quick exits
@@ -402,4 +496,3 @@ def check_passable_birdeye(self, points_above_floor,
         
 
     return max_clearance_m, passable, bev_vis_display
-

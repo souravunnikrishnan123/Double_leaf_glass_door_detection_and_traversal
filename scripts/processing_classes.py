@@ -6,10 +6,28 @@ import cv2
 import math
 
 class Preprocessor:
-    """Prepare color or depth images for edge detection."""
+    """
+    Prepare color and depth images for edge detection.
+
+    This stateless helper centralizes image resizing and the branch-specific
+    smoothing operations used before Canny or Sobel processing.
+    """
 
     def resize_by_scale(self, image: np.ndarray, scale: float) -> np.ndarray:
-        """Downscale an image for processing while preserving a scale of one."""
+        """
+        Resize an image by a uniform scale factor.
+
+        Args:
+            image:
+                Source NumPy image.
+
+            scale:
+                Horizontal and vertical resize factor.
+
+        Returns:
+            Resized image. When ``scale`` equals ``1.0``, the original array is
+            returned without copying.
+        """
         if scale != 1.0:
             return cv2.resize(
                 image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
@@ -18,7 +36,25 @@ class Preprocessor:
             return image
         
     def gaussian_blur_filter(self, image: np.ndarray, blur_cfg: dict) -> np.ndarray:
-        """Convert BGR to contrast-equalized grayscale and apply Gaussian blur."""
+        """
+        Convert BGR to grayscale, equalize contrast, and apply Gaussian blur.
+
+        Args:
+            image:
+                BGR uint8 image.
+
+            blur_cfg:
+                Mapping containing ``ksize`` and ``sigma``. Missing values
+                default to 3 and 0.8.
+
+        Returns:
+            Smoothed single-channel image suitable for Canny detection.
+
+        Raises:
+            cv2.error:
+                If the image format is unsupported or the configured kernel is
+                invalid.
+        """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contrast = cv2.equalizeHist(gray)
         k = int(blur_cfg.get("ksize", 3))
@@ -27,7 +63,20 @@ class Preprocessor:
         return filtered_grey_image
 
     def bilateral_filter(self, image: np.ndarray, bilateral_cfg: dict) -> np.ndarray:
-        """Smooth a depth image without blurring strong depth discontinuities."""
+        """
+        Smooth a depth image while preserving strong discontinuities.
+
+        Args:
+            image:
+                Single-channel metric depth image.
+
+            bilateral_cfg:
+                Mapping containing OpenCV bilateral-filter parameters ``d``,
+                ``sigma_color``, and ``sigma_space``.
+
+        Returns:
+            Bilaterally filtered depth image.
+        """
     
         # Smooth Z-depth (bilateral preserves edges better than Gaussian)
         d = int(bilateral_cfg.get("d", 5))
@@ -38,7 +87,26 @@ class Preprocessor:
         return filtered_image
     
     def restore_size(self, image: np.ndarray, target_w: int, target_h: int, scale: float) -> np.ndarray:
-        """Restore a processed image to the source frame dimensions."""
+        """
+        Restore a processed image to the source frame dimensions.
+
+        Args:
+            image:
+                Image processed at a reduced scale.
+
+            target_w:
+                Required output width in pixels.
+
+            target_h:
+                Required output height in pixels.
+
+            scale:
+                Scale used during preprocessing.
+
+        Returns:
+            Image resized to ``(target_w, target_h)`` when ``scale`` is not
+            one; otherwise the original array.
+        """
         if scale != 1.0:
             return cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
         else:   
@@ -47,10 +115,30 @@ class Preprocessor:
 
 
 class LineFilter:
-    """Filter Hough segments by orientation and aligned depth evidence."""
+    """
+    Filter Hough segments by orientation and aligned depth evidence.
+
+    The methods accept the ``(N, 1, 4)`` layout returned by
+    ``cv2.HoughLinesP`` and use aligned metric depth to reject lines that do
+    not belong to the confirmed door-distance band.
+    """
 
     def angle_filter(self, lines: np.ndarray, angle_threshold: float) -> np.ndarray:
-        """Keep segments whose direction is sufficiently close to vertical."""
+        """
+        Keep segments whose direction is sufficiently close to vertical.
+
+        Args:
+            lines:
+                Hough segments shaped ``(N, 1, 4)``.
+
+            angle_threshold:
+                Maximum absolute horizontal component, expressed as
+                ``abs(cos(angle))``.
+
+        Returns:
+            Filtered Hough array. ``None`` and empty inputs are returned
+            unchanged.
+        """
         if lines is None or len(lines) == 0:
             return lines
         x1_np = lines[:, 0, 0]
@@ -63,14 +151,45 @@ class LineFilter:
     
     
     def is_depth_valid(self, center_depth: Optional[float], depth_range: Tuple[float, float]) -> bool:
-        """Check that a depth estimate exists and lies in an inclusive range."""
+        """
+        Check that a depth estimate lies in an inclusive interval.
+
+        Args:
+            center_depth:
+                Metric depth estimate, or ``None`` when sampling failed.
+
+            depth_range:
+                Two-element ``(minimum, maximum)`` interval in meters.
+
+        Returns:
+            ``True`` only when a depth exists inside the interval.
+        """
         if center_depth is None:
             return False
         return depth_range[0] <= center_depth <= depth_range[1]
 
 
     def get_median_depth_along_line(self, depth_image_in_meters, line, min_num_of_valid_depths):
-        """Samples depth values along the line segment from (x1, y1) to (x2, y2) and returns the median."""
+        """
+        Estimate line depth from samples taken directly along the segment.
+
+        Args:
+            depth_image_in_meters:
+                ``H x W`` aligned metric depth image.
+
+            line:
+                Hough segment in ``[[x1, y1, x2, y2]]`` layout.
+
+            min_num_of_valid_depths:
+                Minimum number of finite positive samples required.
+
+        Returns:
+            Median depth in meters, or ``None`` when too few valid samples are
+            available.
+
+        Notes:
+            The number of samples is the segment's Euclidean pixel length.
+        """
         x1, y1, x2, y2 = line[0]
         pixel_length = math.hypot(x2 - x1, y2 - y1)
         num_samples = int(pixel_length)
@@ -99,8 +218,27 @@ class LineFilter:
 
     def get_median_depth_by_roi_around(self,depth_image_in_meters, line , roi_width):
         """
-        Estimates Z-depth of a detected line using rectangular ROIs to the left and right,
-        using get_z_depth for accurate Z-axis depth.
+        Estimate line depth from narrow strips on both sides of the segment.
+
+        Args:
+            depth_image_in_meters:
+                ``H x W`` aligned metric depth image.
+
+            line:
+                Primarily vertical Hough segment in ``[[x1, y1, x2, y2]]``
+                layout.
+
+            roi_width:
+                Width in pixels sampled on each side of the line center.
+
+        Returns:
+            The nearer nonzero side median in meters. If only one side has
+            valid depth, that median is returned; if neither side is valid,
+            returns ``None``.
+
+        Notes:
+            A nonvertical input is rejected because the strips are built as
+            horizontal offsets from a vertical line.
         """
         x1, y1, x2, y2 = line[0]
         if abs(x1 - x2) > abs(y1 - y2):
@@ -155,10 +293,28 @@ class LineFilter:
 
 
 class EdgeDetector:
-    """Produce binary edge maps from color intensity or metric depth."""
+    """
+    Produce edge responses from color intensity or metric depth.
+
+    The color branch uses median-adaptive Canny thresholds. The depth branch
+    computes the absolute x-gradient and converts it to a binary edge mask with
+    a statistical threshold.
+    """
 
     def canny_edge_detection(self, filtered: np.ndarray, canny_cfg: dict) -> np.ndarray:
-        """Run Canny with thresholds derived from the image's sampled median."""
+        """
+        Run Canny with thresholds derived from the image's sampled median.
+
+        Args:
+            filtered:
+                Smoothed single-channel uint8 image.
+
+            canny_cfg:
+                Mapping containing ``lower_factor`` and ``upper_factor``.
+
+        Returns:
+            Binary uint8 Canny edge image.
+        """
         median_val = np.median(filtered[::4, ::4])
         lf = float(canny_cfg.get("lower_factor", 0.7))
         uf = float(canny_cfg.get("upper_factor", 2.0))
@@ -168,7 +324,20 @@ class EdgeDetector:
         return edges
     
     def sobel_edge_detection(self, filtered: np.ndarray, sobel_cfg: dict) -> np.ndarray:
-        """Return the absolute horizontal Sobel gradient for vertical edges."""
+        """
+        Compute the absolute horizontal Sobel gradient.
+
+        Args:
+            filtered:
+                Smoothed single-channel depth image.
+
+            sobel_cfg:
+                Mapping containing odd Sobel kernel size ``ksize``.
+
+        Returns:
+            Float32 gradient-magnitude image. Horizontal differentiation makes
+            vertical depth boundaries respond strongly.
+        """
                 # Gradient along X (detect vertical edges in depth)
 
         ksize = int(sobel_cfg.get("ksize", 3))
@@ -178,7 +347,26 @@ class EdgeDetector:
         return depth_grad_x
     
     def adaptive_threshold(self, depth_grad_x: np.ndarray, valid_grad_vals: np.ndarray, adaptive_cfg: dict) -> np.ndarray:
-        """Threshold depth gradients using mean plus a configurable deviation."""
+        """
+        Convert depth gradients to a binary edge mask.
+
+        Args:
+            depth_grad_x:
+                Absolute Sobel gradient image.
+
+            valid_grad_vals:
+                Gradient samples from the accepted door-depth band.
+
+            adaptive_cfg:
+                Mapping with ``k_factor`` and ``fallback_threshold``.
+
+        Returns:
+            Binary uint8 edge mask.
+
+        Notes:
+            The normal threshold is ``mean + k_factor * standard_deviation``.
+            The fallback is used when the valid sample set is empty.
+        """
 
         # Adaptive threshold: mean + k*std of valid gradients
         
@@ -199,7 +387,13 @@ class EdgeDetector:
 
 
 class HoughPLineDetector:
-    """Detect line segments and express them in original-image coordinates."""
+    """
+    Detect probabilistic Hough segments at a configurable image scale.
+
+    Configuration values are specified for the original image and scaled before
+    calling OpenCV. Detected endpoints are then mapped back to original-image
+    coordinates.
+    """
 
         # Hough Line Transform to detect lines
     # Detect lines using Probabilistic Hough Transform
@@ -210,7 +404,28 @@ class HoughPLineDetector:
     #  - minLineLength=100: minimum length of line in pixels to be considered
     #  - maxLineGap=10: maximum allowed gap between line segments to link them
     def detect(self, edges: np.ndarray, hough_cfg: dict, scale: float) -> Optional[np.ndarray]:
-        """Run ``cv2.HoughLinesP`` with parameters adjusted for image scale."""
+        """
+        Run the probabilistic Hough transform.
+
+        Args:
+            edges:
+                Binary edge image, possibly processed at reduced resolution.
+
+            hough_cfg:
+                Mapping containing ``threshold``, ``min_line_length``, and
+                ``max_line_gap`` in original-image pixels.
+
+            scale:
+                Processing scale used to create ``edges``.
+
+        Returns:
+            Hough segments shaped ``(N, 1, 4)`` in original-image coordinates,
+            or ``None`` when no segment is detected.
+
+        Raises:
+            ZeroDivisionError:
+                If lines are detected while ``scale`` is zero.
+        """
         base_threshold = int(hough_cfg.get("threshold", 100))
         base_min_len = int(hough_cfg.get("min_line_length", 100))
         base_max_gap = int(hough_cfg.get("max_line_gap", 20))
@@ -238,13 +453,50 @@ def backproject_depth_to_points(
     roi_polygon=None
 ):
     """
-    Convert a depth image to 3D points and pixel coordinates, optionally within a polygonal ROI.
-    If roi_polygon is None, uses the whole image.
-    roi_polygon should be a Nx2 array/list of (x, y) pixel coordinates.
+    Backproject valid depth pixels into camera-frame 3D points.
+
+    Pinhole projection is applied to a configurable depth interval, optionally
+    restricted by an image-space polygon. Pixel coordinates remain paired with
+    their resulting points.
+
+    Args:
+        depth_image_in_meters:
+            ``H x W`` metric depth image.
+
+        fx:
+            Horizontal focal length in pixels.
+
+        fy:
+            Vertical focal length in pixels.
+
+        cx:
+            Horizontal principal point in pixels.
+
+        cy:
+            Vertical principal point in pixels.
+
+        max_depth:
+            Exclusive far-depth limit in meters.
+
+        min_depth:
+            Exclusive near-depth limit in meters.
+
+        subsample:
+            Keep every ``subsample``-th valid pixel after mask extraction.
+
+        roi_polygon:
+            Optional ``N x 2`` polygon of ``(x, y)`` image coordinates. The
+            entire image is used when omitted.
+
     Returns:
-        points: (N, 3) array of 3D coordinates
-        uv: (N, 2) array of image pixel coordinates
-        mask: boolean 2D mask of valid pixels inside ROI
+        Tuple ``(points, uv, valid_mask)`` where ``points`` is an ``N x 3``
+        array of camera-frame ``(X, Y, Z)``, ``uv`` is the corresponding
+        ``N x 2`` pixel array, and ``valid_mask`` is the full-resolution
+        boolean selection mask.
+
+    Notes:
+        Camera coordinates follow the optical convention: X right, Y down,
+        and Z forward.
     """
     H, W = depth_image_in_meters.shape
     mask = np.ones((H, W), dtype=np.uint8) * 255
@@ -276,7 +528,6 @@ def backproject_depth_to_points(
     uv = np.stack([xs, ys], axis=-1)
 
     return points, uv, valid_mask
-
 
 
 

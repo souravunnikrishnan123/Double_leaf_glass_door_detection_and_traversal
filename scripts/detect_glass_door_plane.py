@@ -14,11 +14,59 @@ from processing_classes import backproject_depth_to_points
 
 class TemporalPlaneTracker:
     """
-    Tracks and stabilizes a single plane hypothesis over time using
-    angle/distance gating and exponential smoothing. Only reports
-    confirmed planes after sufficient consistent frames.
+    Stabilize a single plane hypothesis across consecutive frames.
+
+    New planes are associated with the smoothed hypothesis using normal-angle
+    and distance gates. Associated measurements update an exponential moving
+    average, while a bounded Boolean history applies separate confirmation and
+    drop thresholds.
+
+    Attributes:
+        alpha:
+            Exponential moving-average weight of the newest measurement.
+
+        max_jump_deg:
+            Maximum normal-angle change allowed for association.
+
+        max_jump_m:
+            Maximum distance change allowed for association.
+
+        window:
+            Maximum number of association decisions retained.
+
+        confirm_k:
+            Associated-frame count required to confirm an unconfirmed track.
+
+        drop_k:
+            Associated-frame count at or below which a confirmed track drops.
+
+        n_s:
+            Smoothed unit plane normal, or ``None`` before initialization.
+
+        d_s:
+            Smoothed plane distance in meters.
+
+        history:
+            Recent Boolean association decisions.
+
+        confirmed:
+            Current hysteretic confirmation state.
     """
+
     def __init__(self):
+        """
+        Initialize temporal thresholds and an empty plane track.
+
+        Configuration is loaded from
+        ``~plane_detector/temporal_smoothing``. No plane is considered
+        confirmed until :meth:`update` has associated enough observations
+        within the configured angular and distance jump limits.
+
+        Notes:
+            The tracker starts without a smoothed normal or distance. Its
+            history contains only association decisions made after the first
+            candidate initializes the track.
+        """
         ns = "~plane_detector/temporal_smoothing"
         self.alpha = rospy.get_param(f"{ns}/alpha", 0.3)
         self.max_jump_deg = rospy.get_param(f"{ns}/max_jump_deg", 12.0)
@@ -32,10 +80,33 @@ class TemporalPlaneTracker:
         self.confirmed = False
 
     def _normalize(self, n):
+        """
+        Normalize a vector without dividing by exact zero.
+
+        Args:
+            n:
+                Array-like vector.
+
+        Returns:
+            NumPy vector divided by its norm plus a small numerical epsilon.
+        """
         norm = np.linalg.norm(n)
         return n / (norm + 1e-12)
 
     def _angle_deg(self, n1, n2):
+        """
+        Compute the unsigned angle between two unit vectors.
+
+        Args:
+            n1:
+                First unit vector, or ``None``.
+
+            n2:
+                Second unit vector, or ``None``.
+
+        Returns:
+            Angle in degrees. Missing vectors return ``180.0``.
+        """
         if n1 is None or n2 is None:
             return 180.0
 
@@ -43,11 +114,26 @@ class TemporalPlaneTracker:
         return np.degrees(np.arccos(c))
 
     def _push(self, val: bool):
+        """
+        Append one association result to the bounded history.
+
+        Args:
+            val:
+                Whether the current measurement matched the tracked plane.
+        """
         self.history.append(bool(val))
         if len(self.history) > self.window:
             self.history.pop(0)
 
     def _update_confirmed(self):
+        """
+        Recompute confirmation state using hysteresis thresholds.
+
+        Notes:
+            An unconfirmed track needs at least ``confirm_k`` true entries,
+            while a confirmed track is retained until that count falls to
+            ``drop_k`` or below.
+        """
         #counts the number of True in history. If >= confirm_k, set confirmed to True. If <= drop_k, set confirmed to False.
         #self.history is a list of booleans. np.sum of False is 0, True is 1.
         count_true = int(np.sum(self.history))
@@ -58,7 +144,25 @@ class TemporalPlaneTracker:
             self.confirmed = False
 
     def update(self, n_t, d_t):
-        """Update with current plane unit normal and distance (meters)."""
+        """
+        Associate and smooth one plane measurement.
+
+        Args:
+            n_t:
+                Current plane normal. It is normalized internally; ``None``
+                records a missed association.
+
+            d_t:
+                Current plane distance in meters. Nonfinite values are treated
+                as a missed association.
+
+        Returns:
+            Tuple ``(confirmed, smoothed_normal, smoothed_distance)``.
+
+        Notes:
+            A valid first measurement initializes the smoothed hypothesis.
+            Later measurements update it only when both association gates pass.
+        """
         if n_t is None or not np.isfinite(d_t):
             self._push(False)
             self._update_confirmed()
@@ -91,10 +195,96 @@ class TemporalPlaneTracker:
 
 class PlaneDetector:
     """
-    Encapsulates glass-door plane detection configuration and logic.
-    Parameters are read once from ROS params in __init__.
+    Detect and temporally confirm a front-facing door-sized plane.
+
+    Metric depth is backprojected near the expected door distance, voxel
+    downsampled, filtered by surface normal, and segmented with Open3D RANSAC.
+    Candidates must satisfy orientation, size, and distance gates before the
+    temporal tracker can confirm them.
+
+    Attributes:
+        reference_door_distance_m:
+            Nominal door distance supplied by the global map.
+
+        global_map_distance_accuracy_to_door_plane:
+            Fractional uncertainty applied to the nominal map distance.
+
+        distance_range_m:
+            Accepted metric deviation around the nominal distance.
+
+        max_depth_backprojection:
+            Exclusive far limit for point generation.
+
+        min_depth_backprojection:
+            Exclusive near limit for point generation.
+
+        subsample:
+            Pixel stride used during backprojection.
+
+        voxel_size:
+            Voxel edge length in meters.
+
+        normal_radius:
+            Open3D normal-estimation search radius.
+
+        normal_max_nn:
+            Maximum neighbors used for normal estimation.
+
+        nx_thr:
+            Maximum absolute normal X component retained.
+
+        ny_thr:
+            Maximum absolute normal Y component retained.
+
+        nz_min:
+            Minimum absolute normal Z component retained.
+
+        ransac_distance_threshold:
+            Maximum point-to-plane inlier distance in meters.
+
+        ransac_n:
+            Number of sampled points per RANSAC hypothesis.
+
+        ransac_num_iterations:
+            Number of RANSAC iterations.
+
+        vertical_tol:
+            Tolerance for accepting a camera-facing plane normal.
+
+        min_inliers:
+            Minimum RANSAC inlier count.
+
+        max_inlier_density:
+            Configured upper inlier-density limit retained for candidate
+            evaluation.
+
+        max_planes:
+            Maximum planes segmented from one frame.
+
+        lower_pct:
+            Lower percentile used for robust plane bounds.
+
+        upper_pct:
+            Upper percentile used for robust plane bounds.
+
+        min_width_m:
+            Minimum accepted physical plane width.
+
+        min_height_m:
+            Minimum accepted physical plane height.
+
+        tracker:
+            :class:`TemporalPlaneTracker` used for cross-frame confirmation.
     """
+
     def __init__(self):
+        """
+        Load plane-detection parameters and create the temporal tracker.
+
+        Notes:
+            Parameters are read once. The resulting object should be reused
+            between frames so temporal confirmation history is preserved.
+        """
         ns = "~plane_detector"
         self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
         self.global_map_distance_accuracy_to_door_plane = rospy.get_param(f"{ns}/global_map_distance_accuracy_to_door_plane", 0.15)
@@ -135,8 +325,20 @@ class PlaneDetector:
 
     def find_vertical_planes(self,points):
         """
-        Iteratively find up to max_planes vertical planes in the point cloud.
-        Returns a list of (plane_model, inlier_indices) for vertical planes.
+        Iteratively segment front-facing planes from a point cloud.
+
+        Args:
+            points:
+                ``N x 3`` filtered camera-frame point array.
+
+        Returns:
+            List of ``(plane_model, original_indices, inlier_points)`` tuples
+            for accepted planes.
+
+        Notes:
+            In this camera convention, a door plane faces the optical axis and
+            therefore has ``abs(normal_z)`` close to one. Inliers are removed
+            after every fit so later iterations can find another plane.
         """
 
         remaining_points = points.copy()
@@ -185,8 +387,33 @@ class PlaneDetector:
 
     def draw_plane_outline_on_image(self, color_image, corners_3d, fx, fy, cx, cy):
         """
-        Draws a robust outline of the detected plane as a polygon on the color image.
-        Supports any number of valid projected corners (>= 3).
+        Project 3D plane corners and draw their polygon on a color image.
+
+        Args:
+            color_image:
+                BGR image modified in place.
+
+            corners_3d:
+                Iterable of camera-frame ``(X, Y, Z)`` corners.
+
+            fx:
+                Horizontal focal length in pixels.
+
+            fy:
+                Vertical focal length in pixels.
+
+            cx:
+                Horizontal principal point in pixels.
+
+            cy:
+                Vertical principal point in pixels.
+
+        Returns:
+            List of projected ``(u, v)`` integer coordinates. Corners with
+            nonpositive Z are skipped.
+
+        Notes:
+            The polygon is drawn in red and closed by OpenCV.
         """
 
         corners_uv = []
@@ -205,7 +432,22 @@ class PlaneDetector:
 
 
     def voxel_downsample(self, points, uv):
-        """Keep one point per voxel while preserving point-to-pixel indices."""
+        """
+        Keep one point per voxel while preserving point-to-pixel indices.
+
+        Args:
+            points:
+                ``N x 3`` point array.
+
+            uv:
+                ``N x 2`` matching pixel array.
+
+        Returns:
+            Tuple of downsampled points and corresponding pixels.
+
+        Notes:
+            The first source index found in each voxel is retained.
+        """
         # Voxel downsampling
         # Reduces redundant neighboring points while preserving
         # metal frame edges and door boundaries. This balances
@@ -220,7 +462,23 @@ class PlaneDetector:
         return points, uv
 
     def normal_filter(self, points, uv):
-        """Keep surfaces whose normals face roughly along the camera Z axis."""
+        """
+        Keep surfaces whose normals face roughly along the camera Z axis.
+
+        Args:
+            points:
+                Voxel-downsampled ``N x 3`` point array.
+
+            uv:
+                ``N x 2`` pixels paired with ``points``.
+
+        Returns:
+            Tuple of normal-filtered points and matching pixels.
+
+        Notes:
+            Accepted normals satisfy all configured X, Y, and Z component
+            thresholds.
+        """
         pc = o3d.geometry.PointCloud()
         pc.points = o3d.utility.Vector3dVector(points)
 
@@ -242,8 +500,23 @@ class PlaneDetector:
 
     def check_plane_size(self, inlier_points, plane_model):
         """
-        Check if the detected plane has reasonable size to be a door.
-        Returns the corners if valid, else None.
+        Check whether a plane has door-like physical width and height.
+
+        Args:
+            inlier_points:
+                ``N x 3`` RANSAC inlier points.
+
+            plane_model:
+                Coefficients ``(a, b, c, d)`` for
+                ``a*x + b*y + c*z + d = 0``.
+
+        Returns:
+            Four robust 3D corners when the plane satisfies the configured
+            dimensions, otherwise ``None``.
+
+        Notes:
+            X and Y bounds use configured percentiles rather than raw extrema.
+            Z for each corner is solved from the fitted plane equation.
         """
         if inlier_points.shape[0] == 0:
             return None
@@ -274,7 +547,33 @@ class PlaneDetector:
         return corners_3d
 
     def find_plane_metrics(self, plane_model, depth_image_in_meters, inlier_indices, plane_corners_2d, mask):
-        """Measure depth spread, holes, density, distance, and plane normal."""
+        """
+        Measure depth spread, holes, density, distance, and plane normal.
+
+        Args:
+            plane_model:
+                Plane coefficients ``(a, b, c, d)``.
+
+            depth_image_in_meters:
+                Aligned metric depth image.
+
+            inlier_indices:
+                Source indices belonging to the selected plane.
+
+            plane_corners_2d:
+                Projected image-space plane polygon.
+
+            mask:
+                Caller-provided uint8 image mask modified in place.
+
+        Returns:
+            Dictionary containing robust depth statistics, hole fraction,
+            inlier density, origin-to-plane distance, and a unit normal.
+
+        Notes:
+            Depth values outside the 5th-to-95th percentile interval are
+            discarded before calculating mean and standard deviation.
+        """
         pts = np.array(plane_corners_2d, dtype=np.int32).reshape((-1, 1, 2))
         cv2.fillPoly(mask, [pts], 255)
 
@@ -313,10 +612,25 @@ class PlaneDetector:
 
     def highlight_planes_on_image(self, color_image, uv, found_vertical_planes):
         """
-        Overlays each detected plane's inlier pixels on the color_image in a unique color.
-        - color_image: (H, W, 3) numpy array (will be modified in-place)
-        - uv: (N, 2) array of pixel coordinates corresponding to the original points
-        - found_vertical_planes: list of (plane_model, inlier_indices, inlier_points)
+        Overlay every detected plane's inlier pixels with a distinct color.
+
+        Args:
+            color_image:
+                ``H x W x 3`` BGR image modified in place.
+
+            uv:
+                Pixels corresponding to the filtered point cloud used by
+                RANSAC.
+
+            found_vertical_planes:
+                Plane tuples returned by :meth:`find_vertical_planes`.
+
+        Returns:
+            ``None``.
+
+        Notes:
+            Colors repeat when more planes are provided than entries in the
+            fixed palette.
         """
         # Define a list of distinct colors (BGR for OpenCV)
         plane_colors = [
@@ -342,16 +656,41 @@ class PlaneDetector:
 
     def detect(self, color_image, depth_image_in_meters,
                fx, fy, cx, cy):
-        """Find and temporally confirm the strongest door-sized plane.
+        """
+        Find and temporally confirm the strongest door-sized plane.
 
         Candidates must face the camera, satisfy physical size and distance
         gates, and remain geometrically consistent across the tracker's recent
         history. The color image receives candidate and confirmed overlays.
 
+        Args:
+            color_image:
+                BGR image modified with RANSAC inliers and confirmed outline.
+
+            depth_image_in_meters:
+                Aligned ``H x W`` metric depth image.
+
+            fx:
+                Horizontal focal length in pixels.
+
+            fy:
+                Vertical focal length in pixels.
+
+            cx:
+                Horizontal principal point in pixels.
+
+            cy:
+                Vertical principal point in pixels.
+
         Returns:
             A dictionary containing the confirmed plane model, derived metrics,
             inlier points, and flags distinguishing absent from unconfirmed
             candidates.
+
+        Notes:
+            ``had_candidates`` is true when geometry was found but rejected by
+            distance or not yet confirmed. A confirmed result is selected by
+            maximum inlier count among candidates inside the distance gate.
         """
 
 
@@ -440,4 +779,3 @@ class PlaneDetector:
         }
 
         return result
-

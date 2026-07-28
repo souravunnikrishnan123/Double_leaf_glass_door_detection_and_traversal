@@ -13,11 +13,110 @@ import numpy as np
 
 @dataclass
 class FrameContext:
-    """Per-frame inputs and results exchanged between detection states.
+    """
+    Hold per-frame inputs and results exchanged between detection states.
 
     The required fields describe the current aligned color/depth frame and its
     camera intrinsics. Optional fields are populated progressively by the
-    plane, color, depth, fusion, and visualization stages.
+    plane, color, depth, fusion, and visualization stages. The same instance is
+    reused across callbacks, so states should overwrite fields that belong to
+    the current frame instead of retaining references to older images.
+
+    Attributes:
+        depth_image_in_meters:
+            Aligned ``H x W`` depth image expressed in meters.
+
+        color_image:
+            Current BGR color image aligned with the depth image.
+
+        fx:
+            Horizontal focal length in pixels.
+
+        fy:
+            Vertical focal length in pixels.
+
+        cx:
+            Horizontal principal point in pixels.
+
+        cy:
+            Vertical principal point in pixels.
+
+        depth_frame:
+            RealSense depth frame, or a compatible adapter used by the
+            visualization helpers.
+
+        go_to_idle_from_finish_state:
+            Reset signal consumed by the final state.
+
+        start_door_frame_detection:
+            Start signal consumed by the idle state.
+
+        plane_result:
+            Confirmed plane distance and normal published to downstream nodes.
+
+        color_image_for_plane_detection:
+            Color-image copy used for RANSAC and plane overlays.
+
+        roi_left_color_based:
+            Left-side polygon produced by the color line branch.
+
+        roi_right_color_based:
+            Right-side polygon produced by the color line branch.
+
+        door_depth_m_color_based:
+            Door-frame depth estimated from color-derived lines.
+
+        roi_open_side_color_based:
+            Color-branch ROI corresponding to the inferred opening.
+
+        door_state_color_based:
+            Color-branch label such as ``"closed"`` or ``"open_left"``.
+
+        color_image_color_based:
+            Color-image copy receiving color-branch overlays.
+
+        edges:
+            Full-resolution Canny edge visualization.
+
+        roi_left_depth_based:
+            Left-side polygon produced by the depth-gradient branch.
+
+        roi_right_depth_based:
+            Right-side polygon produced by the depth-gradient branch.
+
+        door_depth_m_depth_based:
+            Door-frame depth estimated from depth-derived lines.
+
+        roi_open_side_depth_based:
+            Depth-branch ROI corresponding to the inferred opening.
+
+        door_state_depth_based:
+            Depth-branch door-state label.
+
+        color_image_depth_based:
+            Color-image copy receiving depth-branch overlays.
+
+        sobel_vis_color:
+            Color visualization of the depth Sobel response and thresholded
+            edges.
+
+        door_state_label:
+            Temporally smoothed result selected by branch fusion.
+
+        mid_frame_x_px_for_passability_check:
+            Image x-coordinate of the central frame edge bordering the opening.
+
+        door_depth:
+            Door or corridor reference depth selected for passability checking.
+
+        viz_color_stack:
+            Published color-branch stacked debug image.
+
+        viz_depth_stack:
+            Published depth-branch stacked debug image.
+
+        viz_plane_overlay:
+            Optional cached plane-detection visualization.
     """
 
     depth_image_in_meters: np.ndarray
@@ -64,21 +163,71 @@ class FrameContext:
 
 
 class BaseState:
-    """Base class for states driven once per synchronized camera frame."""
+    """
+    Define the interface implemented by frame-driven detector states.
+
+    Subclasses can override the entry and exit hooks and must override
+    :meth:`do_action` when they need per-frame behavior.
+
+    Attributes:
+        name:
+            Unique key used to register and transition to the state.
+    """
 
     def __init__(self, name):
+        """
+        Initialize a named state.
+
+        Args:
+            name:
+                Unique transition key used by :class:`StateMachine` to
+                register and select this state.
+
+        Notes:
+            The base class stores no frame-specific data. Mutable detection
+            state is shared through :class:`FrameContext`.
+        """
         self.name = name
 
     def entry_action(self, ctx : FrameContext) -> None:
-        """Called when entering this state."""
+        """
+        Run the state's optional entry hook.
+
+        Args:
+            ctx:
+                Shared frame context available at transition time.
+
+        Notes:
+            The base implementation intentionally does nothing.
+        """
         pass
 
     def do_action(self, ctx : FrameContext)-> Optional[str]:
         """
-        Called every frame. Return next state name to transition, or None to stay.
+        Run one frame of state logic.
+
+        Args:
+            ctx:
+                Shared context containing the latest synchronized frame and
+                accumulated detector results.
+
+        Returns:
+            Name of the next state, or ``None`` to remain in this state.
+
+        Notes:
+            The base implementation remains in the current state.
         """
         return None
 
     def exit_action(self, ctx: FrameContext) -> None:
-        """Called before leaving this state."""
+        """
+        Run the state's optional exit hook.
+
+        Args:
+            ctx:
+                Shared frame context at the time of transition.
+
+        Notes:
+            The base implementation intentionally does nothing.
+        """
         pass

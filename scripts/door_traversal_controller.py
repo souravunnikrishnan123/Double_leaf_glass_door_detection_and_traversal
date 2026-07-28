@@ -45,18 +45,73 @@ DONE = "DONE"
 
 
 class DoorTraversalController:
-    """Closed-loop finite-state controller for moving through a clear corridor.
+    """
+    Control the robot while it aligns with and traverses a door corridor.
 
     The controller consumes corridor geometry and passability updates, applies
     confirmation hysteresis, aligns the robot in stages, and continuously
-    checks clearance while crossing and moving beyond the door.
+    checks clearance while crossing and moving beyond the door. Recovery states
+    either back the robot away from an unsafe corridor or ask the passability
+    node to define a temporary corridor around a newly observed obstruction.
 
     In the current Gazebo integration, velocity commands are converted from
     the robot frame to world-frame twists and sent through
     ``/gazebo/set_model_state``.
+
+    Attributes:
+        state:
+            Name of the active finite-state-machine state.
+
+        current_pose:
+            Latest planar odometry position as ``(x, y)`` in meters.
+
+        current_yaw:
+            Latest robot yaw in radians.
+
+        corridor_passable:
+            Hysteresis-filtered result for the complete door corridor.
+
+        local_passable:
+            Hysteresis-filtered result for the space immediately ahead.
+
+        front_clearance:
+            Measured obstacle-free distance in front of the robot, in meters.
+
+        corridor_center_x_robot_base:
+            Lateral corridor-center offset in the robot's initial-yaw frame.
+
+        heading_error_to_corridor:
+            Angular error between the robot and corridor headings, in radians.
+
+        start_movement:
+            Whether an external trigger has enabled the control loop.
+
+        movement_is_started:
+            Whether translation has begun in the current movement state.
+
+        set_model_state:
+            ROS service proxy used to apply Gazebo model velocities.
     """
 
     def __init__(self):
+        """
+        Initialize control parameters, state, and ROS interfaces.
+
+        Parameters are loaded from
+        ``~door_traversal_controller`` and the related heading-estimation and
+        hysteresis namespaces. The constructor then waits for Gazebo's
+        ``/gazebo/set_model_state`` service, creates publishers, and subscribes
+        to traversal triggers, passability results, odometry, and model poses.
+
+        Raises:
+            rospy.ROSInterruptException:
+                If ROS shuts down while the constructor is waiting for a
+                required service.
+
+        Notes:
+            Constructing this object initializes the ROS node and may block
+            until the Gazebo model-state service becomes available.
+        """
         rospy.init_node("door_traversal_controller")
         # =========================================================
         # Parameters (tuned for Unitree Go1)
@@ -247,18 +302,42 @@ class DoorTraversalController:
 
 
     def trigger_traversal_node_callback(self, msg):
-        """Latch the external request to begin one traversal cycle."""
+        """
+        Latch an external request to begin a traversal cycle.
+
+        Args:
+            msg:
+                ROS ``Bool`` message. A true value enables processing; false
+                messages do not cancel an already latched request.
+        """
         if msg.data:
             if not self.start_movement:
                 self.start_movement = True
 
     def virtual_corridor_definition_finished_callback(self, msg):
-        """Store whether the passability node finished redefining a corridor."""
+        """
+        Store the completion state of a requested virtual corridor.
+
+        Args:
+            msg:
+                ROS ``Bool`` message published by the passability node.
+        """
         self.virtual_corridor_definition_finished = msg.data
 
 
     def odom_callback(self, msg):
-        """Cache planar robot position and yaw from odometry."""
+        """
+        Cache the robot's planar pose from an odometry message.
+
+        Args:
+            msg:
+                ROS ``Odometry`` message containing position and quaternion
+                orientation.
+
+        Notes:
+            Roll, pitch, altitude, covariance, and twist are intentionally
+            ignored because the controller operates in the ground plane.
+        """
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
 
@@ -270,16 +349,23 @@ class DoorTraversalController:
 
     def passability_callback(self, msg):
         """
-        EXPECTED CONVENTION (example):
-            msg.front_clearance  -> front_clearance (m)
-            msg.x_corridor_center_start_yaw_frame  -> corridor_center_x_robot_base (m)
-            msg.type_of_passability_check  -> type_of_passability_check (1.0 or 2.0)
-            msg.x_corridor_center_cam -> x_corridor_center_cam (m)
-            msg.corridor_middle_point_depth -> distance_to_corridor_mid_point (m)
-            msg.clearance_needed_beyond_mid_corridor -> clearance_needed_beyond_mid_corridor (m)
-            msg.heading_error -> heading_error (rad)
+        Update corridor geometry and filter the latest passability result.
 
+        ``type_of_passability_check`` selects one of two independent results.
+        Type ``1`` verifies clearance through and beyond the corridor midpoint;
+        type ``2`` verifies only the minimum local clearance. Consecutive safe
+        or unsafe samples are required before either stored result changes.
 
+        Args:
+            msg:
+                ``Robot_passability`` message. Distances are expected in
+                meters, lateral offsets use the camera or initial-yaw frames
+                named by their fields, and ``heading_error`` is in radians.
+
+        Notes:
+            Receiving one check type clears the counters and result belonging
+            to the other type. This prevents a stale local result from being
+            treated as a current corridor result, or vice versa.
         """
         self.front_clearance = msg.front_clearance
         self.corridor_center_x_robot_base = msg.x_corridor_center_start_yaw_frame
@@ -345,7 +431,17 @@ class DoorTraversalController:
 
 
     def model_states_callback(self, msg):
-        """Cache the Gazebo pose needed when sending a model-state command."""
+        """
+        Cache the current Gazebo pose of the Go1 model.
+
+        Args:
+            msg:
+                ROS ``ModelStates`` message containing parallel model-name and
+                pose arrays.
+
+        Notes:
+            Messages without a model named ``go1_gazebo`` are ignored.
+        """
         if "go1_gazebo" not in msg.name:
             return
         index = msg.name.index("go1_gazebo")
@@ -353,7 +449,13 @@ class DoorTraversalController:
 
 
     def data_ready(self):
-        """Return whether control has pose and clearance feedback."""
+        """
+        Check whether the minimum feedback needed by the controller is ready.
+
+        Returns:
+            ``True`` after position, yaw, and front-clearance values have all
+            been received; otherwise ``False``.
+        """
         return (
             self.current_pose is not None
             and self.current_yaw is not None
@@ -364,19 +466,57 @@ class DoorTraversalController:
     # =========================================================
 
     def stop_robot(self):
-        """Command zero linear and angular velocity."""
+        """
+        Command zero forward, lateral, and angular velocity.
+
+        Notes:
+            The stop command uses the same Gazebo model-state service as normal
+            movement commands. If no Gazebo pose has arrived yet,
+            :meth:`publish_cmd_vel` logs a warning and returns.
+        """
         self.publish_cmd_vel(0.0, 0.0, 0.0)
 
     def wrap_angle(self, angle):
-        """Normalize an angle in radians to the range [-pi, pi]."""
+        """
+        Normalize an angle to the principal signed range.
+
+        Args:
+            angle:
+                Angle in radians. Scalars and NumPy-compatible arrays are
+                accepted.
+
+        Returns:
+            The equivalent angle in the half-open range ``[-pi, pi)``.
+        """
         return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
     def publish_cmd_vel(self, v_forward, v_lateral, omega):
-        """Apply a robot-frame velocity command to the Gazebo model.
+        """
+        Apply a robot-frame velocity command to the Gazebo model.
 
         Linear velocity is rotated into the world frame while angular velocity
-        remains a yaw rate. The model's current pose is preserved.
+        remains a yaw rate about the world z axis. The latest Gazebo pose is
+        copied into the request so the service changes velocity without
+        teleporting the robot.
+
+        Args:
+            v_forward:
+                Forward velocity in the robot frame, in meters per second.
+
+            v_lateral:
+                Lateral velocity in the robot frame, in meters per second.
+
+            omega:
+                Yaw rate in radians per second.
+
+        Raises:
+            rospy.ServiceException:
+                If the Gazebo service call fails.
+
+        Notes:
+            The command is skipped when no Gazebo pose has been received. The
+            world-frame conversion uses the latest odometry yaw.
         """
 
         if self.gazebo_pose is None:
@@ -415,8 +555,22 @@ class DoorTraversalController:
 
     def get_forward_displacement(self, ref_pose, ref_yaw):
         """
-        Computes displacement along initial heading.
-        Robust to yaw corrections.
+        Measure displacement along a fixed reference heading.
+
+        The current world-frame translation is projected onto the heading that
+        was active when the reference pose was recorded. Later yaw corrections
+        therefore do not change the meaning of the travelled distance.
+
+        Args:
+            ref_pose:
+                Reference planar position as ``(x, y)`` in meters.
+
+            ref_yaw:
+                Reference heading in radians.
+
+        Returns:
+            Signed forward displacement in meters, or ``0.0`` when current
+            odometry is not available.
         """
         if self.current_pose is None:
             return 0.0
@@ -427,7 +581,19 @@ class DoorTraversalController:
         return dx * np.cos(ref_yaw) + dy * np.sin(ref_yaw)
     
     def find_heading_error_estimate(self):
-        """Estimate corridor heading error from lateral drift during motion."""
+        """
+        Update the motion-based estimate of corridor heading error.
+
+        Lateral corridor-center drift is divided by measured forward motion and
+        passed through a first-order low-pass filter. Updates are accepted only
+        after enough forward displacement to avoid amplifying stationary
+        measurement noise.
+
+        Notes:
+            The method updates ``heading_error_est``,
+            ``heading_estimate_samples``, and ``heading_estimate_valid`` in
+            place. It does not return the estimate.
+        """
         # Estimate heading error based on change in corridor center x
         # =================================================
         # Update heading error estimate (from corridor drift and motion-gated)
@@ -470,7 +636,25 @@ class DoorTraversalController:
     # =========================================================
 
     def control_loop(self):
-        """Execute alignment, traversal, recovery, and completion states."""
+        """
+        Run the door-alignment and traversal finite-state machine.
+
+        The loop waits for a trigger and valid feedback, performs two heading
+        alignment stages and one position-alignment stage, turns to the final
+        corridor heading, traverses the corridor, and continues beyond its
+        midpoint. Unsafe feedback causes either an abort/back-off or a request
+        for a virtual corridor, depending on where the robot is in the
+        sequence.
+
+        Raises:
+            rospy.ServiceException:
+                If a Gazebo model-state command cannot be delivered.
+
+        Notes:
+            This is a blocking loop intended to run for the lifetime of the
+            node. It returns after the ``ABORT`` or ``DONE`` state completes,
+            or when ROS shuts down.
+        """
              
 
         while not rospy.is_shutdown():

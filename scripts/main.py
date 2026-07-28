@@ -40,9 +40,80 @@ from std_msgs.msg import Bool
 
 
 class DoorDetectionNode:
-    """Own ROS interfaces and drive the detector once per synchronized frame."""
+    """
+    Own ROS interfaces and drive detection for synchronized camera frames.
+
+    The node caches camera intrinsics, converts ROS image encodings, refreshes a
+    shared :class:`FrameContext`, advances the detector state machine, and
+    publishes navigation results and optional debug images.
+
+    Attributes:
+        latest_info:
+            First received color-camera ``CameraInfo`` message.
+
+        fx:
+            Cached horizontal focal length in pixels.
+
+        fy:
+            Cached vertical focal length in pixels.
+
+        cx:
+            Cached horizontal principal point.
+
+        cy:
+            Cached vertical principal point.
+
+        go_to_idle_from_finish_state:
+            Reset request forwarded into the frame context.
+
+        start_door_frame_detection:
+            Start request forwarded into the frame context.
+
+        bridge:
+            ``CvBridge`` used for ROS/OpenCV image conversion.
+
+        enable_visualization:
+            Whether debug images and OpenCV drawing remain enabled.
+
+        sm:
+            Registered frame-driven detection state machine.
+
+        door_state_pub:
+            Publisher for the final smoothed door-state label.
+
+        mid_frame_x_px_for_passability_check_pub:
+            Publisher for the opening's central-frame x-coordinate.
+
+        door_depth_pub:
+            Publisher for the selected door reference depth.
+
+        plane_info_pub:
+            Publisher encoding plane distance and normal in a ``Twist``.
+
+        debug_pub:
+            Publisher for the selected color-branch debug image.
+
+        viz_color_pub:
+            Publisher for the stacked color-processing visualization.
+
+        viz_depth_pub:
+            Publisher for the stacked depth-processing visualization.
+
+        viz_plane_pub:
+            Publisher for the detected-plane overlay.
+    """
 
     def __init__(self):
+        """
+        Configure ROS interfaces and construct the detection state machine.
+
+        Topic names, synchronization queue size, synchronization tolerance, and
+        visualization behavior are read from private ROS parameters.
+
+        Notes:
+            Camera intrinsics are received separately from the synchronized
+            color/depth pair and must arrive before frame processing can begin.
+        """
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
@@ -103,12 +174,44 @@ class DoorDetectionNode:
 
 
     def _to_cv_color(self, color_msg: Image) -> np.ndarray:
+        """
+        Convert a ROS color message to an OpenCV array.
+
+        Args:
+            color_msg:
+                ROS image message.
+
+        Returns:
+            BGR image when conversion to ``bgr8`` succeeds; otherwise an array
+            using the message's passthrough encoding.
+
+        Raises:
+            CvBridgeError:
+                If both requested conversions fail.
+        """
         try:
             return self.bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
         except Exception:
             return self.bridge.imgmsg_to_cv2(color_msg, desired_encoding="passthrough")
 
     def _to_depth_mm_and_m(self, depth_msg: Image):
+        """
+        Convert one ROS depth message into millimeter and meter arrays.
+
+        Args:
+            depth_msg:
+                Depth image encoded as uint16 millimeters or floating-point
+                meters.
+
+        Returns:
+            Tuple ``(depth_mm, depth_m)`` containing uint16 millimeters and
+            float32 meters.
+
+        Notes:
+            Floating-point NaN and infinity values are replaced with zero only
+            for the uint16 adapter image. The metric float image retains the
+            original nonfinite values for later validity masking.
+        """
         img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
         if depth_msg.encoding in ("16UC1", "mono16"):
             depth_mm = img.astype(np.uint16)
@@ -122,6 +225,17 @@ class DoorDetectionNode:
         return depth_mm, depth_m
 
     def _info_cb(self, info_msg: CameraInfo):
+        """
+        Cache camera intrinsics from the first ``CameraInfo`` message.
+
+        Args:
+            info_msg:
+                Color-camera calibration message.
+
+        Notes:
+            Later calibration messages are ignored because the current camera
+            model is assumed constant during a run.
+        """
         if self.latest_info is None:
             self.latest_info = info_msg
             K = info_msg.K
@@ -130,6 +244,13 @@ class DoorDetectionNode:
             rospy.loginfo("Camera intrinsics received and stored.")
 
     def _retrigger_door_detection_node_cb(self, msg: Bool):
+        """
+        Store the downstream request to return the detector to idle.
+
+        Args:
+            msg:
+                Boolean reset message from the passability node.
+        """
         if msg.data:
             self.go_to_idle_from_finish_state = True
             rospy.loginfo("Door detection retriggered to go to idle state.")
@@ -137,6 +258,19 @@ class DoorDetectionNode:
             self.go_to_idle_from_finish_state = False
     
     def _trigger_start_door_frame_detection(self, msg: Bool):
+        """
+        Store the top-level request to start or stop door-frame detection.
+
+        Args:
+            msg:
+                Boolean command from navigation. A true value enables detector
+                state transitions; a false value prevents a new detection run
+                from starting.
+
+        Notes:
+            The callback only updates the shared control flag. Processing
+            remains in the synchronized image callback.
+        """
         if msg.data:
             self.start_door_frame_detection = True
             rospy.loginfo("door frame detection triggered.")
@@ -146,7 +280,26 @@ class DoorDetectionNode:
 
 
     def callback(self, color_msg: Image, depth_msg: Image):
-        """Process one approximately synchronized color/depth message pair."""
+        """
+        Process one approximately synchronized color/depth message pair.
+
+        The callback updates or creates the shared frame context, runs one state
+        step, writes timing averages, and publishes every currently available
+        result.
+
+        Args:
+            color_msg:
+                Color image selected by ``ApproximateTimeSynchronizer``.
+
+            depth_msg:
+                Aligned depth image paired with ``color_msg``.
+
+        Notes:
+            Processing is deferred until camera intrinsics are available.
+            Separate color copies are created because each branch draws its own
+            diagnostics. Missing scalar results are not published, while a
+            missing door label is published as ``"unknown"``.
+        """
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
@@ -257,7 +410,20 @@ class DoorDetectionNode:
         #cv2.waitKey(1)
 
 def main():
-    """Initialize the glass-door detection node and enter the ROS event loop."""
+    """
+    Initialize the glass-door detection node and enter the ROS event loop.
+
+    Returns:
+        ``None`` after ROS shutdown.
+
+    Raises:
+        rospy.ROSException:
+            If the node or one of its ROS interfaces cannot be initialized.
+
+    Notes:
+        All frame processing is driven by subscriber callbacks while
+        ``rospy.spin`` keeps the process alive.
+    """
     rospy.init_node("glass_door_detection")
     node = DoorDetectionNode()
     rospy.loginfo("glass_door_detection node started.")

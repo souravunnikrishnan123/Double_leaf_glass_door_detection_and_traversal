@@ -1,10 +1,20 @@
+"""Pair vertical candidates and build the side ROIs used for door status."""
+
 import cv2
-import numpy as np 
+import numpy as np
 from duration import get_duration_seconds
 
 
 class GlassFrameLineProcessor:
-    def __init__(self):
+    """Turn candidate vertical lines into one likely center-frame pair.
+
+    The processor compares physical glass/frame widths in pixel space, pairs
+    nearby frame edges, and verifies that the regions outside the pair are
+    deeper than the candidate frame itself.
+    """
+
+    def __init__(self, keyword: str = "color_based"):
+        self.keyword = keyword
         self.depth_image_in_meters = None
         self.color_image = None
         self.fx = None
@@ -16,7 +26,7 @@ class GlassFrameLineProcessor:
 
         #duration timer
         self.timer = get_duration_seconds()
-        
+
 
     def filter_vertical_lines_glass_contact(self):
         """
@@ -30,7 +40,7 @@ class GlassFrameLineProcessor:
             lines: list of tuples (x_center, y_top, y_bottom, center_depth)
                 fx: focal length in pixels (from intrinsics)
             glass_width_cm: minimum distance (in cm) we expect between the frame and its neighbor
-            
+
         Returns:
             filtered: list of lines that likely represent frame-glass boundary
         """
@@ -41,7 +51,7 @@ class GlassFrameLineProcessor:
             (np.mean([p[0] for p in ln]) if len(ln) > 0 else np.inf)
             for ln in self.lines
         ], dtype=np.float32)
-        
+
         sorted_indices = np.argsort(mean_x_unsorted)
         lines_sorted = [self.lines[i] for i in sorted_indices]
         depth_of_each_lines_sorted = [self.depth_of_each_lines[i] for i in sorted_indices]
@@ -165,6 +175,7 @@ class GlassFrameLineProcessor:
         return unique_pairs
 
     def sort_lines_by_y(self, line_points):
+        """Return line samples ordered from the top of the image downward."""
         # Sort points by y-coordinate (ascending)
         return sorted(line_points, key=lambda pt: pt[1])
 
@@ -225,8 +236,8 @@ class GlassFrameLineProcessor:
         # Fit x = a*y + b (since vertical lines)
         #fitting a straight line (least squares regression) to all points in line_points.
         a, b = np.polyfit(pts[:, 1], pts[:, 0], 1)
-        
-         
+
+
 
         ys = np.arange(y_start, y_end + 1, step, dtype=np.int32)
         xs = (a * ys + b).astype(np.int32)
@@ -257,8 +268,8 @@ class GlassFrameLineProcessor:
 
         for i, (left_line_points, right_line_points, left_depth, right_depth) in enumerate(filtered_lines):
             """
-            
-            y_bottom = max(np.max([pt[1] for pt in left_line_points]), 
+
+            y_bottom = max(np.max([pt[1] for pt in left_line_points]),
                            np.max([pt[1] for pt in right_line_points]),
                            np.max([pt[1] for pt in detected_plane]) if (detected_plane is not None and len(detected_plane) > 0) else depth_image_in_meters.shape[0] - 1
                             )
@@ -275,15 +286,15 @@ class GlassFrameLineProcessor:
             avg_z_left_roi, roi_polygon_left = self.get_strip_avg_z(
                 self.depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
             )
-            
+
 
             # Compute average Z for right ROI
             avg_z_right_roi, roi_polygon_right = self.get_strip_avg_z(
                 self.depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
             ) # minimum depth used to ignore the depth info from human who is between the door and robodog
-            
 
-            # Calculate mean Z along the left line. we are not using extrapolated_left_line_points because 
+
+            # Calculate mean Z along the left line. we are not using extrapolated_left_line_points because
             # more reliable depth info comes from the original line points. extrapolated points shall be used only for defining the ROIs
             # to get the maximum area where we expect lot of zero and non zero depth values
             #z_left_line = [pt[2] for pt in left_line_points if pt[2] > 0 and not np.isnan(pt[2])]
@@ -308,13 +319,13 @@ class GlassFrameLineProcessor:
                 valid_roi_polygon_right_list.append(roi_polygon_right)
                 mean_z_depth_along_frame_lines_list.append(mean_z_depth_along_frame_lines)
 
-                
+
                 # Draw ROIs if available
                 if roi_polygon_left is not None:
                     cv2.polylines(self.color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
                 if roi_polygon_right is not None:
                     cv2.polylines(self.color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
-                
+
                 # Annotate average Z values
                 cv2.putText(self.color_image, f"Left ROI {i+1} Z: {avg_z_left_roi:.2f} m", (30, 30 + i*40),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
@@ -327,7 +338,7 @@ class GlassFrameLineProcessor:
 
         if filtered_pairs:
             if len(filtered_pairs) > 1:  # more than one pair detected as glass frame.
-                #in this case we need to filter out the correct frame line at the center. if we are getting more than one glass -frame candidate means, mostly it is due to the glass area in the  inward opening door 
+                #in this case we need to filter out the correct frame line at the center. if we are getting more than one glass -frame candidate means, mostly it is due to the glass area in the  inward opening door
                 #so in this case chances are high that ransac detected the whole door plane. hence we can use the width of detected ransac plane to filter out the correct frame line pair
                 #correct frame line pair will be close to the center of detected ransac door plane
                 # 1. Compute the center x of the detected plane (average of its 4 corners)
@@ -346,7 +357,7 @@ class GlassFrameLineProcessor:
                     if dist < min_dist:
                         min_dist = dist
                         best_pair = (left_line, right_line, left_depth, right_depth)
-                
+
                 idx = filtered_pairs.index(best_pair)
 
             else:  # filtered pairs has only one pair.
@@ -358,11 +369,12 @@ class GlassFrameLineProcessor:
             roi_polygon_left = valid_roi_polygon_left_list[idx]
             roi_polygon_right = valid_roi_polygon_right_list[idx]
             mean_z_depth_along_frame_lines = mean_z_depth_along_frame_lines_list[idx]
+            mean_z_depth_along_frame_lines = float(mean_z_depth_along_frame_lines) if mean_z_depth_along_frame_lines is not None else None
 
             return roi_polygon_left, roi_polygon_right, mean_z_depth_along_frame_lines
         else:
-            return None, None, 0
-    
+            return None, None, None
+
     def find_left_right_roi_and_door_depth(self,
                                        depth_image_in_meters,
                                         color_image,
@@ -371,8 +383,24 @@ class GlassFrameLineProcessor:
                                         depth_of_each_lines,
                                         door_geometry,
                                         DEPTH_RANGE,
-                                        keyword):
-        
+                                        ):
+        """Select a frame pair and derive its left/right status-checking ROIs.
+
+        Args:
+            depth_image_in_meters: Aligned metric depth image.
+            color_image: Branch image modified with diagnostic overlays.
+            fx: Horizontal focal length in pixels.
+            lines: Candidate vertical lines represented by endpoint pairs.
+            depth_of_each_lines: Metric depth associated with every line.
+            door_geometry: Physical glass/frame widths and ROI configuration.
+            DEPTH_RANGE: Accepted door-depth interval in meters.
+
+        Returns:
+            Left ROI polygon, right ROI polygon, and mean frame depth. Missing
+            detections are reported as ``(None, None, 0)`` or
+            ``(None, None, None)`` depending on the rejection stage.
+        """
+
         self.depth_image_in_meters = depth_image_in_meters
         self.color_image = color_image
         self.fx = fx
@@ -380,7 +408,6 @@ class GlassFrameLineProcessor:
         self.depth_of_each_lines = depth_of_each_lines
         self.door_geometry = door_geometry
         self.DEPTH_RANGE = DEPTH_RANGE
-        self.keyword = keyword
 
 
         if lines is None or len(lines) == 0:
@@ -390,11 +417,11 @@ class GlassFrameLineProcessor:
 
         paired_lines = self.filter_vertical_lines_glass_contact()
         # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
-    
+
         paired_lines_sorted = [
             (self.sort_lines_by_y(left_line), self.sort_lines_by_y(right_line), left_depth, right_depth)
             for left_line, right_line, left_depth, right_depth in paired_lines]
-        
+
 
         # Visualize paired lines (glass frame candidates)
         for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
@@ -420,5 +447,4 @@ class GlassFrameLineProcessor:
 
         self.timer.stop(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
         return roi_polygon_left, roi_polygon_right , mean_z_depth_along_frame_lines
-
 

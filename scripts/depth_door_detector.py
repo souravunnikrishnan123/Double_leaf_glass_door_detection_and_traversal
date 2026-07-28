@@ -160,7 +160,7 @@ class DepthDoorDetector:
         W = ctx.depth_image_in_meters.shape[1]
 
 
-        depth_scaled = self.preprocessor.resize_by_scale(depth_image_in_meters, self.scale)
+        depth_scaled = self.preprocessor.resize_by_scale(ctx.depth_image_in_meters, self.scale)
         filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)        
         depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel) # Gradient along X (detect vertical edges in depth)
         

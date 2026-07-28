@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+"""State that waits for a stable door-sized plane before frame detection."""
+
 from door_type_detector import DoorTypeDetector
 import rospy
 from Frame_data import BaseState, FrameContext
 from detect_glass_door_plane import PlaneDetector
 
 class searching_door_plane_state(BaseState):
+    """Confirm a door plane and update its estimated physical geometry."""
+
     def __init__(self):
         super().__init__("searching_door_plane_state")
         self.find_door_plane = PlaneDetector()
@@ -19,6 +23,7 @@ class searching_door_plane_state(BaseState):
         self.margin_for_glass_width_inaccuracy = rospy.get_param(f"{ns}/margin_for_glass_width_inaccuracy", 0.2)  # 20% margin of safety
 
     def do_action(self, ctx: FrameContext):
+        """Search the current depth frame and choose the next detection path."""
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
         result = self.find_door_plane.detect(ctx.color_image_for_plane_detection, ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy)
@@ -71,12 +76,12 @@ class searching_door_plane_state(BaseState):
             rospy.loginfo(f"plane detected at a distance of : {distance:.2f} m and its normal vector is {result['plane_metrics']['plane_norm_vector']}")
             """
             if abs(distance - self.reference_door_distance_m) < self.distance_range_m:
-                #return "parallel_detection_state"
+                #return "dual_branch_frame_detection_state"
                 return None
             else:
                 return "movement_state"
             """
-            return "parallel_detection_state"
+            return "dual_branch_frame_detection_state"
         else:
             # Distinguish between "unconfirmed yet" vs "no candidates at all"
             had_candidates = result["had_candidates"]

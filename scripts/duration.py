@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Lightweight moving-average timing for named pipeline stages."""
+
 import rospy
 import time
 from collections import defaultdict, deque
@@ -6,6 +8,12 @@ import os
 
 
 class get_duration_seconds():
+    """Collect recent durations for labels shared across detector instances.
+
+    Timing storage is class-level so calls made by separate pipeline objects
+    contribute to the same report. Each label retains its five latest samples.
+    """
+
     start_times = {}
     durations = defaultdict(lambda: deque(maxlen=5))
     file_path = None # IMPORTANT: defer initialization until after rospy is initialized
@@ -15,9 +23,11 @@ class get_duration_seconds():
         
     
     def start(self, label=""):
+        """Record the start time for ``label``."""
         get_duration_seconds.start_times[label] = time.time()
 
     def stop(self, label=""):
+        """Finish ``label`` and append its elapsed seconds to the history."""
         if label not in get_duration_seconds.start_times:
             raise ValueError(f"No start time recorded for label '{label}'")
         duration = time.time() - get_duration_seconds.start_times[label]
@@ -26,6 +36,7 @@ class get_duration_seconds():
 
     @classmethod
     def write_text_file(cls):
+        """Write the latest moving average for every measured label."""
         if os.path.exists(get_duration_seconds.file_path):
             with open(get_duration_seconds.file_path,"r") as f:
                 existing_lines = f.readlines()

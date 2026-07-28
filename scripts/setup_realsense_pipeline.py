@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
+"""Create a RealSense capture pipeline and depth-to-color aligner."""
+
 import rospy
 import pyrealsense2 as rs
 import numpy as np
 import cv2
 
 def setup_realsense_pipeline(bag_file=None):
+    """Start a RealSense pipeline from a bag file or the default live device.
+
+    Args:
+        bag_file: Optional path to a recorded RealSense bag.
+
+    Returns:
+        A ``(pipeline, config, align)`` tuple. The caller owns the running
+        pipeline and is responsible for stopping it.
+    """
     # -------------------------------
     # Initialize RealSense Pipeline
     # -------------------------------

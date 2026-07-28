@@ -1,5 +1,7 @@
 
 
+"""Fallback state for passability checks without a reliable frame pair."""
+
 from Frame_data import FrameContext,BaseState
 import numpy as np
 
@@ -7,11 +9,14 @@ import rospy
 
 
 class full_image_passability_check_state(BaseState):
+    """Prepare full-image passability inputs when frame detection failed."""
+
     def __init__(self):
         super().__init__("full_image_passability_check_state")
         self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
         self.ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
     def do_action(self, ctx: FrameContext):
+        """Choose a fallback depth reference and finish door detection."""
         ctx.mid_frame_x_px_for_passability_check = None  # Not applicable
         # door state label should have been set in the previous state when determine to transition to this state
         if ctx.door_state_label == "No_door_plane_detected":

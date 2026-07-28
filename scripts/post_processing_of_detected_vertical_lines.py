@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Extend, cluster, and merge vertical door-frame line candidates."""
+
 import rospy
 import numpy as np
 import cv2
@@ -12,6 +14,10 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
     Stops when smoothed depth deviates from center_depth beyond threshold.
 
     Returns: list of (x, y, depth) tuples.
+
+    Note:
+        The current implementation returns pixel ``(x, y)`` pairs; depth is
+        used only to decide where extrapolation should stop.
     """
     
 
@@ -77,9 +83,12 @@ def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, m
     Cluster vertical lines by proximity in x-coordinate and merge into one line per cluster.
     Args:
         lines: list of ((x1, y1), (x2, y2))
+        depth_of_valid_lines: Metric depth associated with each input line.
         x_thresh: max horizontal distance (in pixels) to group lines
+        min_merged_line_length: Minimum vertical span retained after merging.
     Returns:
         merged_lines: list of merged ((xavg, ymin), (xavg, ymax))
+        merged_lines_depths: mean metric depth for each merged cluster
     """
     if not lines:
         return [], []

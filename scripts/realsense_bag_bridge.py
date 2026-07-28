@@ -152,6 +152,7 @@ def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float)
 
 
 def main():
+    """Run the bag/Gazebo input bridge and publish normalized ROS streams."""
     rospy.init_node('realsense_bag_bridge', anonymous=False)
     rospy.loginfo("realsense_bag_bridge node started.")
     input_mode = rospy.get_param('~input_mode', 'bag')  # 'bag' or 'gazebo'

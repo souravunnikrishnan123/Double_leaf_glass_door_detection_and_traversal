@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+"""Compatibility wrapper exposing a NumPy depth image as a RealSense frame."""
+
 import numpy as np
 
 class _Intrinsics:
+    """Subset of RealSense pinhole intrinsics used by this package."""
+
     def __init__(self, fx, fy, ppx, ppy):
         self.fx = float(fx)
         self.fy = float(fy)
@@ -9,19 +13,26 @@ class _Intrinsics:
         self.ppy = float(ppy)
 
 class _VideoStreamProfile:
+    """Minimal video-profile surface used by visualization fallbacks."""
+
     def __init__(self, width, height, intrinsics: _Intrinsics):
         self._width = int(width)
         self._height = int(height)
         self.intrinsics = intrinsics
     def width(self):
+        """Return the adapted stream width."""
         return self._width
     def height(self):
+        """Return the adapted stream height."""
         return self._height
 
 class _Profile:
+    """Container matching the ``depth_frame.profile`` access pattern."""
+
     def __init__(self, width, height, intrinsics: _Intrinsics):
         self._vsp = _VideoStreamProfile(width, height, intrinsics)
     def as_video_stream_profile(self):
+        """Return the wrapped video stream profile."""
         return self._vsp
 
 class DepthFrameAdapter:
@@ -39,9 +50,11 @@ class DepthFrameAdapter:
         self.profile = _Profile(self._w, self._h, self._intr)
 
     def get_data(self):
+        """Return the original uint16 depth image in millimeters."""
         return self._depth_mm
 
     def get_distance(self, x, y):
+        """Return depth in meters at ``(x, y)``, or zero when invalid."""
         xi = int(x)
         yi = int(y)
         if 0 <= xi < self._w and 0 <= yi < self._h:
@@ -50,7 +63,9 @@ class DepthFrameAdapter:
         return 0.0
 
     def get_width(self):
+        """Return the depth image width in pixels."""
         return self._w
 
     def get_height(self):
+        """Return the depth image height in pixels."""
         return self._h

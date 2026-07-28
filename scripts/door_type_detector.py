@@ -1,3 +1,5 @@
+"""Estimate physical glass-pane and center-frame widths from plane inliers."""
+
 import numpy as np
 import rospy
 import cv2
@@ -439,6 +441,5 @@ class DoorTypeDetector():
         # Fit linear mapping: u ≈ a * X + b
         a, b = np.polyfit(xs, us, 1)
         return a, b
-
 
 

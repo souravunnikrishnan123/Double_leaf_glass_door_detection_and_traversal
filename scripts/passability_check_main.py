@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""ROS node for defining a traversable corridor and monitoring its clearance.
+
+The node activates after the door detector reports an opening. It projects
+aligned depth into the robot frame, defines either a frame-anchored or virtual
+corridor, updates that corridor from odometry, and publishes clearance and
+heading information to the traversal controller.
+"""
+
 from check_if_passable import Passability_checker
 from duration import get_duration_seconds
 import rospy
@@ -18,6 +26,8 @@ from scipy.spatial.transform import Rotation as R
 
 
 class PassabilityCheckerNode:
+    """Coordinate sensor input, corridor geometry, and passability results."""
+
     def __init__(self):
         self.enable_visualization = rospy.get_param("~enable_visualization", False)
         self.color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
@@ -304,6 +314,7 @@ class PassabilityCheckerNode:
     # Conditional subscriptions
     # -----------------------------
     def activate_camera(self):
+        """Subscribe to camera topics while passability checking is active."""
         if self.color_sub is None:
             self.color_sub = rospy.Subscriber(
                 self.color_topic,
@@ -327,6 +338,7 @@ class PassabilityCheckerNode:
             )
     
     def deactivate_camera(self):
+        """Unregister camera subscriptions and discard cached frames."""
         for sub in [self.color_sub, self.depth_sub, self.info_sub]:
             if sub is not None:
                 sub.unregister()
@@ -344,6 +356,7 @@ class PassabilityCheckerNode:
         
 
     def get_odom(self):
+        """Subscribe to odometry when it is not already active."""
         if self.odom_sub is None:
             self.odom_sub = rospy.Subscriber(
                 "/odom_bridge_output",
@@ -353,6 +366,7 @@ class PassabilityCheckerNode:
             )
 
     def deactivate_odom(self):
+        """Unregister odometry and clear its activation reference pose."""
         if self.odom_sub is not None:
             self.odom_sub.unregister()
             self.odom_sub = None
@@ -449,6 +463,7 @@ class PassabilityCheckerNode:
     # -----------------------------
 
     def first_time_data_ready_after_node_activation(self):
+        """Check that the first corridor definition has all required inputs."""
         return (
             self.color_image is not None and
             self.depth_image is not None and
@@ -512,6 +527,12 @@ class PassabilityCheckerNode:
     
 
     def find_best_corridor_center_based_on_final_points(self, final_points_robot_frame, z_max, min_clearance):
+        """Slide a robot-width window and choose the nearest clear centerline.
+
+        Candidate centers span the camera field of view in corridor
+        coordinates. A candidate is valid when its nearest obstacle is beyond
+        ``min_clearance``; ties are biased toward the current forward axis.
+        """
         # find best corridor center based on final points obtained from passability checker
         # final points are in robot frame
 
@@ -579,6 +600,7 @@ class PassabilityCheckerNode:
     
 
     def find_a_virtual_corridor(self, z_min, z_max, min_clearance):
+        """Search the full depth view for a clear robot-width corridor."""
         rospy.loginfo("Finding virtual corridor for passability check.")
        
 
@@ -668,6 +690,7 @@ class PassabilityCheckerNode:
         return p_now  # [X_forward, Y_lateral] in robot frame
     
     def project_to_pixel(self, P_cam):
+        """Project one camera-frame 3D point into integer image coordinates."""
         X, Y, Z = P_cam
         if Z <= 0:
             return None
@@ -677,6 +700,7 @@ class PassabilityCheckerNode:
 
 
     def run(self):
+        """Run corridor definition and clearance checks until ROS shutdown."""
         while not rospy.is_shutdown():
             if not self.active: # node inactive, skip processing. node will be activated when door state is open_left or open_right and 
                 #de activated when traversal done signal is received
@@ -1210,6 +1234,7 @@ class PassabilityCheckerNode:
     
 
 def main():
+    """Initialize and run the corridor passability node."""
     rospy.init_node("check_if_corridor_is_passable")
     node = PassabilityCheckerNode()
     rospy.loginfo("Check if corridor is passable node started.")

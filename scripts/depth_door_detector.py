@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Depth-gradient branch of the glass-door frame detector.
+
+Vertical Sobel edges are restricted to the confirmed door-depth band, detected
+with a probabilistic Hough transform, and merged into longer frame candidates.
+"""
+
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import numpy as np
@@ -7,18 +13,8 @@ import cv2
 
 
 from duration import get_duration_seconds
-from find_glass_frame_lines import GlassFrameLineProcessor
 from post_processing_of_detected_vertical_lines import cluster_and_merge_lines
 from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
-
-
-
-@dataclass
-class DepthDetectionResult:
-    roi_left: Optional[np.ndarray]
-    roi_right: Optional[np.ndarray]
-    door_depth_m: Optional[float]
-    sobel_vis_color: Optional[np.ndarray]
 
 
 class DepthDoorDetector:
@@ -57,30 +53,22 @@ class DepthDoorDetector:
             "x_threshold_to_merge_lines": rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10),
             "MIN_LINE_LENGTH_after_merging": rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50),
         }
-        # door_geometry is loaded at top-level under the node; use private ns for consistency
-        gns = "~door_geometry"
-        self.door_geometry = {
-            "glass_width_cm": rospy.get_param(f"{gns}/glass_width_cm", 40),
-            "center_frame_width_cm": rospy.get_param(f"{gns}/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param(f"{gns}/roi_width", 240),
-            "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
-        }
+
         self.line_filter = LineFilter()
         self.edge_detector = EdgeDetector()
         self.line_detector = HoughPLineDetector()
         self.preprocessor = Preprocessor()
-        self.glass_frame_detector = GlassFrameLineProcessor()
 
         #duration timer
         self.timer = get_duration_seconds()
 
 
 
-    def process_frame(self, ctx) -> DepthDetectionResult:
+    def process_frame(self, ctx):
         """
         Process a single frame using the existing functional pipeline.
         Updates `ctx.*` fields to preserve the current contract and
-        returns a structured `DepthDetectionResult` for downstream use.
+        returns detected lines and their depths for downstream use.
         """
         # Ensure the color image used for depth overlays matches the depth resolution.
         # If aligned depth resolution differs from RGB, resize the color image to depth size
@@ -125,7 +113,7 @@ class DepthDoorDetector:
 
         depth_lines = self.line_detector.detect(depth_edges, self.hough, self.scale)
         sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
-        
+
 
         self.timer.stop("depth_based_edge_detection preprocessing")
 
@@ -156,33 +144,9 @@ class DepthDoorDetector:
 
             self.timer.stop("depth_based_edge_detection line processing")
 
-            roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(
-                ctx.depth_image_in_meters,
-                ctx.color_image_depth_based,
-                ctx.fx,
-                merged_lines,
-                merged_lines_depths,
-                self.door_geometry,
-                DEPTH_RANGE,
-                keyword="depth"
-            )
+
         else:
-            roi_left = None
-            roi_right = None
-            mean_z = None
+            merged_lines = None
+            merged_lines_depths = None
 
-        door_depth_m = float(mean_z) if mean_z is not None else None
-
-        # Maintain backward-compatible context updates
-        ctx.sobel_vis_color = sobel_vis_color
-        if roi_left is not None and roi_right is not None:
-            ctx.roi_left_depth_based = roi_left
-            ctx.roi_right_depth_based = roi_right
-            ctx.door_depth_m_depth_based = door_depth_m
-
-        return DepthDetectionResult(
-            roi_left=roi_left,
-            roi_right=roi_right,
-            door_depth_m=door_depth_m,
-            sobel_vis_color=sobel_vis_color,
-        )
+        return merged_lines, merged_lines_depths, sobel_vis_color

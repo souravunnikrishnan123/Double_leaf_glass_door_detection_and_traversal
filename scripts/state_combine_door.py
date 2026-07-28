@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Fuse color/depth door states and smooth the selected result over time."""
+
 import os
 import rospkg
 import rospy
@@ -10,6 +12,8 @@ import cv2
 from collections import deque, defaultdict
 
 class TemporalSmoother:
+    """Majority-vote label smoother with warm-up and switch hysteresis."""
+
     def __init__(self, window_size=10, min_consistent=3, hysteresis=True, stable_hold=2):
         self.window_size = window_size
         self.min_consistent = min_consistent
@@ -20,6 +24,7 @@ class TemporalSmoother:
         self.stable_count = 0
 
     def update(self, label: str) -> Optional[str]:
+        """Add one label and return the current stable label when available."""
         # Push new value
         self.buffer.append(label)
 
@@ -65,6 +70,8 @@ class TemporalSmoother:
             return self.current_stable
 
 class combine_door_state(BaseState):
+    """Resolve disagreements between detector branches and route the FSM."""
+
     def __init__(self):
         super().__init__("combine_door_state")
         self.height = 0
@@ -73,12 +80,13 @@ class combine_door_state(BaseState):
         self.smoother = TemporalSmoother(window_size=8, min_consistent=3, hysteresis=True, stable_hold=2)
 
     def rois_match(self, roi1, roi2, iou_threshold):
+        """Check polygon agreement using image-space intersection over union."""
         mask1 = np.zeros((self.height, self.width), dtype=np.uint8)
         mask2 = np.zeros((self.height, self.width), dtype=np.uint8)
 
         if roi1 is None or roi2 is None:
             return False
-        
+
         cv2.fillPoly(mask1, [roi1.astype(np.int32)], 255)
         cv2.fillPoly(mask2, [roi2.astype(np.int32)], 255)
 
@@ -90,10 +98,16 @@ class combine_door_state(BaseState):
 
         iou= intersection / union
         return iou >= iou_threshold
-    
+
 
 
     def resolve_door_status(self, color_pipline_result, depth_pipline_result, roi_open_side_color_based, roi_open_side_depth_based, door_depth_m_color_based, door_depth_m_depth_based, iou_threshold):
+        """Apply the branch-fusion decision table.
+
+        Returns:
+            A dictionary with the final label, trusted pipeline, selected door
+            depth, escalation flag, and a human-readable reason.
+        """
 
         # Default result container
         result = dict(final_door_status="unknown", pipeline=None, ask_human=False, door_depth = None, reason="")
@@ -241,17 +255,10 @@ class combine_door_state(BaseState):
 
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
+        """Fuse one frame, update context outputs, and select the next state."""
         self.height, self.width = ctx.color_image_color_based.shape[:2]
 
         result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, ctx.door_depth_m_color_based, ctx.door_depth_m_depth_based, iou_threshold=0.5)
-
-
-        # Optionally: clear branch state for next cycle
-        #ctx.roi_left_color_based = ctx.roi_right_color_based = None
-        #ctx.roi_left_depth_based = ctx.roi_right_depth_based = None
-        #ctx.door_state_color_based = ctx.door_state_depth_based = None
-        #ctx.door_depth_m_color_based = ctx.door_depth_m_depth_based = None
-        
 
         # Apply temporal smoothing on final label
         smoothed_door_state = self.smoother.update(result["final_door_status"])
@@ -283,7 +290,7 @@ class combine_door_state(BaseState):
             #door state is either closed, unknown or no_frame_detected
             ctx.mid_frame_x_px_for_passability_check = None
             #loop back to parallel detection, because still need to monitor for door opening
-            return "parallel_detection_state"
+            return "dual_branch_frame_detection_state"
 
 
-        
+

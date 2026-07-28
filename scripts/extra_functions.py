@@ -1,3 +1,5 @@
+"""Geometry and point-cloud helpers retained for detector experiments."""
+
 import cv2
 import numpy as np
 import open3d as o3d
@@ -400,5 +402,4 @@ def check_passable_birdeye(self, points_above_floor,
         
 
     return max_clearance_m, passable, bev_vis_display
-
 

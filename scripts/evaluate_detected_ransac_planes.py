@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Image- and metric-space quality measurements for RANSAC planes."""
+
 import rospy
 import numpy as np
 import cv2  

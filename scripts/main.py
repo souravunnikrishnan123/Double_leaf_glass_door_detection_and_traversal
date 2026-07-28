@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""ROS node coordinating synchronized glass-door detection.
+
+Color and aligned depth messages are converted into a shared ``FrameContext``.
+The frame-driven state machine then performs plane search, two-branch frame
+detection, status fusion, and publication of navigation-facing results.
+"""
+
 import rospy
 import numpy as np
 from std_msgs.msg import String, Float32, Int32
@@ -22,7 +29,7 @@ from Frame_data import FrameContext
 from state_idle import idle_state
 from state_searching_door_plane import searching_door_plane_state
 from state_combine_door import combine_door_state
-from state_parallel_detection import parallel_detection_state
+from state_parallel_detection import dual_branch_frame_detection_state
 from state_final import final_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
@@ -33,6 +40,8 @@ from std_msgs.msg import Bool
 
 
 class DoorDetectionNode:
+    """Own ROS interfaces and drive the detector once per synchronized frame."""
+
     def __init__(self):
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
@@ -55,7 +64,7 @@ class DoorDetectionNode:
         self.sm.add_state(idle_state())
         self.sm.add_state(searching_door_plane_state())
         self.sm.add_state(full_image_passability_check_state())
-        self.sm.add_state(parallel_detection_state())
+        self.sm.add_state(dual_branch_frame_detection_state())
         self.sm.add_state(combine_door_state())
         self.sm.add_state(final_state())  # terminal state
         self.sm.set_state("idle_state")
@@ -137,6 +146,7 @@ class DoorDetectionNode:
 
 
     def callback(self, color_msg: Image, depth_msg: Image):
+        """Process one approximately synchronized color/depth message pair."""
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
@@ -247,6 +257,7 @@ class DoorDetectionNode:
         #cv2.waitKey(1)
 
 def main():
+    """Initialize the glass-door detection node and enter the ROS event loop."""
     rospy.init_node("glass_door_detection")
     node = DoorDetectionNode()
     rospy.loginfo("glass_door_detection node started.")

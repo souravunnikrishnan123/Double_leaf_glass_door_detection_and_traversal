@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Shared data contracts for the glass-door detection state machine.
+
+The state machine keeps one :class:`FrameContext` alive and refreshes its
+sensor fields for every synchronized frame. Detection states add their
+intermediate and final results to the same object.
+"""
+
 import rospy
 from dataclasses import dataclass
 from typing import Optional, Any
@@ -6,6 +13,13 @@ import numpy as np
 
 @dataclass
 class FrameContext:
+    """Per-frame inputs and results exchanged between detection states.
+
+    The required fields describe the current aligned color/depth frame and its
+    camera intrinsics. Optional fields are populated progressively by the
+    plane, color, depth, fusion, and visualization stages.
+    """
+
     depth_image_in_meters: np.ndarray
     color_image: np.ndarray
     fx: float
@@ -50,7 +64,8 @@ class FrameContext:
 
 
 class BaseState:
-    """Base class for all robot states."""
+    """Base class for states driven once per synchronized camera frame."""
+
     def __init__(self, name):
         self.name = name
 
@@ -67,4 +82,3 @@ class BaseState:
     def exit_action(self, ctx: FrameContext) -> None:
         """Called before leaving this state."""
         pass
-

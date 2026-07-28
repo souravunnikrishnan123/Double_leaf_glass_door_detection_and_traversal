@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Track approximately vertical line candidates across recent frames."""
+
 import rospy
 import numpy as np
 import cv2
@@ -10,6 +12,10 @@ def update_line_history(filtered_lines, line_history, DISTANCE_THRESHOLD, MAX_LI
     Add detected lines from current frame to history.
     Args:
         filtered_lines: list of lines (each is a list of (x,y) tuples)
+        line_history: Bounded history updated in place.
+        DISTANCE_THRESHOLD: Maximum horizontal distance for one line cluster.
+        MAX_LINES_TO_TRACK: Maximum number of stable clusters to retain.
+        color_image: Image receiving the stable-line overlay.
     """
     frame_lines = []
     for pts in filtered_lines:
@@ -86,4 +92,4 @@ def draw_stable_lines(image, stable_lines, color=(0, 255, 255)):
         cv2.line(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, f"x={avg_x}, s={score:.2f}", (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        
+

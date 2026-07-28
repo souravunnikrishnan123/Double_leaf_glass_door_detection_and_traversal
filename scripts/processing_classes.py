@@ -1,11 +1,15 @@
+"""Reusable image, line, edge, and depth-backprojection operations."""
+
 import numpy as np
 from typing import Optional, Tuple
 import cv2
 import math
 
 class Preprocessor:
+    """Prepare color or depth images for edge detection."""
 
     def resize_by_scale(self, image: np.ndarray, scale: float) -> np.ndarray:
+        """Downscale an image for processing while preserving a scale of one."""
         if scale != 1.0:
             return cv2.resize(
                 image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
@@ -14,6 +18,7 @@ class Preprocessor:
             return image
         
     def gaussian_blur_filter(self, image: np.ndarray, blur_cfg: dict) -> np.ndarray:
+        """Convert BGR to contrast-equalized grayscale and apply Gaussian blur."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contrast = cv2.equalizeHist(gray)
         k = int(blur_cfg.get("ksize", 3))
@@ -22,6 +27,7 @@ class Preprocessor:
         return filtered_grey_image
 
     def bilateral_filter(self, image: np.ndarray, bilateral_cfg: dict) -> np.ndarray:
+        """Smooth a depth image without blurring strong depth discontinuities."""
     
         # Smooth Z-depth (bilateral preserves edges better than Gaussian)
         d = int(bilateral_cfg.get("d", 5))
@@ -32,6 +38,7 @@ class Preprocessor:
         return filtered_image
     
     def restore_size(self, image: np.ndarray, target_w: int, target_h: int, scale: float) -> np.ndarray:
+        """Restore a processed image to the source frame dimensions."""
         if scale != 1.0:
             return cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
         else:   
@@ -40,7 +47,10 @@ class Preprocessor:
 
 
 class LineFilter:
+    """Filter Hough segments by orientation and aligned depth evidence."""
+
     def angle_filter(self, lines: np.ndarray, angle_threshold: float) -> np.ndarray:
+        """Keep segments whose direction is sufficiently close to vertical."""
         if lines is None or len(lines) == 0:
             return lines
         x1_np = lines[:, 0, 0]
@@ -53,6 +63,7 @@ class LineFilter:
     
     
     def is_depth_valid(self, center_depth: Optional[float], depth_range: Tuple[float, float]) -> bool:
+        """Check that a depth estimate exists and lies in an inclusive range."""
         if center_depth is None:
             return False
         return depth_range[0] <= center_depth <= depth_range[1]
@@ -144,7 +155,10 @@ class LineFilter:
 
 
 class EdgeDetector:
+    """Produce binary edge maps from color intensity or metric depth."""
+
     def canny_edge_detection(self, filtered: np.ndarray, canny_cfg: dict) -> np.ndarray:
+        """Run Canny with thresholds derived from the image's sampled median."""
         median_val = np.median(filtered[::4, ::4])
         lf = float(canny_cfg.get("lower_factor", 0.7))
         uf = float(canny_cfg.get("upper_factor", 2.0))
@@ -154,6 +168,7 @@ class EdgeDetector:
         return edges
     
     def sobel_edge_detection(self, filtered: np.ndarray, sobel_cfg: dict) -> np.ndarray:
+        """Return the absolute horizontal Sobel gradient for vertical edges."""
                 # Gradient along X (detect vertical edges in depth)
 
         ksize = int(sobel_cfg.get("ksize", 3))
@@ -163,6 +178,7 @@ class EdgeDetector:
         return depth_grad_x
     
     def adaptive_threshold(self, depth_grad_x: np.ndarray, valid_grad_vals: np.ndarray, adaptive_cfg: dict) -> np.ndarray:
+        """Threshold depth gradients using mean plus a configurable deviation."""
 
         # Adaptive threshold: mean + k*std of valid gradients
         
@@ -183,6 +199,8 @@ class EdgeDetector:
 
 
 class HoughPLineDetector:
+    """Detect line segments and express them in original-image coordinates."""
+
         # Hough Line Transform to detect lines
     # Detect lines using Probabilistic Hough Transform
     # Parameters:
@@ -192,6 +210,7 @@ class HoughPLineDetector:
     #  - minLineLength=100: minimum length of line in pixels to be considered
     #  - maxLineGap=10: maximum allowed gap between line segments to link them
     def detect(self, edges: np.ndarray, hough_cfg: dict, scale: float) -> Optional[np.ndarray]:
+        """Run ``cv2.HoughLinesP`` with parameters adjusted for image scale."""
         base_threshold = int(hough_cfg.get("threshold", 100))
         base_min_len = int(hough_cfg.get("min_line_length", 100))
         base_max_gap = int(hough_cfg.get("max_line_gap", 20))
@@ -257,7 +276,6 @@ def backproject_depth_to_points(
     uv = np.stack([xs, ys], axis=-1)
 
     return points, uv, valid_mask
-
 
 
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""OpenCV helpers for detector overlays and stacked debug views."""
+
 import rospy
 import cv2
 import numpy as np
@@ -27,6 +29,7 @@ def setup_visualization_mode(enable: bool):
 
 
 def get_z_depth(depth_frame, x, y):
+    """Read a valid metric depth at a pixel from a RealSense-like frame."""
     # Return Z in meters directly; no deprojection needed for Z
     xi, yi = int(x), int(y)
     try:
@@ -101,6 +104,7 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
 # Convert raw depth image to color for visualization
 # -------------------------------
 def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
+    """Convert a millimeter depth image into a clipped JET color map."""
     # Clip depth image to desired range
     depth_scaled = np.clip(depth_image, MIN_DEPTH*1000, MAX_DEPTH*1000)
     # Convert depth to 8-bit for color mapping
@@ -112,6 +116,7 @@ def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
 # Mouse click event for checking depth at pixel
 # -------------------------------
 def click_event(event, x, y, flags, param):
+    """Print the original-frame depth corresponding to a display click."""
     if event == cv2.EVENT_LBUTTONDOWN:
         depth_frame, scale_factor = param  # unpack parameters
         # Map coordinates back to original resolution

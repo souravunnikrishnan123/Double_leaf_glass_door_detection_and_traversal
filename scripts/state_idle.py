@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
+"""Idle state for starting a fresh door-detection cycle."""
+
 import rospkg
 import rospy
 from Frame_data import BaseState, FrameContext
 import os
 
 class idle_state(BaseState):
+    """Wait for a start request and reset per-run diagnostic logs."""
+
     def __init__(self):
         super().__init__("idle_state")
     def do_action(self, ctx: FrameContext):
+        """Clear old log output and enter plane search when requested."""
         pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
         log_dir = os.path.join(pkg_path, 'scripts')
         os.makedirs(log_dir, exist_ok=True)

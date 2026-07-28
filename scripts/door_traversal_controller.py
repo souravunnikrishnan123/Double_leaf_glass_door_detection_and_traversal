@@ -45,6 +45,17 @@ DONE = "DONE"
 
 
 class DoorTraversalController:
+    """Closed-loop finite-state controller for moving through a clear corridor.
+
+    The controller consumes corridor geometry and passability updates, applies
+    confirmation hysteresis, aligns the robot in stages, and continuously
+    checks clearance while crossing and moving beyond the door.
+
+    In the current Gazebo integration, velocity commands are converted from
+    the robot frame to world-frame twists and sent through
+    ``/gazebo/set_model_state``.
+    """
+
     def __init__(self):
         rospy.init_node("door_traversal_controller")
         # =========================================================
@@ -236,15 +247,18 @@ class DoorTraversalController:
 
 
     def trigger_traversal_node_callback(self, msg):
+        """Latch the external request to begin one traversal cycle."""
         if msg.data:
             if not self.start_movement:
                 self.start_movement = True
 
     def virtual_corridor_definition_finished_callback(self, msg):
+        """Store whether the passability node finished redefining a corridor."""
         self.virtual_corridor_definition_finished = msg.data
 
 
     def odom_callback(self, msg):
+        """Cache planar robot position and yaw from odometry."""
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
 
@@ -331,13 +345,16 @@ class DoorTraversalController:
 
 
     def model_states_callback(self, msg):
+        """Cache the Gazebo pose needed when sending a model-state command."""
         if "go1_gazebo" not in msg.name:
             return
         index = msg.name.index("go1_gazebo")
         self.gazebo_pose = msg.pose[index]
 
 
-    def data_ready(self):        return (
+    def data_ready(self):
+        """Return whether control has pose and clearance feedback."""
+        return (
             self.current_pose is not None
             and self.current_yaw is not None
             and self.front_clearance is not None
@@ -347,6 +364,7 @@ class DoorTraversalController:
     # =========================================================
 
     def stop_robot(self):
+        """Command zero linear and angular velocity."""
         self.publish_cmd_vel(0.0, 0.0, 0.0)
 
     def wrap_angle(self, angle):
@@ -355,6 +373,11 @@ class DoorTraversalController:
 
 
     def publish_cmd_vel(self, v_forward, v_lateral, omega):
+        """Apply a robot-frame velocity command to the Gazebo model.
+
+        Linear velocity is rotated into the world frame while angular velocity
+        remains a yaw rate. The model's current pose is preserved.
+        """
 
         if self.gazebo_pose is None:
             rospy.logwarn("Gazebo pose not yet received; cannot publish velocity and angular velocity to /set_model_state service")
@@ -404,6 +427,7 @@ class DoorTraversalController:
         return dx * np.cos(ref_yaw) + dy * np.sin(ref_yaw)
     
     def find_heading_error_estimate(self):
+        """Estimate corridor heading error from lateral drift during motion."""
         # Estimate heading error based on change in corridor center x
         # =================================================
         # Update heading error estimate (from corridor drift and motion-gated)
@@ -446,6 +470,7 @@ class DoorTraversalController:
     # =========================================================
 
     def control_loop(self):
+        """Execute alignment, traversal, recovery, and completion states."""
              
 
         while not rospy.is_shutdown():

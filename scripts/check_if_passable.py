@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Point-cloud filtering pipeline used to measure forward clearance."""
+
 import rospy
 import cv2
 import numpy as np
@@ -9,8 +11,11 @@ from duration import get_duration_seconds
 
 class Passability_checker:
     """
-    Orchestrates the passability check as an object-oriented pipeline.
-    Each step mirrors the existing procedural blocks and preserves comments/behavior.
+    Filter corridor points and report the nearest remaining obstacle.
+
+    The stages remove the floor, reject unsuitable normals and statistical
+    outliers, then discard small disconnected image-space patches. If too few
+    obstacle points survive, the requested range is treated as clear.
     """
 
     def __init__(self):
@@ -71,6 +76,7 @@ class Passability_checker:
 
 
     def visualize_roi(self, color_image, roi_polygon):
+        """Draw a translucent polygon showing the passability input region."""
         # Visualization: translucent ROI fill + outline
         try:
             if color_image is not None:
@@ -100,6 +106,12 @@ class Passability_checker:
     """
 
     def remove_floor_ransac(self, points, uv):
+        """Remove the first sufficiently large horizontal RANSAC plane.
+
+        Returns:
+            Non-floor points, their matching pixels, and the estimated camera
+            frame Y coordinate of the floor.
+        """
         #ransac
         floor_inliers = None
         for _ in range(self.max_planes):
@@ -158,6 +170,7 @@ class Passability_checker:
         return points_3_nofloor, uv_3_nofloor, floor_height
 
     def normal_filtering(self, points, uv):
+        """Keep obstacle-like surfaces and preserve their pixel correspondence."""
         # 4) Keep points whose normals are close to camera Z axis (door plane direction)
         pc_nf = o3d.geometry.PointCloud()
         pc_nf.points = o3d.utility.Vector3dVector(points)
@@ -178,6 +191,7 @@ class Passability_checker:
         return points_4_normal, uv_4_normal
 
     def outlier_removal(self, points, uv):
+        """Apply Open3D statistical outlier removal to points and UV pairs."""
         # 2) Statistical 3D outlier removal (keeps mapping by applying indices to uv)
         #print(f"number of points before S3O {len(points)}")
         try:
@@ -197,6 +211,7 @@ class Passability_checker:
         return points_2_3d_outlier_removal, uv_2_3d_outlier_removal
 
     def connected_components_filter(self, points, uv, W, H, floor_height):
+        """Reject small or depth-incoherent point patches in image space."""
         #print(f"number of points before CC {len(points)}")
         # --- Remove small patches in image space (connected components) ---
         try:
@@ -317,6 +332,7 @@ class Passability_checker:
         return points_5_remove_patches, uv_5_remove_patches
 
     def visualize_points(self, color_image, W, H, uv_sets_with_color):
+        """Overlay several UV point sets using caller-supplied BGR colors."""
         #  mark kept points on the image for debugging
         try:
             if color_image is not None:
@@ -333,6 +349,18 @@ class Passability_checker:
 
 
     def run(self, depth_image_in_meters, color_image, corridor_pts_input, corridor_uv_input, z_max):
+        """Run all filters and estimate unobstructed distance in front.
+
+        Args:
+            depth_image_in_meters: Aligned metric depth image.
+            color_image: Image modified with filter-stage diagnostics.
+            corridor_pts_input: Camera-frame 3D points inside the corridor.
+            corridor_uv_input: Pixels corresponding one-to-one with the points.
+            z_max: Far limit used when no obstacle survives filtering.
+
+        Returns:
+            ``(front_clearance, visualization, final_points)``.
+        """
 
         H, W = depth_image_in_meters.shape
         self.timer.start(f"check_if_passable--> main passability check")
@@ -394,4 +422,3 @@ class Passability_checker:
 
 
         return front_clearance, color_image, final_points
-

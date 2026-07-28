@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""RANSAC and temporal filtering for a front-facing glass-door plane."""
+
 import rospy
 import cv2
 import numpy as np
@@ -101,7 +103,7 @@ class PlaneDetector:
         self.max_depth_backprojection = self.reference_door_distance_m + self.distance_range_m
         self.min_depth_backprojection = self.reference_door_distance_m - self.distance_range_m
         self.subsample = rospy.get_param(f"{ns}/backproject/subsample", 1)
-        
+
         #filter points
         # Downsampling
         self.voxel_size = rospy.get_param(f"{ns}/filter_points/voxel_size", 0.008)
@@ -112,7 +114,7 @@ class PlaneDetector:
         self.nx_thr = rospy.get_param(f"{ns}/filter_points/nx_thr", 0.30)
         self.ny_thr = rospy.get_param(f"{ns}/filter_points/ny_thr", 0.30)
         self.nz_min = rospy.get_param(f"{ns}/filter_points/nz_min", 0.85)
-        
+
         # RANSAC
         self.ransac_distance_threshold = rospy.get_param(f"{ns}/ransac/distance_threshold", 0.03)
         self.ransac_n = rospy.get_param(f"{ns}/ransac/n", 3)
@@ -152,7 +154,7 @@ class PlaneDetector:
             plane_model, inliers = pc.segment_plane(distance_threshold=self.ransac_distance_threshold,
                                                     ransac_n=self.ransac_n,
                                                     num_iterations=self.ransac_num_iterations)
-            
+
             inliers = np.array(inliers, dtype=np.int64)
             if len(inliers) < self.min_inliers:
                 break
@@ -160,7 +162,7 @@ class PlaneDetector:
             orig_inlier_indices = remaining_indices[inliers]
             orig_inlier_points = remaining_points[inliers]
 
-            
+
             # Check if the plane is vertical
             normal = np.array(plane_model[:3])
             normal = normal / np.linalg.norm(normal)
@@ -171,15 +173,15 @@ class PlaneDetector:
                 print(f"Found vertical plane with {len(inliers)} inliers.")
             else:
                 print("Detected plane is not vertical; skipping.")
-            
-            
+
+
             mask = np.ones(len(remaining_points), dtype=bool)
             mask[inliers] = False
-            
+
             remaining_points = remaining_points[mask]
             remaining_indices = remaining_indices[mask]
         return found_vertical_planes
-    
+
 
     def draw_plane_outline_on_image(self, color_image, corners_3d, fx, fy, cx, cy):
         """
@@ -194,7 +196,7 @@ class PlaneDetector:
             u = int(round(x * fx / z + cx))
             v = int(round(y * fy / z + cy))
             corners_uv.append((u, v))
-        
+
 
         pts = np.array(corners_uv, dtype=np.int32).reshape((-1, 1, 2))
         cv2.polylines(color_image, [pts], isClosed=True, color=(0,0,255), thickness=2)
@@ -203,6 +205,7 @@ class PlaneDetector:
 
 
     def voxel_downsample(self, points, uv):
+        """Keep one point per voxel while preserving point-to-pixel indices."""
         # Voxel downsampling
         # Reduces redundant neighboring points while preserving
         # metal frame edges and door boundaries. This balances
@@ -217,6 +220,7 @@ class PlaneDetector:
         return points, uv
 
     def normal_filter(self, points, uv):
+        """Keep surfaces whose normals face roughly along the camera Z axis."""
         pc = o3d.geometry.PointCloud()
         pc.points = o3d.utility.Vector3dVector(points)
 
@@ -234,7 +238,7 @@ class PlaneDetector:
         points = np.asarray(pc.points)
         uv = uv[keep_idx]
         return points, uv
-    
+
 
     def check_plane_size(self, inlier_points, plane_model):
         """
@@ -252,7 +256,7 @@ class PlaneDetector:
         height = y_max - y_min
         if width < self.min_width_m or height < self.min_height_m:
             return None  # Plane too small to consider
-        
+
         corners_3d = np.array([
             [x_min, y_min, 0],
             [x_max, y_min, 0],
@@ -260,7 +264,7 @@ class PlaneDetector:
             [x_min, y_max, 0]
         ])
 
-        
+
         a, b, c, d = plane_model
         for i in range(4):
             x, y, _ = corners_3d[i]
@@ -270,6 +274,7 @@ class PlaneDetector:
         return corners_3d
 
     def find_plane_metrics(self, plane_model, depth_image_in_meters, inlier_indices, plane_corners_2d, mask):
+        """Measure depth spread, holes, density, distance, and plane normal."""
         pts = np.array(plane_corners_2d, dtype=np.int32).reshape((-1, 1, 2))
         cv2.fillPoly(mask, [pts], 255)
 
@@ -281,7 +286,7 @@ class PlaneDetector:
         depth_min_p_5 = np.percentile(depths_in_plane, 5)
         depth_max_p_95 = np.percentile(depths_in_plane, 95)
         depths_in_plane = depths_in_plane[(depths_in_plane >= depth_min_p_5) & (depths_in_plane <= depth_max_p_95)]
-        
+
 
         a, b, c, d = plane_model
         plane_norm = np.sqrt(a*a + b*b + c*c)
@@ -329,15 +334,26 @@ class PlaneDetector:
             for idx in inlier_indices:
                 u, v = uv[idx]
                 u, v = int(u), int(v)
-                
+
                 if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
                     cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
-                    
+
 
 
     def detect(self, color_image, depth_image_in_meters,
                fx, fy, cx, cy):
-        
+        """Find and temporally confirm the strongest door-sized plane.
+
+        Candidates must face the camera, satisfy physical size and distance
+        gates, and remain geometrically consistent across the tracker's recent
+        history. The color image receives candidate and confirmed overlays.
+
+        Returns:
+            A dictionary containing the confirmed plane model, derived metrics,
+            inlier points, and flags distinguishing absent from unconfirmed
+            candidates.
+        """
+
 
         all_points, uv, valid_mask = backproject_depth_to_points(
             depth_image_in_meters, fx, fy, cx, cy,
@@ -363,7 +379,7 @@ class PlaneDetector:
         self.highlight_planes_on_image(
             color_image,uv_after_normal_filtering,
             found_vertical_planes)
-        
+
         # Build candidates with size gating; defer drawing until confirmed
         candidates = []
         for plane_model, inlier_indices, inlier_points in found_vertical_planes:
@@ -424,4 +440,4 @@ class PlaneDetector:
         }
 
         return result
-    
+

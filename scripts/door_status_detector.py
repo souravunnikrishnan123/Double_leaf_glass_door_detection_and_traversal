@@ -1,5 +1,4 @@
-
-
+"""Infer whether each side of a detected glass door is open or closed."""
 
 #!/usr/bin/env python3
 import rospy
@@ -15,6 +14,13 @@ from processing_classes import backproject_depth_to_points
 
 
 class Door_Status_Detector:
+    """Classify a color- or depth-derived frame pair using side ROI depths.
+
+    ``keyword`` selects the matching fields on ``FrameContext``; for example,
+    ``"color_based"`` reads ``roi_left_color_based`` and draws on
+    ``color_image_color_based``.
+    """
+
     def __init__(self, keyword: str = "color_based"):
         ns = "~door_status_detector"
         self.keyword = keyword
@@ -43,7 +49,10 @@ class Door_Status_Detector:
 
     def check_side_roi_against_door(self, depth_image_in_meters, fx, fy, cx, cy, color_image, roi_polygon, door_depth, color = (0, 255, 0)):
         """
-        Check how much of ROI depth matches door reference depth.
+        Return the fraction of an ROI that lies near the door reference depth.
+
+        Points are backprojected from the polygon, compared with the frame
+        depth, and filtered by surface normal to reduce floor influence.
         """
 
         self.timer.start(f"check_side_roi_against_door {self.keyword}")
@@ -120,6 +129,10 @@ class Door_Status_Detector:
 
         """
         Decide OPEN/CLOSED based on ROIs and door depth reference.
+
+        A side is consistent when enough points remain near the door plane.
+        Two consistent sides mean closed; one inconsistent side identifies the
+        opening direction. Returns the label and the open-side ROI, if any.
         """
 
         #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to

@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""Legacy standalone RealSense demonstration of the door-detection pipeline.
+
+This script predates the ROS state-machine nodes and runs capture, plane
+detection, frame detection, status estimation, and visualization in one loop.
+It is retained as an end-to-end reference rather than imported by the current
+node entry point.
+"""
+
 import rospy
 # Import necessary libraries
 import pyrealsense2 as rs   # RealSense SDK for Python

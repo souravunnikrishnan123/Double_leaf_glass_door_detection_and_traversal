@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Color-edge branch of the glass-door frame detector.
+
+The branch finds near-vertical Canny/Hough segments, rejects segments whose
+depth is inconsistent with the confirmed door plane, and returns candidates
+for the shared glass-frame pairing stage.
+"""
+
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import cv2
@@ -6,23 +13,12 @@ import numpy as np
 import rospy
 from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment
 from duration import get_duration_seconds
-from find_glass_frame_lines import GlassFrameLineProcessor
 from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
 
 
-
-
-
-@dataclass
-class ColorDetectionResult:
-    roi_left: Optional[np.ndarray]
-    roi_right: Optional[np.ndarray]
-    door_depth_m: Optional[float]
-    edges: Optional[np.ndarray]
-
-
-
 class LineExtender:
+    """Extend both ends of a line while its sampled depth stays consistent."""
+
     def extend(
         self,
         depth_image_in_meters: np.ndarray,
@@ -33,6 +29,11 @@ class LineExtender:
         gradient_threshold: float,
         window: int,
     ) -> Tuple[list, list, list]:
+        """Extrapolate a segment forward and backward through the depth map.
+
+        Returns:
+            Backward points, forward points, and the combined full segment.
+        """
         dx, dy = direction
         extrapolated_forward = extrapolate_along_line_segment(
             depth_image_in_meters,
@@ -63,7 +64,7 @@ class ColorDoorDetector:
     def __init__(self):
         ns = "~color_image_based_door_detector"
 
-        self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error")
+        self.ransac_error = rospy.get_param("~plane_detector/output/ransac_error")
 
         self.scale = rospy.get_param(f"{ns}/scale", 1.0)
         # Optional tunables for image processing
@@ -86,28 +87,31 @@ class ColorDoorDetector:
             "gradient_threshold_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/gradient_threshold_for_extrapolation", 0.1),
             "window_size_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/window_size_for_extrapolation", 5),
         }
-        gns = "~door_geometry"
-        self.door_geometry = {
-            "glass_width_cm": rospy.get_param(f"{gns}/glass_width_cm", 40),
-            "center_frame_width_cm": rospy.get_param(f"{gns}/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param(f"{gns}/roi_width", 240),
-            "correction_factor": rospy.get_param(f"{gns}/correction_factor", 1.1),
-        }
+
         # Compose strategy components
         self.preprocessor = Preprocessor()
         self.edge_detector = EdgeDetector()
         self.line_detector = HoughPLineDetector()
         self.line_filter = LineFilter()
         self.line_extender = LineExtender()
-        self.glass_frame_detector = GlassFrameLineProcessor()
         
         # duration timer
         self.timer = get_duration_seconds()
         
 
-    def process_frame(self, ctx) -> ColorDetectionResult:
+    def process_frame(self, ctx):
+        """Extract depth-consistent vertical line candidates from one frame.
+
+        Args:
+            ctx: Shared frame context containing the color image, aligned
+                metric depth, and branch-specific visualization buffer.
+
+        Returns:
+            ``(valid_lines, line_depths, edges)``. Lines use
+            ``((x1, y1), (x2, y2))`` coordinates at the original image size.
+        """
         self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
-        ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
+        ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance")
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
  
         # Detect vertical lines in color image using Canny + Hough
@@ -122,7 +126,6 @@ class ColorDoorDetector:
         edges_scaled = self.edge_detector.canny_edge_detection(filtered_grey_image, self.canny)
         color_lines = self.line_detector.detect(edges_scaled, self.hough, self.scale)
         edges = self.preprocessor.restore_size(edges_scaled, W, H, self.scale)
-        
 
         self.timer.stop("get_rgb_based_lines_using_canny_and_hough_lines")
         
@@ -151,37 +154,9 @@ class ColorDoorDetector:
             self.timer.stop("color_image_based_frame_detection line processing")
 
 
-            roi_left, roi_right, mean_z = self.glass_frame_detector.find_left_right_roi_and_door_depth(
-                ctx.depth_image_in_meters,
-                ctx.color_image_color_based,
-                ctx.fx,
-                valid_lines,
-                depth_of_valid_lines,
-                self.door_geometry,
-                DEPTH_RANGE,
-                keyword="depth"
-            )
-
-
         # No lines detected; return consistent 4-tuple and preserve edges
         else:
-            roi_left = None
-            roi_right = None
-            mean_z = None
-            
+            valid_lines = None
+            depth_of_valid_lines = None
 
-        door_depth_m = float(mean_z) if mean_z is not None else None
-
-        # Maintain backward-compatible context updates
-        ctx.edges = edges
-        if roi_left is not None and roi_right is not None:
-            ctx.roi_left_color_based = roi_left
-            ctx.roi_right_color_based = roi_right
-            ctx.door_depth_m_color_based = door_depth_m
-
-        return ColorDetectionResult(
-            roi_left=roi_left,
-            roi_right=roi_right,
-            door_depth_m=door_depth_m,
-            edges=edges,
-        )
+        return valid_lines, depth_of_valid_lines, edges

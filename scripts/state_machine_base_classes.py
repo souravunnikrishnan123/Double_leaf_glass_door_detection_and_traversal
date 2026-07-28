@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
+"""Small frame-driven state machine used by the door detector."""
+
 import rospy
 import time
 
 
 class StateMachine:
-    """Handles transitions and execution of states."""
+    """Register states, execute the active state, and apply its transitions.
+
+    A state's ``do_action`` method returns another registered state name to
+    request a transition, or ``None`` to remain active for the next frame.
+    """
+
     def __init__(self, ctx=None):
         self.states = {}
         self.current_state = None
@@ -12,6 +19,7 @@ class StateMachine:
         self.state_start_time = None  # Track when the current state was entered
 
     def add_state(self, state) -> None:
+        """Register a state under its ``state.name`` value."""
         self.states[state.name] = state
 
     def set_state(self, name) -> None:
@@ -35,7 +43,7 @@ class StateMachine:
 
 
     def update(self, ctx) -> None:
-        """Call the update loop of the current state."""
+        """Run one state-machine step with the newest frame context."""
         if not self.current_state:
             return
         # keep latest context

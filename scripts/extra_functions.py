@@ -3,6 +3,8 @@
 import cv2
 import numpy as np
 import open3d as o3d
+from post_processing_of_detected_vertical_lines import extrapolate_along_line_segment
+from typing import Optional, Tuple
 
 def extract_roi_corners(roi_polygon):
     """
@@ -496,3 +498,73 @@ def check_passable_birdeye(self, points_above_floor,
         
 
     return max_clearance_m, passable, bev_vis_display
+
+#Full-height extrapolation is instead performed later, after two boundaries have passed the shared physical pairing tests. 
+#This ordering avoids expanding a single unverified appearance edge into a large region.
+class LineExtender:
+    """
+    Extend both ends of a line while sampled depth stays consistent.
+
+    This stateless helper applies the same extrapolation rule in opposite
+    directions and joins the accepted pixels with the original endpoints.
+    """
+
+    def extend(
+        self,
+        depth_image_in_meters: np.ndarray,
+        start_fwd: Tuple[int, int],
+        start_back: Tuple[int, int],
+        direction: Tuple[float, float],
+        center_depth: float,
+        gradient_threshold: float,
+        window: int,
+    ) -> Tuple[list, list, list]:
+        """
+        Extrapolate a segment forward and backward through the depth map.
+
+        Args:
+            depth_image_in_meters:
+                ``H x W`` aligned metric depth image.
+
+            start_fwd:
+                Endpoint from which to extrapolate along ``direction``.
+
+            start_back:
+                Endpoint from which to extrapolate opposite ``direction``.
+
+            direction:
+                ``(dx, dy)`` step vector along the line.
+
+            center_depth:
+                Reference depth in meters used by both extrapolations.
+
+            gradient_threshold:
+                Maximum accepted depth deviation from ``center_depth``.
+
+            window:
+                Moving-average width used to smooth sampled depths.
+
+        Returns:
+            Tuple containing backward points, forward points, and the combined
+            full segment ordered from the backward extension to the forward
+            extension.
+        """
+        dx, dy = direction
+        extrapolated_forward = extrapolate_along_line_segment(
+            depth_image_in_meters,
+            start_fwd,
+            (dx, dy),
+            center_depth,
+            gradient_threshold=gradient_threshold,
+            window=window,
+        )
+        extrapolated_backward = extrapolate_along_line_segment(
+            depth_image_in_meters,
+            start_back,
+            (-dx, -dy),
+            center_depth,
+            gradient_threshold=gradient_threshold,
+            window=window,
+        )
+        full_segment = extrapolated_backward[::-1] + [start_back, start_fwd] + extrapolated_forward
+        return extrapolated_backward, extrapolated_forward, full_segment

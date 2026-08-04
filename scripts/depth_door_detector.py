@@ -5,8 +5,7 @@ Vertical Sobel edges are restricted to the confirmed door-depth band, detected
 with a probabilistic Hough transform, and merged into longer frame candidates.
 """
 
-from dataclasses import dataclass
-from typing import Optional, Tuple
+
 import numpy as np
 import rospy
 import cv2

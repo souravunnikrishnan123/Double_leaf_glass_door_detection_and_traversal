@@ -60,6 +60,8 @@ class idle_state(BaseState):
         with open(final_door_status_file_path, "w") as f:
             f.write(f"Logging smoothed_door_state after temporal smoothing\n")
         
+        # Consume-style triggering is handled by the surrounding controller;
+        # this state only decides when a new detection run may begin.
         if ctx.start_door_frame_detection:
             return "searching_door_plane_state"
         return None # stay in idle state until get request to start door frame detection

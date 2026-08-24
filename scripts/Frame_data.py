@@ -119,6 +119,8 @@ class FrameContext:
             Optional cached plane-detection visualization.
     """
 
+    # Images are kept in one shared object so state transitions do not copy
+    # several megabytes of frame data on every callback.
     depth_image_in_meters: np.ndarray
     color_image: np.ndarray
     fx: float
@@ -129,7 +131,7 @@ class FrameContext:
 
     go_to_idle_from_finish_state: bool = False
     start_door_frame_detection : bool = False
-    # shared artifacts across states
+    # Plane search fills these before either line detector is allowed to run.
     plane_result: Optional[dict] = None
     color_image_for_plane_detection: Optional[np.ndarray] = None
     
@@ -151,7 +153,7 @@ class FrameContext:
     color_image_depth_based: Optional[np.ndarray] = None
     sobel_vis_color : Optional[np.ndarray] = None
 
-    # final
+    # Fusion owns these values; the individual branches should not set them.
     door_state_label: Optional[str] = None
     mid_frame_x_px_for_passability_check: Optional[float] = None
     door_depth : Optional[float] = None
@@ -200,6 +202,7 @@ class BaseState:
         Notes:
             The base implementation intentionally does nothing.
         """
+        # Most states need no setup, but the hook keeps transitions symmetrical.
         pass
 
     def do_action(self, ctx : FrameContext)-> Optional[str]:
@@ -217,6 +220,7 @@ class BaseState:
         Notes:
             The base implementation remains in the current state.
         """
+        # None is the state machine's explicit "stay here for another frame" signal.
         return None
 
     def exit_action(self, ctx: FrameContext) -> None:

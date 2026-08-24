@@ -81,12 +81,16 @@ class searching_door_plane_state(BaseState):
         """
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
+        # Plane search is intentionally the first expensive gate; frame-line
+        # detection is noisy when it runs without a trusted depth and orientation.
         result = self.find_door_plane.detect(ctx.color_image_for_plane_detection, ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy)
         # plane overlays are drawn into ctx.color_image_for_plane_detection; main publishes as ~viz/plane_overlay
     
 
         if result["plane_model"] is not None:
 
+            # Use the confirmed plane's 3D support to tune the physical spacing
+            # expected later by both Hough-line branches.
             glass_and_door_width = self.door_type_detector.estimate_glass_and_frame_widths(
                 result["inlier_points"]
             )
@@ -106,6 +110,8 @@ class searching_door_plane_state(BaseState):
 
             if glass_and_door_width["final_glass_width_m"] is not None and glass_and_door_width["final_frame_width_m"] is not None:
                 # Cast numpy scalars to native Python floats before setting ROS params
+                # Underestimate pane width slightly so the pairing test does not
+                # discard a real frame because of a borderline measurement.
                 glass_width_cm_safe_value = float(glass_and_door_width["final_glass_width_m"]) * 100.0 * (1 - self.margin_for_glass_width_inaccuracy) # margin of safety
                 center_frame_width_cm_safe_value = float(glass_and_door_width["final_frame_width_m"]) * 100.0
                 #for glass width dont have to check the default value as the glass width detection is usually accurate enough and also, the default value is set to a lower value to handle the case, in which the algorithm couldnt detect the glass width
@@ -127,6 +133,8 @@ class searching_door_plane_state(BaseState):
             distance = float(result["plane_metrics"]["distance_m"])
             rospy.loginfo(f"Detected door plane at distance: {distance:.2f} m")
             rospy.set_param("~plane_detector/output/ransac_plane_distance", distance)
+            # Save the result in the context and ROS parameters: downstream ROS
+            # consumers use the former, while detector helpers read the latter.
             ctx.plane_result = {"distance_m": distance, "plane_norm_vector": result["plane_metrics"]["plane_norm_vector"]}
             rospy.loginfo(f"plane detected at a distance of : {distance:.2f} m and its normal vector is {result['plane_metrics']['plane_norm_vector']}")
             """
@@ -141,6 +149,8 @@ class searching_door_plane_state(BaseState):
             # Distinguish between "unconfirmed yet" vs "no candidates at all"
             had_candidates = result["had_candidates"]
 
+            # An unstable candidate is different from an empty scene. It should
+            # be given time to confirm rather than counting toward fallback.
             if had_candidates is True:
                 # There is a potential plane, keep trying and reset miss counter
                 self._no_candidate_count = 0
@@ -153,6 +163,8 @@ class searching_door_plane_state(BaseState):
                     # Reset counters on transition
                     self._no_candidate_count = 0
                     # to directly check if the door is passable without plane detection as the plane is not detectable. this is useful when the both doors halves are wide open already and ransac couldnt detect frame around it as well
+                    # A wide-open doorway may offer no pane to fit, so route to
+                    # direct clearance checking instead of waiting forever.
                     ctx.door_state_label = "No_door_plane_detected"  # No door plane detected
                     return "full_image_passability_check_state"
                 #stay in this state

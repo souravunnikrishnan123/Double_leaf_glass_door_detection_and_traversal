@@ -110,6 +110,8 @@ class TemporalPlaneTracker:
         if n1 is None or n2 is None:
             return 180.0
 
+        # Clip round-off before arccos; nearly identical unit vectors can dot
+        # to a value a few ulps above one.
         c = np.clip(float(np.dot(n1, n2)), -1.0, 1.0)
         return np.degrees(np.arccos(c))
 
@@ -136,6 +138,8 @@ class TemporalPlaneTracker:
         """
         #counts the number of True in history. If >= confirm_k, set confirmed to True. If <= drop_k, set confirmed to False.
         #self.history is a list of booleans. np.sum of False is 0, True is 1.
+        # Two thresholds create hysteresis: confirmation is slow, while a brief
+        # run of missing depth does not immediately erase a good track.
         count_true = int(np.sum(self.history))
         #hysteresis
         if not self.confirmed and count_true >= self.confirm_k:
@@ -179,11 +183,15 @@ class TemporalPlaneTracker:
             self._update_confirmed()
             return self.confirmed, self.n_s, self.d_s
 
+        # Association checks orientation and range together so a nearby wall
+        # cannot quietly take over an established door track.
         angle = self._angle_deg(self.n_s, n_t)
         jump = abs(d_t - self.d_s)
         associated = (angle <= self.max_jump_deg) and (jump <= self.max_jump_m)
         self._push(associated)
         if associated:
+            # Blend only associated measurements; rejected planes should not
+            # drag the stored normal toward clutter.
             # EMA smoothing
             n_blend = (1.0 - self.alpha) * self.n_s + self.alpha * n_t
             self.n_s = self._normalize(n_blend)
@@ -290,6 +298,8 @@ class PlaneDetector:
         self.global_map_distance_accuracy_to_door_plane = rospy.get_param(f"{ns}/global_map_distance_accuracy_to_door_plane", 0.15)
         self.distance_range_m = self.reference_door_distance_m * self.global_map_distance_accuracy_to_door_plane
         #backprojection
+        # Crop in depth before building the cloud. This is both faster and a
+        # strong guard against fitting one of the corridor walls behind the door.
         self.max_depth_backprojection = self.reference_door_distance_m + self.distance_range_m
         self.min_depth_backprojection = self.reference_door_distance_m - self.distance_range_m
         self.subsample = rospy.get_param(f"{ns}/backproject/subsample", 1)
@@ -353,6 +363,8 @@ class PlaneDetector:
 
             pc = o3d.geometry.PointCloud()
             pc.points = o3d.utility.Vector3dVector(remaining_points)
+            # RANSAC handles the missing and reflected samples that make ordinary
+            # least-squares fitting unreliable on glass.
             plane_model, inliers = pc.segment_plane(distance_threshold=self.ransac_distance_threshold,
                                                     ransac_n=self.ransac_n,
                                                     num_iterations=self.ransac_num_iterations)
@@ -365,6 +377,9 @@ class PlaneDetector:
             orig_inlier_points = remaining_points[inliers]
 
 
+            # In the optical frame, a plane standing in front of the robot has
+            # a normal along Z. "Vertical" here describes the physical surface,
+            # not the direction of its normal in camera coordinates.
             # Check if the plane is vertical
             normal = np.array(plane_model[:3])
             normal = normal / np.linalg.norm(normal)
@@ -454,6 +469,8 @@ class PlaneDetector:
         # point density for RANSAC without losing structure.
         #add size heuristics and inliner density based on high depth change(glass)
 
+        # Retain source indices so every surviving 3D point still maps to the
+        # correct color pixel after downsampling.
         vox_coords = np.floor(points / self.voxel_size).astype(np.int64)
         _, unique_idx = np.unique(vox_coords, axis=0, return_index=True)
         unique_idx = np.sort(np.array(unique_idx, dtype=np.int64))
@@ -488,6 +505,8 @@ class PlaneDetector:
         )
         normals = np.asarray(pc.normals)
 
+        # Reject floors and side walls before RANSAC; only camera-facing patches
+        # can plausibly be the door plane at this stage.
         # Normal filtering
         z_axis_mask = (np.abs(normals[:, 0]) < self.nx_thr) & (np.abs(normals[:, 1]) < self.ny_thr) & (np.abs(normals[:, 2]) >= self.nz_min)
         keep_idx = np.where(z_axis_mask)[0]
@@ -520,6 +539,8 @@ class PlaneDetector:
         """
         if inlier_points.shape[0] == 0:
             return None
+        # Percentiles ignore stray inliers that would otherwise inflate the
+        # apparent width or height of the plane.
         x_min = np.percentile(inlier_points[:, 0], self.lower_pct)
         x_max = np.percentile(inlier_points[:, 0], self.upper_pct)
         y_min = np.percentile(inlier_points[:, 1], self.lower_pct)
@@ -577,6 +598,8 @@ class PlaneDetector:
         pts = np.array(plane_corners_2d, dtype=np.int32).reshape((-1, 1, 2))
         cv2.fillPoly(mask, [pts], 255)
 
+        # Holes and sparse inliers are retained as diagnostics because they are
+        # common on glass, even though geometry is the main acceptance gate.
         fraction_of_holes_in_plane = (np.sum((mask == 255) & ((depth_image_in_meters == 0) | ~np.isfinite(depth_image_in_meters)))) / (np.sum(mask == 255) + 1e-9)
         inlier_density = len(inlier_indices) / (np.sum(mask == 255) + 1e-9)
 
@@ -694,6 +717,8 @@ class PlaneDetector:
         """
 
 
+        # Keep pixel coordinates beside the cloud throughout the pipeline so a
+        # confirmed 3D plane can be painted back onto the aligned color image.
         all_points, uv, valid_mask = backproject_depth_to_points(
             depth_image_in_meters, fx, fy, cx, cy,
             self.max_depth_backprojection, self.min_depth_backprojection,
@@ -748,6 +773,8 @@ class PlaneDetector:
             return {"plane_model": None, "plane_metrics": None, "inlier_points": None,"had_candidates": False, "confirmed": False}
 
         # Keep only planes within the reference distance threshold
+        # The map-provided stopping distance is a useful prior, but the range
+        # allows for odometry and stopping error.
         filtered = [c for c in candidates if abs(c["distance_m"] - self.reference_door_distance_m) <= self.distance_range_m]
         if not filtered:
             # We had candidates, but none within desired distance
@@ -755,9 +782,12 @@ class PlaneDetector:
         # Pick the strongest by inlier count among filtered
         # this is important to avoid jumping between multiple planes. because sometimes, points that belongs to one plane is segmented into two planes by RANSAC.
         # observed in testing glass door with walls on both sides.
+        # Largest support is more stable than first-found when RANSAC splits one
+        # physical surface into two similar candidates.
         chosen = max(filtered, key=lambda c: len(c["inliers"]))
 
         # Update temporal tracker; only proceed once confirmed
+        # Do not expose a one-frame fit to the line detectors or navigation.
         confirmed, n_s, d_s = self.tracker.update(chosen["normal"], chosen["distance_m"])
         if not confirmed:
             return {"plane_model": None, "plane_metrics": None, "inlier_points": None, "had_candidates": True, "confirmed": False}

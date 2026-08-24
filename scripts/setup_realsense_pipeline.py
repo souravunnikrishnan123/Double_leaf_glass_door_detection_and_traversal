@@ -33,6 +33,8 @@ def setup_realsense_pipeline(bag_file=None):
     # -------------------------------
     # Initialize RealSense Pipeline
     # -------------------------------
+    # Keep playback and live capture behind the same pipeline interface so the
+    # rest of the detector does not care where frames originated.
     pipeline = rs.pipeline()
     config = rs.config()
 
@@ -42,6 +44,7 @@ def setup_realsense_pipeline(bag_file=None):
     #config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 15)
 
     if bag_file is not None:
+        # A recorded bag already declares its stream formats and frame rates.
         config.enable_device_from_file(bag_file)
 
 
@@ -54,6 +57,7 @@ def setup_realsense_pipeline(bag_file=None):
     #hole_filling = rs.hole_filling_filter()
 
     # Align depth to color stream so depth and color pixels correspond
+    # All later ROI operations assume depth pixels line up with the color image.
     align = rs.align(rs.stream.color)
 
     return pipeline,config,align

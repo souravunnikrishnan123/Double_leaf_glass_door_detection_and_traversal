@@ -42,12 +42,15 @@ class GazeboOdomBridge:
         Notes:
             Messages that do not contain ``model_name`` are ignored.
         """
+        # ModelStates is a single array for the whole simulation; indexes in
+        # name, pose, and twist refer to the same model.
         if self.model_name not in msg.name:
             return
 
         i = msg.name.index(self.model_name)
 
         odom = Odometry()
+        # Gazebo does not attach a per-model timestamp here, so stamp the bridge output.
         odom.header.stamp = rospy.Time.now()
         odom.header.frame_id = "odom"
         odom.child_frame_id = "trunk"
@@ -58,6 +61,7 @@ class GazeboOdomBridge:
         self.odom_pub.publish(odom)
 
 if __name__ == "__main__":
+    # spin() is enough because all bridge work happens in the subscriber callback.
     rospy.init_node("gazebo_odom_bridge")
     GazeboOdomBridge()
     rospy.spin()

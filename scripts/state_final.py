@@ -40,6 +40,7 @@ class final_state(BaseState):
             ``"idle_state"`` when
             ``ctx.go_to_idle_from_finish_state`` is true; otherwise ``None``.
         """
+        # The result remains latched until an external controller acknowledges it.
         if ctx.go_to_idle_from_finish_state:
             return "idle_state"
 

@@ -131,6 +131,8 @@ class DoorDetectionNode:
         self.enable_visualization = rospy.get_param("~enable_visualization", True)
         # Setup cv2 drawing to no-op when disabled
         setup_visualization_mode(self.enable_visualization)
+        # The states form a gate: plane confirmation comes before frame lines,
+        # then fusion holds the result until the traversal side acknowledges it.
         self.sm = StateMachine(ctx=None)
         self.sm.add_state(idle_state())
         self.sm.add_state(searching_door_plane_state())
@@ -165,6 +167,8 @@ class DoorDetectionNode:
         # published by top level path planning and navigation algorithm to trigger start of door frame detection and subsequent steps. Published once per door traversal attempt.
         rospy.Subscriber("/trigger_start_door_frame_detection", Bool, self._trigger_start_door_frame_detection, queue_size=1)
 
+        # Exact timestamps differ between several camera drivers, so tolerate a
+        # small skew while still processing color and depth as one observation.
         ats = message_filters.ApproximateTimeSynchronizer(
             [color_sub, depth_sub], queue_size=queue_size, slop=slop
         )
@@ -213,6 +217,8 @@ class DoorDetectionNode:
             original nonfinite values for later validity masking.
         """
         img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+        # Keep both units: geometry is easier to reason about in metres, while
+        # the RealSense-compatible adapter expects the original millimetres.
         if depth_msg.encoding in ("16UC1", "mono16"):
             depth_mm = img.astype(np.uint16)
             depth_m = depth_mm.astype(np.float32) / 1000.0
@@ -236,6 +242,7 @@ class DoorDetectionNode:
             Later calibration messages are ignored because the current camera
             model is assumed constant during a run.
         """
+        # Intrinsics describe the stream, not an individual frame, so cache once.
         if self.latest_info is None:
             self.latest_info = info_msg
             K = info_msg.K
@@ -303,12 +310,16 @@ class DoorDetectionNode:
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
+        # Running geometry with guessed intrinsics would yield plausible-looking
+        # but physically wrong plane sizes, so wait instead.
         if self.fx is None:
             rospy.logwarn_throttle(5.0, "Waiting for CameraInfo (only needed once)...")
             return
 
         depth_frame_adapter = DepthFrameAdapter(depth_mm, self.fx, self.fy, self.cx, self.cy)
 
+        # Reuse the context to preserve state outputs, but give each detector its
+        # own image copy because overlays are drawn in place.
         if not hasattr(self.sm, "ctx") or self.sm.ctx is None: # create object of context class once.
             self.sm.ctx = FrameContext(
                 depth_image_in_meters=depth_m,
@@ -334,6 +345,7 @@ class DoorDetectionNode:
             ctx.start_door_frame_detection = self.start_door_frame_detection
 
         
+        # One synchronized frame drives exactly one state-machine step.
         self.sm.update(self.sm.ctx)
         #write durations to file once per callback.
         # file is overwritten each time.filepath is specified by ROS param ~durations_file_path and read by duration.py 
@@ -366,6 +378,8 @@ class DoorDetectionNode:
             except (ValueError, TypeError) as e:
                 rospy.logwarn_throttle(5.0, f"door_depth publish skipped (non-float): {e}")
         
+        # Twist is used as a compact existing carrier: linear.x is distance and
+        # angular.xyz stores the unit plane normal. It is not a velocity command.
         pd = self.sm.ctx.plane_result
         if pd is not None:
             plane_distance = float(pd["distance_m"])
@@ -376,6 +390,8 @@ class DoorDetectionNode:
             msg.angular.y = plane_norm[1]
             msg.angular.z = plane_norm[2]
         else:
+            # Publish a well-formed sentinel rather than leaving subscribers with
+            # a stale plane from the previous detection cycle.
             msg = Twist()
             msg.linear.x = 0.0  # send 0 distance if no plane detected, to avoid issues with downstream consumers expecting a distance value. The normal vector will be set to a default value which can be ignored by downstream consumers since the distance is 0, which can be used by downstream consumers to identify that no plane was detected.
             msg.angular.x = 0.0
@@ -390,6 +406,7 @@ class DoorDetectionNode:
                 
 
 
+        # Visualization failures must never stop the navigation-facing outputs above.
         # Publish visualizations
         try:
             if self.enable_visualization:

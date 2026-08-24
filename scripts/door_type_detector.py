@@ -87,6 +87,8 @@ class DoorTypeDetector():
         ys = inlier_points[:,1]  # Y in world coords is already vertical
 
         # Total door height supported by inliers
+        # Robust bounds keep a few reflected or stray RANSAC points from making
+        # the measured doorway wider or taller than it really is.
         door_y_min = np.percentile(ys, 2)
         door_y_max = np.percentile(ys, 98)
 
@@ -102,6 +104,8 @@ class DoorTypeDetector():
         # ------------------------------------------------------------
 
 
+        # Binning in metres makes the classifier independent of image resolution
+        # and of the robot's exact stopping distance.
         bin_edges = np.arange(door_x_min, door_x_max + self.bin_width, self.bin_width)
 
         bin_labels = []
@@ -118,6 +122,8 @@ class DoorTypeDetector():
             # Inlier points whose horizontal coordinate falls in this bin
             in_bin = (xs >= x0) & (xs < x1)
 
+            # Sparse support is expected through glass; a solid upright usually
+            # contributes points over much of the observed height.
             if np.count_nonzero(in_bin) < self.min_points_per_bin:
                 # No or very few inliers → no vertical support → glass
                 bin_labels.append("glass")
@@ -176,6 +182,8 @@ class DoorTypeDetector():
             else:
                 frame_widths_m.append(width)
 
+        # Remove tiny label flickers before using adjacency to identify the
+        # center frame and its neighboring pane.
         merged_segments = self.consolidate_door_segments(segments)
 
         # ------------------------------------------------------------
@@ -194,6 +202,7 @@ class DoorTypeDetector():
             glass_ok = set([i for i, label in enumerate(labels)
                             if label == "glass" and widths[i] <= self.max_glass_width])
 
+            # The most convincing center frame is bounded by glass on both sides.
             # Case A: a frame flanked by glass on both sides
             candidate_frames = []
             for i in range(len(merged_segments)):
@@ -271,6 +280,8 @@ class DoorTypeDetector():
 
 
         # Divide the FULL door height into equal slices
+        # Occupancy, rather than raw point count, stops one dense patch near the
+        # floor from looking like a full-height structural frame.
         slice_edges = np.linspace(
             door_y_min,
             door_y_max,
@@ -506,10 +517,11 @@ class DoorTypeDetector():
         xs = inlier_points[:, 0]
         zs = inlier_points[:, 2]
 
+        # Project every point with its own Z first; the linear fit then absorbs
+        # small depth variation across the fitted plane.
         # Project points to image u coordinate
         us = (xs * fx / zs) + cx
 
         # Fit linear mapping: u ≈ a * X + b
         a, b = np.polyfit(xs, us, 1)
         return a, b
-

@@ -53,6 +53,8 @@ def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H
         Physical width uses camera X and physical height uses camera Y.
         Morphological closing uses a fixed 5-by-5 kernel.
     """
+    # Missing depth is useful evidence here: clean glass often returns fewer
+    # measurements than the wall or objects visible around it.
     # prepare full image-level valid mask (non-zero depth)
     nonzero_mask_full = (depth_m > 0.0) & np.isfinite(depth_m)
 
@@ -88,6 +90,8 @@ def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H
     inlier_mask = np.zeros((H, W), dtype=np.uint8)
     inlier_mask[v_in, u_in] = 255  # mark inlier pixels (value 255)
 
+    # RANSAC inliers are usually peppered with small gaps, so close only those
+    # gaps before asking whether the plane is one coherent image region.
     # morphological closing to join fragmented inlier blobs (use a small kernel)
     kernel = np.ones((5,5), dtype=np.uint8)
     closed = cv2.morphologyEx(inlier_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
@@ -103,6 +107,8 @@ def evaluate_plane_candidate(depth_m, uv_all, uv_inliers, points_inliers, roi, H
     # fraction of bbox covered by largest connected inlier region
     largest_comp_fraction = largest_area / float(bbox_area + 1e-6)
 
+    # Pixel coverage alone favors nearby clutter. Metric extents make the
+    # candidate comparable with the expected size of a doorway.
     # physical extents (in meters) from 3D inlier points
     # width = lateral span (X axis), height = vertical span (Y axis)
     Xs = points_inliers[:,0]

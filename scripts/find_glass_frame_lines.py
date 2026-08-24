@@ -92,6 +92,8 @@ class GlassFrameLineProcessor:
         if not self.lines:
             return []
 
+        # Door uprights are nearly vertical, so their mean x is a reliable and
+        # inexpensive coordinate for ordering and pairing them.
         mean_x_unsorted = np.array([
             (np.mean([p[0] for p in ln]) if len(ln) > 0 else np.inf)
             for ln in self.lines
@@ -109,6 +111,8 @@ class GlassFrameLineProcessor:
             for ln in lines_sorted
         ], dtype=np.float32)
 
+        # Expected pixel width shrinks with distance. Compute it per line instead
+        # of assuming every candidate sits on exactly the same depth plane.
         # Convert depth to centimeters and compute per-line pixel gaps
         depth_cm_arr = np.array(depth_of_each_lines_sorted, dtype=np.float32) * 100.0
         valid_mask = depth_cm_arr > 0
@@ -129,6 +133,9 @@ class GlassFrameLineProcessor:
             has_right = idx < (n - 1)
 
             both_mask = has_left & has_right
+            # A center frame edge should have its partner close by and glass-width
+            # clearance on the other side. That pattern is more useful than line
+            # strength alone in a corridor full of vertical edges.
             # --- Case 1: Both left and right neighbors exist ---
             # One must be wide, one must be narrow
             cond_both = (
@@ -226,6 +233,7 @@ class GlassFrameLineProcessor:
             l2 = filtered[i + 1]
             paired_lines.append((l1, l2, line_to_depth[id(l1)], line_to_depth[id(l2)]))
 
+        # The neighbor pass can discover the same physical pair from either edge.
         # Deduplicate pairs (order-insensitive) using ids
         unique_pairs = []
         seen = set()
@@ -293,6 +301,8 @@ class GlassFrameLineProcessor:
         dx /= length
         dy /= length
 
+        # Rotating the unit tangent by 90 degrees gives a strip that follows a
+        # slightly tilted frame instead of assuming an axis-aligned rectangle.
         if side == "left":
             offset_vec = np.array([-dy, dx])
         else:
@@ -315,6 +325,7 @@ class GlassFrameLineProcessor:
         valid_mask = (roi_depth >= min_depth) & (roi_depth != 0) & ~np.isnan(roi_depth)
         valid_depths = roi_depth[valid_mask]
 
+        # A handful of isolated returns is not enough to describe a whole side ROI.
         avg_z = float(np.mean(valid_depths)) if len(valid_depths) > 10 else None
         return avg_z, roi_polygon
 
@@ -400,6 +411,8 @@ class GlassFrameLineProcessor:
             y_top = 0
 
 
+            # Full-height lines define useful side regions even when Hough only
+            # observed a short, unobstructed section of the physical frame.
             extrapolated_left_line_points = self.extrapolate_line_to_y_range(left_line_points, y_top, y_bottom)
             extrapolated_right_line_points = self.extrapolate_line_to_y_range(right_line_points, y_top, y_bottom)
 
@@ -433,6 +446,8 @@ class GlassFrameLineProcessor:
                 mean_z_depth_along_frame_lines = None
 
                     # Filter pairs based on your criteria
+            # Both outside strips must lie behind their corresponding uprights.
+            # This rejects pairs formed by texture lines on a single flat surface.
             if (mean_z_left_line is not None and avg_z_left_roi is not None and mean_z_left_line * self.door_geometry["correction_factor"] < avg_z_left_roi) and (mean_z_right_line is not None and avg_z_right_roi is not None and mean_z_right_line * self.door_geometry["correction_factor"] < avg_z_right_roi):
                 avg_z_left_roi_list.append(avg_z_left_roi)
                 avg_z_right_roi_list.append(avg_z_right_roi)
@@ -465,6 +480,8 @@ class GlassFrameLineProcessor:
                 #correct frame line pair will be close to the center of detected ransac door plane
                 # 1. Compute the center x of the detected plane (average of its 4 corners)
                 #plane_center_x = np.mean([pt[0] for pt in detected_plane]) if detected_plane is not None else color_image.shape[1] // 2
+                # The robot stops facing the doorway, so image center is a stable
+                # tie-breaker when reflections create more than one valid pair.
                 plane_center_x = self.color_image.shape[1] // 2 #since wer are stopping about 2m far from glass door plane. the center of entire view would be almost same as the center of glass door plane
                 #this is to avoid dependancy to glass detection algorithm
                 # 2. Find the pair whose center is closest to the plane center
@@ -562,6 +579,8 @@ class GlassFrameLineProcessor:
 
         self.timer.start(f"{self.keyword}_image_based_frame_detection pairing and roi processing")
 
+        # Pairing is shared by both the RGB and depth branches; only the source
+        # candidates and their diagnostic image differ.
         paired_lines = self.filter_vertical_lines_glass_contact()
         # Adjust all pairs so each line's points are sorted by y. so that gradient ccan be calculated correctly
 

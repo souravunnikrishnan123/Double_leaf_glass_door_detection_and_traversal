@@ -62,6 +62,7 @@ def intrinsics_to_camera_info(intr, frame_id):
     ci.width = int(intr.width)
     ci.height = int(intr.height)
 
+    # ROS stores calibration matrices as flat row-major arrays.
     # K (3x3 row-major)
     K = [0.0]*9
     K[0] = float(intr.fx)
@@ -146,6 +147,7 @@ def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float)
     H = color_msg.height
 
     # --- Compute intrinsics ---
+    # Pinhole geometry converts the simulated field of view into focal pixels.
     fx = W / (2.0 * math.tan(hfov / 2.0))
 
     if vfov is not None:
@@ -235,6 +237,8 @@ def main():
     new_color = False
     new_depth = False
 
+    # Bag mode owns a blocking SDK pipeline; Gazebo mode instead caches callback
+    # messages and lets the downstream node perform timestamp synchronization.
     if input_mode == 'bag':
         bag_file = rospy.get_param('~bag_file', None)
         loop_bag = rospy.get_param('~loop', True)  # whether to loop playback
@@ -245,6 +249,8 @@ def main():
         # Setup RealSense pipeline
         pipeline = rs.pipeline()
         cfg = rs.config()
+        # Let the recording declare its native streams; hard-coded profiles can
+        # make otherwise valid bags fail to open.
         cfg.enable_device_from_file(bag_file, repeat_playback=bool(loop_bag))
         # Let the SDK pick streams from bag (recorded streams)
         rospy.loginfo("Starting RealSense pipeline for bag: %s", bag_file)
@@ -351,6 +357,8 @@ def main():
                         continue
 
                 # Process alignment
+                # After alignment, a color and depth pixel at the same (u, v)
+                # describe the same camera ray.
                 aligned_frames = align.process(frames)
 
                 # Fetch color and depth frames
@@ -371,6 +379,8 @@ def main():
                 # Timestamping: use SDK frame timestamp (milliseconds) converted to ROS time
                 # frames.get_timestamp() returns ms since start of bag; use that if available
                 try:
+                    # Preserve playback time so the pair stays synchronized even
+                    # when processing runs faster or slower than real time.
                     ts_ms = frames.get_timestamp()  # milliseconds
                     ros_time = rospy.Time.from_sec(float(ts_ms) / 1000.0)
                 except Exception:
@@ -396,6 +406,8 @@ def main():
                     rospy.sleep(0.001)
                     continue
                 
+                # Clear only the "new" flags. The cached companion frame remains
+                # available while the other simulated stream catches up.
                 color_msg = last_color_msg
                 depth_msg = last_depth_msg
                 new_color = False
@@ -427,6 +439,8 @@ def main():
             # like scaling followed by publishing
 
 
+            # Color is interpolated smoothly; depth uses nearest-neighbor so
+            # resizing cannot invent ranges between two surfaces.
             if resize_scale != 1.0:
                 if color_image is not None:
                     new_w = int(color_image.shape[1] * resize_scale)
@@ -472,6 +486,8 @@ def main():
 
 
             #preserve original timestamps for color image and depth image( for  bag mode, use SDK timestamp ( already synchronized); for gazebo mode, use original message timestamps( may or may not be synchronized, but the main node will use ApproximateTimeSynchronizer for synchronization))
+            # Keeping source timestamps is essential for the detector's
+            # ApproximateTimeSynchronizer downstream.
             if input_mode == 'bag':
                 # no need to change timestamps; use SDK timestamp for color and depth
                 if camera_info is not None:
@@ -497,6 +513,7 @@ def main():
             if color_msg_out is not None:
                 color_msg_out.header.frame_id = "camera_color_frame"
             #Each depth pixel corresponds to the same ray as the color pixel at the same (u,v).
+            # Aligned depth uses the color optical frame by definition.
             if depth_msg_out is not None:
                 depth_msg_out.header.frame_id = "camera_color_frame"  # aligned depth uses color frame
             if camera_info is not None:
@@ -519,6 +536,7 @@ def main():
         rospy.logerr("EXCEPTION IN MAIN LOOP: %s", e)
         raise
     finally:
+        # Release the device or bag handle even when conversion or publication fails.
         try:
             if pipeline is not None:
                 pipeline.stop()

@@ -52,6 +52,8 @@ class StateMachine:
             Registering another state with the same name replaces the previous
             mapping.
         """
+        # Names, rather than class references, keep transition decisions simple
+        # for states that only need to return a string.
         self.states[state.name] = state
 
     def set_state(self, name) -> None:
@@ -69,6 +71,7 @@ class StateMachine:
             KeyError:
                 If ``name`` has not been registered.
         """
+        # Exit and entry hooks run only on a real transition, never once per frame.
         if self.current_state:
             start_exit_action = time.time()
             self.current_state.exit_action(self.ctx)
@@ -105,6 +108,8 @@ class StateMachine:
         # keep latest context
         self.ctx = ctx
         start_do_action = time.time()
+        # Each update advances at most one state. The new state's work begins
+        # with the next synchronized frame, which keeps frame ownership clear.
         next_state_name = self.current_state.do_action(ctx)
         do_action_duration = time.time() - start_do_action
         #print(f"[INFO]     do_action took {do_action_duration:.4f} seconds")

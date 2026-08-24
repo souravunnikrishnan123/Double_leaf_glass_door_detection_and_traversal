@@ -54,6 +54,7 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
     # --- Define ray coordinates ---
     x0, y0 = start_point
     dx, dy = direction_vector
+    # Start one step past the endpoint so the original segment is not duplicated.
     t = np.arange(1, max_steps + 1, dtype=np.float32)
     xs = np.rint(x0 + dx * t).astype(int)
     ys = np.rint(y0 + dy * t).astype(int)
@@ -91,6 +92,7 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
 
 
     # --- Find first deviation beyond threshold ---
+    # The first sustained range change is treated as the end of the same surface.
     deviation = np.abs(smoothed - float(center_depth))
     cond_break = deviation > float(gradient_threshold)
 
@@ -141,6 +143,7 @@ def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, m
     if not lines:
         return [], []
 
+    # Keep depths attached while sorting; the parallel arrays must stay aligned.
     # Sort lines and depths together by average x
     lines_with_depths = sorted(
         zip(lines, depth_of_valid_lines),
@@ -156,6 +159,7 @@ def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, m
         x_avg_cluster = (
             current_cluster[-1][0][0] + current_cluster[-1][1][0]
         ) / 2
+        # Adjacency after sorting is enough for these nearly vertical segments.
         if abs(x_avg - x_avg_cluster) < x_thresh:
             current_cluster.append(line)
             depths_of_lines_in_current_cluster.append(depth)
@@ -180,6 +184,7 @@ def cluster_and_merge_lines(color_image,lines, depth_of_valid_lines, x_thresh, m
         )
         x_avg = int(np.mean(xs))
         y_min, y_max = min(ys), max(ys)
+        # Short clusters are usually texture or sensor noise rather than an upright.
         if abs(y_max - y_min) >= min_merged_line_length:
             merged_lines.append(((x_avg, y_min),(x_avg, y_max)))
             merged_lines_depths.append(float(np.mean(depths)))

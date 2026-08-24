@@ -150,6 +150,7 @@ class DepthDoorDetector:
 
         self.timer.start("depth_based_edge_detection preprocessing")
 
+        # Re-read this value because the plane search can refine it between runs.
         ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance", 2.0)
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
     
@@ -159,12 +160,16 @@ class DepthDoorDetector:
         W = ctx.depth_image_in_meters.shape[1]
 
 
+        # Bilateral smoothing removes speckle without washing out the depth jump
+        # at a real frame edge.
         depth_scaled = self.preprocessor.resize_by_scale(ctx.depth_image_in_meters, self.scale)
         filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)        
         depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel) # Gradient along X (detect vertical edges in depth)
         
         # Apply mask (keep only valid + relevant regions)
         # After computing depth_scaled
+        # Learn the adaptive threshold from the door band only. Background
+        # discontinuities can otherwise dominate its mean and standard deviation.
         mask_ds = (depth_scaled > DEPTH_RANGE[0]) & (depth_scaled < DEPTH_RANGE[1])
         depth_grad_x[~mask_ds] = 0
         valid_grad_vals = depth_grad_x[mask_ds]  #Only gradients at valid depth pixels are used to compute the threshold
@@ -179,6 +184,8 @@ class DepthDoorDetector:
 
         #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
         # but if there are depth hole within the frame, the depth gradient will be high, that case is not covered here
+        # The statistical threshold follows scene noise; this fixed metric gate
+        # separately rejects weak texture within the frame itself.
         physical_mask = (depth_grad_x > self.PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
         depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
 
@@ -201,6 +208,8 @@ class DepthDoorDetector:
                 x1, y1, x2, y2 = line[0]
                 cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
                 # Estimate Z-depth of the line robustly
+                # Sample both sides rather than the edge itself, where depth is
+                # often missing or mixed between foreground and background.
                 line_depth = self.line_filter.get_median_depth_by_roi_around(ctx.depth_image_in_meters, line , self.roi_width_for_depth_estimation)
                 
                 if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
@@ -214,6 +223,8 @@ class DepthDoorDetector:
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
 
+            # Hough often breaks one upright into several short pieces; merging
+            # gives the later pairing stage one candidate per physical edge.
             merged_lines, merged_lines_depths = cluster_and_merge_lines(ctx.color_image_depth_based, valid_lines, depth_of_valid_lines, x_thresh=self.merge_lines["x_threshold_to_merge_lines"], min_merged_line_length = self.merge_lines["MIN_LINE_LENGTH_after_merging"])  # only merging lines that are vertical, valid, and within depth range
 
             self.timer.stop("depth_based_edge_detection line processing")

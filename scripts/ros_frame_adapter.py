@@ -38,6 +38,7 @@ class _Intrinsics:
             ppy:
                 Vertical principal point.
         """
+        # Match pyrealsense2's numeric attributes even when ROS supplies integers.
         self.fx = float(fx)
         self.fy = float(fy)
         self.ppx = float(ppx)
@@ -197,6 +198,8 @@ class DepthFrameAdapter:
         """
         if depth_mm.dtype != np.uint16:
             raise ValueError("depth_mm must be uint16 (millimeters)")
+        # Keep millimetres internally because that is the native RealSense
+        # buffer convention expected by the existing visualization code.
         self._depth_mm = depth_mm
         self._h, self._w = depth_mm.shape
         self._intr = _Intrinsics(fx, fy, cx, cy)
@@ -233,6 +236,7 @@ class DepthFrameAdapter:
         xi = int(x)
         yi = int(y)
         if 0 <= xi < self._w and 0 <= yi < self._h:
+            # get_distance is the one RealSense API that promises metres.
             mm = int(self._depth_mm[yi, xi])
             return float(mm) / 1000.0 if mm > 0 else 0.0
         return 0.0

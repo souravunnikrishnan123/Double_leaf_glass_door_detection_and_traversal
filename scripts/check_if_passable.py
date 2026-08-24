@@ -215,6 +215,8 @@ class Passability_checker:
             floor. When fitting fails, all input points are retained.
         """
         #ransac
+        # Floor is usually the largest horizontal surface in the corridor ROI,
+        # so stop at the first sufficiently supported horizontal fit.
         floor_inliers = None
         for _ in range(self.max_planes):
             if len(points) < self.ransac_n:
@@ -241,6 +243,8 @@ class Passability_checker:
         floor_height = None
         if floor_inliers is not None and floor_inliers.size > 0:
             #take the largest horizontal plane as floor. this is an assumption.
+            # Apply the same mask to XYZ and UV; later visual checks depend on
+            # that one-to-one correspondence.
             keep_mask = np.ones(points.shape[0], dtype=bool)
             keep_mask[floor_inliers] = False
             points_3_nofloor = points[keep_mask]
@@ -300,6 +304,8 @@ class Passability_checker:
         except Exception:
             normals = None
 
+        # On an estimation failure, retaining points is the conservative choice:
+        # it may shorten clearance but will not hide a possible obstacle.
         if normals is None:
             points_4_normal = points
             uv_4_normal = uv
@@ -332,6 +338,8 @@ class Passability_checker:
         try:
             pc_clean = o3d.geometry.PointCloud()
             pc_clean.points = o3d.utility.Vector3dVector(points)
+            # Open3D returns source indices, which lets us filter the paired UVs
+            # without a costly nearest-neighbor rematch.
             pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=self.nb_neighbors, std_ratio=self.std_ratio)
             ind = np.array(ind, dtype=int)
             if ind.size == 0:
@@ -384,6 +392,8 @@ class Passability_checker:
             uv_5_remove_patches = uv
             points_5_remove_patches = points
 
+            # Image components lose roughly stride squared pixels during
+            # subsampling, so scale area thresholds by the same amount.
             area_scale = self.subsample * self.subsample  # compensate for subsampling
             # Depth-aware params
             # be it corridor or local passability check, the depth range is small (like 0.5m for local and 2-3m for corridor). so using min_z and max_z for area scaling.
@@ -404,6 +414,8 @@ class Passability_checker:
             kernel_size = self.subsample
             #“fill” the sparse mask a bit to restore local connectivity  due to subsampling
             #Use subsample itself as the kernel size so it scales automatically
+            # Restore local connectivity only to the size removed by subsampling;
+            # a larger dilation could merge two separate obstacles.
             mask = cv2.dilate(mask, np.ones((kernel_size, kernel_size), np.uint8), iterations=1)
 
             num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
@@ -474,6 +486,8 @@ class Passability_checker:
 
                 #there could be floor noisy points due to reflection which have high z value but small area. so these should be removed.
                 #depths above 3.5m are removed during back projection itself.but there can be noisy floor points with depth less than 3.5m but higher than actual floor depth.
+                # Median absolute deviation is robust to a few reflected depth
+                # samples and exposes components spread implausibly far in Z.
                 z_mad = np.median(np.abs(z_vals - np.median(z_vals)))
                 # need to review if below code is needed or not. because remving points based on  depth variation can cause removal of valid points also.
                 if z_mad > (0.30 + 0.05 * (area_px / 100)):
@@ -599,12 +613,16 @@ class Passability_checker:
 
         
 
+        # A real obstacle should leave a small cluster, not one or two isolated
+        # returns. Once that support exists, the nearest point is the safe bound.
         if len(final_points) > self.minimum_depth_points_after_filtering:
             front_clearance = np.min(final_points[:, 2])
 
         else: # no enough points in corridor after filtering
             # means the the corridor is free of obstacles.because lcoal passabiity and even for corridor passaability check we may not be getting any points in small roi around corridor center.
             # that doesnt mean passabilty is not there. it can be there. so we assume front clearance to be large value like z_max.
+            # A nearly empty, pre-cropped corridor is interpreted as observed clear
+            # space up to the requested range rather than as a zero-distance block.
             front_clearance = z_max
 
         self.timer.stop(f"check_if_passable--> main passability check")

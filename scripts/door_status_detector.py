@@ -84,6 +84,7 @@ class Door_Status_Detector:
         """
         if roi_polygon is None:
             return None
+        # Move outward from the center frame, not merely in a fixed image direction.
         offset = - self.margin if side == "left" else self.margin
         roi_polygon_offset = roi_polygon.copy()
         roi_polygon_offset[:, 0] += offset  # Shift x-coordinates
@@ -140,6 +141,8 @@ class Door_Status_Detector:
         self.timer.start(f"check_side_roi_against_door {self.keyword}")
         H, W = depth_image_in_meters.shape
         
+        # Include everything behind the frame while dropping foreground people
+        # or robot parts that should not decide whether the pane is closed.
         filtered_points, filtered_uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=door_depth * 20, min_depth=door_depth * 0.9, subsample=4, roi_polygon = roi_polygon)
         
         if len(filtered_points) == 0:
@@ -148,10 +151,14 @@ class Door_Status_Detector:
         filtered_points = np.asarray(filtered_points,dtype=np.float32)
         filtered_uv = np.asarray(filtered_uv,dtype=np.float32)
 
+        # A closed pane or frame returns points close to the confirmed door range;
+        # an opening mostly exposes surfaces much farther away.
         close_mask = np.abs(filtered_points[:, 2] - door_depth) <= door_depth * 0.05
         close_points = filtered_points[close_mask]
         close_uv = filtered_uv[close_mask]
 
+        # Range alone can include the floor where it crosses the door plane.
+        # Surface orientation removes that false support.
         #filter out the points from floor using normal calculation. because we only have few points in close_points
         pc_nf = o3d.geometry.PointCloud()
         pc_nf.points = o3d.utility.Vector3dVector(close_points)
@@ -172,6 +179,7 @@ class Door_Status_Detector:
 
             
         #print(len(bottom_points))
+        # Normalize by all sampled ROI points so the threshold is independent of ROI size.
         fraction_close = close_points.shape[0] / filtered_points.shape[0]
 
         #print(f"Fraction close: {fraction_close:.3f}")
@@ -247,6 +255,8 @@ class Door_Status_Detector:
 
         print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
 
+        # Each side is judged independently; the asymmetric cases tell us which
+        # half of the doorway is open.
         #decision
         left_consistent = left_match > self.threshold
         right_consistent = right_match > self.threshold

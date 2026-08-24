@@ -39,6 +39,8 @@ def setup_visualization_mode(enable: bool):
     """
     if enable:
         return
+    # Patch at the OpenCV boundary so the detection code does not need a flag
+    # around every diagnostic drawing call.
     # Patch common drawing APIs to no-op
     cv2.line = _noop
     cv2.circle = _noop
@@ -113,6 +115,8 @@ def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_
     Returns:
         BGR image containing the three horizontally stacked panels.
     """
+    # Use the same three-panel order everywhere; this makes recorded diagnostics
+    # easy to compare frame by frame.
     depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
     target_height, target_width = color_image.shape[:2]
@@ -185,6 +189,7 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
 
     scale_w = screen_width / stacked.shape[1]
     scale_h = screen_height / stacked.shape[0]
+    # Fit inside both screen dimensions without changing image aspect ratio.
     scale_factor = min(scale_w, scale_h)
 
     stacked_resized = cv2.resize(stacked, None, fx=scale_factor, fy=scale_factor)
@@ -219,6 +224,8 @@ def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
         Values outside the requested interval are clipped before conversion.
     """
     # Clip depth image to desired range
+    # Raw adapter data is millimetres even though display limits are configured
+    # in metres.
     depth_scaled = np.clip(depth_image, MIN_DEPTH*1000, MAX_DEPTH*1000)
     # Convert depth to 8-bit for color mapping
     depth_scaled = cv2.convertScaleAbs(depth_scaled, alpha=0.03)

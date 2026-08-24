@@ -47,6 +47,7 @@ MAX_LINES_TO_TRACK = 5  # Keep top N stable lines
 DISTANCE_THRESHOLD = 15  # Pixels for grouping similar lines
 PHYSICAL_GRADIENT_THRESHOLD = 0.25  # in meters 
 # History: store list of detected lines (each as a tuple: (avg_x, points))
+# Keep history bounded; this demo may run for hours against a live camera.
 line_history = deque(maxlen=HISTORY_LENGTH)
 
 pipeline,config,align = setup_realsense_pipeline(bag_file="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_with_flat_wall_on_both_sides.bag")
@@ -62,6 +63,7 @@ try:
         frames = pipeline.wait_for_frames()
 
         # Align depth to color
+        # All of the ROI logic below assumes color and depth share pixel coordinates.
         aligned = align.process(frames)
 
         # Extract depth and color frames
@@ -82,6 +84,8 @@ try:
         depth_sensor = pipeline.get_active_profile().get_device().first_depth_sensor()
 
         # Depth: must convert to float meters
+        # RealSense recordings store integer depth units; the device profile tells
+        # us how to convert those units to the metres used by the geometry code.
         depth_scale = depth_sensor.get_depth_scale()
         depth_image_raw = np.asanyarray(depth_frame.get_data())
         # Convert to meters
@@ -90,6 +94,7 @@ try:
         # Convert colour image to numpy arrays for OpenCV
         #raw color (8-bit RGB values, already fine for OpenCV, no need of any conversion)
         color_image = np.asanyarray(color_frame.get_data())
+        # Each algorithm draws its own overlays, so keep their images independent.
         color_image_for_depth_line = color_image.copy()
         color_image_for_ransac = color_image.copy()
         color_image_for_bev = color_image.copy()
@@ -116,6 +121,8 @@ try:
             distance = result["distance_m"]
             #print(distance)
 
+            # Plane distance is the gate that keeps both Hough branches focused
+            # on the expected doorway rather than unrelated corridor edges.
             # Only proceed if around 2 m (add ± tolerance)
             if abs(distance - 2.0) < 0.3:
 
@@ -130,6 +137,8 @@ try:
                 roi_width=240, margin=10, threshold=0.05, z_door_depth = mean_z_depth_to_frame_based_on_depth_image, plotname = "door_state_based_on_depth_image")
 
 
+                # The full-view bird's-eye result is a useful fallback comparison
+                # against the narrower door-side ROIs.
                 #create BEV of entire view
                 full_image_roi = np.array([[0,0],[color_image.shape[1]-1,0],[color_image.shape[1]-1,color_image.shape[0]-1],[0,color_image.shape[0]-1]])
                 ratio = check_if_passable(depth_image_in_meters, fx, fy, cx, cy, color_image_for_bev, full_image_roi, door_depth = mean_z_depth_to_frame_based_on_color_image, plotname = "full_view_bev")
@@ -154,5 +163,6 @@ try:
 # Stop pipeline and clean up on exit
 # ------------------------------------
 finally:
+    # Camera handles and GUI windows need explicit cleanup on Ctrl-C or errors.
     pipeline.stop()
     cv2.destroyAllWindows()

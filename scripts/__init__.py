@@ -10,6 +10,8 @@ import os as _os
 import sys as _sys
 
 
+# These modules can be imported as a package or launched directly by ROS. The
+# path shim keeps the older direct imports working in both cases.
 # The existing modules use imports such as ``from duration import ...`` because
 # they are also launched directly as ROS scripts. Keep those imports working
 # when a documentation tool loads the files through the package name.
@@ -18,6 +20,8 @@ if _scripts_directory not in _sys.path:
     _sys.path.insert(0, _scripts_directory)
 
 
+# Keep this list explicit: importing every file blindly can start hardware or
+# a long-running processing loop as a side effect.
 # pdoc respects a package's __all__ when discovering submodules. The legacy
 # door_frame_detection script is intentionally omitted because importing it
 # starts the RealSense processing loop. draft.py is an incomplete code fragment

@@ -34,6 +34,8 @@ def update_line_history(filtered_lines, line_history, DISTANCE_THRESHOLD, MAX_LI
     Returns:
         ``None``. History and ``color_image`` are modified in place.
     """
+    # A vertical door edge can be tracked well by horizontal position alone;
+    # keeping the full points is only needed when drawing the latest segment.
     frame_lines = []
     for pts in filtered_lines:
         pts = np.array(pts)  # Convert list of tuples to Nx2 array
@@ -69,6 +71,7 @@ def get_stable_lines(line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK):
         Confidence is the number of lines assigned to a cluster divided by the
         number of frames in history.
     """
+    # Do not call a one- or two-frame flicker stable.
     if len(line_history) < 5:
         return []  # Not enough history
 
@@ -77,6 +80,8 @@ def get_stable_lines(line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK):
     for frame_lines in line_history:
         all_lines.extend(frame_lines)
 
+    # This lightweight greedy clustering is intentional; the history is short
+    # and a full tracking model would add latency without helping vertical edges.
     # Group lines by proximity in X
     clusters = []
     for avg_x, pts in all_lines:
@@ -97,6 +102,7 @@ def get_stable_lines(line_history, DISTANCE_THRESHOLD, MAX_LINES_TO_TRACK):
         frame_counts = set()
         for avg_x, _ in cluster["lines"]:
             frame_counts.add(avg_x)  # Rough frame-based uniqueness
+        # Repeated detections in the same area raise confidence across frames.
         confidence = len(cluster["lines"]) / (len(line_history))  # normalized
         # Take the most recent line points from this cluster
         recent_line = cluster["lines"][-1][1]

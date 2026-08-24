@@ -27,6 +27,7 @@ def extract_roi_corners(roi_polygon):
     if roi.shape[0] < 4:
         return roi.astype(np.int32)
 
+    # The hull removes interior samples and gives polygon approximation a clean boundary.
     # Step 1: Get convex hull (robust to noisy edges)
     hull = cv2.convexHull(roi)
     hull = hull.reshape(-1, 2)
@@ -35,6 +36,7 @@ def extract_roi_corners(roi_polygon):
     peri = cv2.arcLength(hull, True)
     approx = cv2.approxPolyDP(hull, 0.02 * peri, True).reshape(-1, 2)
 
+    # The axis-aligned fallback is less precise but keeps downstream ROI code safe.
     # Fallback: if we didn’t get 4 corners, pick extreme ones
     if approx.shape[0] != 4:
         x, y = hull[:, 0], hull[:, 1]
@@ -143,6 +145,7 @@ def build_side_rect_roi(line_points, side="left", roi_width=40, margin=10, image
     y_min, y_max = int(min(ys)), int(max(ys))
 
 
+    # Leave a margin so frame pixels do not contaminate the side-depth sample.
     if side == "left":
         x1 = x_min - margin - roi_width
         x2 = x_min - margin
@@ -231,6 +234,8 @@ def find_planes(points,
         break
     
     
+    # Remove only the tightly fitted core at first. Boundary points may also
+    # belong to a narrow neighboring plane and deserve another RANSAC pass.
     #to get edge points for the next iteration of RANSAC plane detection
     #It prevents dominant planes (like the floor) from "stealing" all points near boundaries
     inlier_points = remaining_points[inliers]
@@ -254,6 +259,8 @@ def find_planes(points,
     mask[core_inlier_indices] = False  # Remove core inliers
 
 
+    # Camera Y points down and Z points forward, hence floors are Y-normal while
+    # upright surfaces facing the robot are Z-normal.
     # Check if the plane is vertical
     normal = np.array(plane_model[:3])
     normal = normal / np.linalg.norm(normal)
@@ -388,6 +395,8 @@ def check_passable_birdeye(self, points_above_floor,
     if len(roi_points) == 0:
         return 0.0, False, None
 
+    # From here on, height is irrelevant: the remaining obstacle points are
+    # flattened into an X-Z occupancy grid seen from above.
     # 6) Prepare BEV grid sizes
     x = roi_points[:, 0]  # X-axis = horizontal axis (left-right direction relative to camera)
     z = roi_points[:, 2]  # Z-axis = forward direction (depth away from camera)
@@ -411,6 +420,7 @@ def check_passable_birdeye(self, points_above_floor,
     xi = ((x - x_min) / self.grid_res)
     zi = ((z - z_min) / self.grid_res)
 
+    # Flooring gives each continuous coordinate one unambiguous owning cell.
     # floor manually to avoid rounding-up distortions
     xi = np.floor(xi).astype(int)
     zi = np.floor(zi).astype(int)
@@ -428,6 +438,8 @@ def check_passable_birdeye(self, points_above_floor,
     #occ_mask = cv2.dilate(occ_mask, np.ones((3, 3), np.uint8), iterations=1)
     occ_map[occ_mask == 1] = 2  # occupied
 
+    # Only space before the first return is directly observed free. Anything
+    # behind an obstacle remains unknown rather than being treated as clear.
     # 9) Raycast-style free space: for each X column, mark rows from sensor (near) up to nearest occupied as free
     for c in range(x_bins):
         rows = np.flatnonzero(occ_map[:, c] == 2)
@@ -448,6 +460,8 @@ def check_passable_birdeye(self, points_above_floor,
     # 10) Columns considered clear only if they contain no occupied cells anywhere
     free_widths = (np.sum(occ_map == 2, axis=0) == 0).astype(np.uint8)
 
+    # A traversable corridor must be contiguous; summing scattered clear columns
+    # would overstate the width available to the robot.
     # 11) find largest continuous free column run
     max_clear_cells = 0
     current = 0
@@ -566,5 +580,6 @@ class LineExtender:
             gradient_threshold=gradient_threshold,
             window=window,
         )
+        # Reverse the backward ray so the combined samples follow one direction.
         full_segment = extrapolated_backward[::-1] + [start_back, start_fwd] + extrapolated_forward
         return extrapolated_backward, extrapolated_forward, full_segment

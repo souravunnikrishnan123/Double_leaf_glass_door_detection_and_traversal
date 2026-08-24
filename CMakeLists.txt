@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(robodog_glass_door_detection)
 
+# This package is Python-driven, but catkin still owns message generation and
+# installs the main ROS entry point into the workspace's executable path.
+
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
@@ -108,6 +111,7 @@ generate_messages(
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
+  # Downstream nodes need message_runtime to import Robot_passability at runtime.
   CATKIN_DEPENDS rospy std_msgs message_runtime
 #  INCLUDE_DIRS include
 #  LIBRARIES robodog_glass_door_detection
@@ -166,6 +170,7 @@ include_directories(
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
+  # Helper modules are imported from scripts/; main.py is the public catkin entry point.
   scripts/main.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

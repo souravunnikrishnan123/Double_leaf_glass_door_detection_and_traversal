@@ -58,6 +58,8 @@ class dual_branch_frame_detection_state(BaseState):
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
 
         # child current states
+        # Reuse the helpers across frames so ROS parameters and timing state are
+        # not rebuilt in the camera callback.
         self.color_frame_detection_state = ColorDoorDetector()#only need to create state object once.
         self.depth_frame_detection_state = DepthDoorDetector()#only need to create state object once.
         self.glass_frame_detector_based_on_color = GlassFrameLineProcessor("color_based")
@@ -90,6 +92,8 @@ class dual_branch_frame_detection_state(BaseState):
         # get the latest door geometry and distance from ROS params
         # these values are changed during runtime. hence need to load the door geometry and plane distance in this state as well to make sure the latest value is used for detection
 
+        # Plane search can update these measurements after examining the current
+        # doorway, so cached constructor values would quickly become stale.
         self.door_geometry = {
             "glass_width_cm": rospy.get_param("~door_geometry/glass_width_cm", 40),
             "center_frame_width_cm": rospy.get_param("~door_geometry/center_frame_width_cm", 30),
@@ -99,6 +103,8 @@ class dual_branch_frame_detection_state(BaseState):
         ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance", 2.0)
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
 
+        # Keep the two answers independent until fusion; a failure in one branch
+        # should remain visible rather than silently borrowing the other's ROI.
         # Advance color branch
         potential_frame_lines_from_c , depth_of_potential_frame_lines_c, edges_c = self.color_frame_detection_state.process_frame(ctx)
         ctx.edges = edges_c
@@ -163,6 +169,7 @@ class dual_branch_frame_detection_state(BaseState):
         setattr(ctx, "roi_open_side_depth_based", roi_open_side_d)
 
 
+        # Build images even when local windows are disabled; remote ROS tools use them.
         # Build stacked visualizations for publishing
         ctx.viz_color_stack = build_stacked_visualization(
             ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame
@@ -197,7 +204,6 @@ class dual_branch_frame_detection_state(BaseState):
         except Exception as e:
             rospy.logwarn(f"Failed to write door states: {e}")
         return "combine_door_state"
-
 
 
 

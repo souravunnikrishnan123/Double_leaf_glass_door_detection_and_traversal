@@ -52,6 +52,7 @@ class get_duration_seconds():
         Notes:
             Starting an already-active label overwrites its earlier timestamp.
         """
+        # Labels let callers time pipeline stages without holding timer objects.
         get_duration_seconds.start_times[label] = time.time()
 
     def stop(self, label=""):
@@ -71,6 +72,7 @@ class get_duration_seconds():
         """
         if label not in get_duration_seconds.start_times:
             raise ValueError(f"No start time recorded for label '{label}'")
+        # Remove completed starts so a forgotten stop cannot pollute later samples.
         duration = time.time() - get_duration_seconds.start_times[label]
         get_duration_seconds.durations[label].append(duration)
         del get_duration_seconds.start_times[label]
@@ -91,6 +93,7 @@ class get_duration_seconds():
             Moving averages use the samples retained in each five-element
             deque. This method does not clear timing history.
         """
+        # Preserve unknown lines in the file; developers often add their own notes.
         if os.path.exists(get_duration_seconds.file_path):
             with open(get_duration_seconds.file_path,"r") as f:
                 existing_lines = f.readlines()
@@ -101,6 +104,7 @@ class get_duration_seconds():
         
         for label, values in get_duration_seconds.durations.items():
                 if len(values) > 0:
+                    # Five recent samples smooth spikes but still expose a slowdown quickly.
                     moving_avg = sum(values) / len(values)
                     if label in existing_labels:
                         index_of_existing_labels = existing_labels.index(label)

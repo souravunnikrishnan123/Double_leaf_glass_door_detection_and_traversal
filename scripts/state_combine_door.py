@@ -86,6 +86,8 @@ class TemporalSmoother:
             With hysteresis disabled, every sufficiently supported majority
             replaces the current stable label immediately.
         """
+        # Keep raw categorical labels; averaging numeric encodings would invent
+        # states that have no physical meaning.
         # Push new value
         self.buffer.append(label)
 
@@ -115,6 +117,8 @@ class TemporalSmoother:
             self.stable_count = majority_count
             return self.current_stable
 
+        # Hysteresis keeps a single bad depth frame from flipping an already
+        # published navigation decision.
         # Hysteresis: only switch after "stable_hold" confirmations for new candidate
         if candidate == self.current_stable:
             # reinforce stability
@@ -193,6 +197,8 @@ class combine_door_state(BaseState):
         if roi1 is None or roi2 is None:
             return False
 
+        # Raster masks make IoU work for arbitrary quadrilaterals, including
+        # the slanted ROIs produced by perspective.
         cv2.fillPoly(mask1, [roi1.astype(np.int32)], 255)
         cv2.fillPoly(mask2, [roi2.astype(np.int32)], 255)
 
@@ -247,6 +253,8 @@ class combine_door_state(BaseState):
             ``ask_human``, ``door_depth``, and ``reason``.
         """
 
+        # Start conservatively. Every trusted combination below must opt into a
+        # pipeline and a usable door depth.
         # Default result container
         result = dict(final_door_status="unknown", pipeline=None, ask_human=False, door_depth = None, reason="")
 
@@ -415,6 +423,8 @@ class combine_door_state(BaseState):
         """
         self.height, self.width = ctx.color_image_color_based.shape[:2]
 
+        # Label agreement is not enough for an open door: both branches must be
+        # talking about substantially the same image region.
         result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, ctx.door_depth_m_color_based, ctx.door_depth_m_depth_based, iou_threshold=0.5)
 
         # Apply temporal smoothing on final label
@@ -432,6 +442,8 @@ class combine_door_state(BaseState):
         ctx.door_depth = result["door_depth"]
         pipeline_used = result["pipeline"]
 
+        # Use an inner-edge percentile rather than a single polygon vertex; small
+        # ROI rotations then have little effect on the corridor anchor.
         if smoothed_door_state == "open_left":
             roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
             ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 95)  # get the max x position of the open side roi polygon, to find the center of the central frame
@@ -448,4 +460,3 @@ class combine_door_state(BaseState):
             ctx.mid_frame_x_px_for_passability_check = None
             #loop back to parallel detection, because still need to monitor for door opening
             return "dual_branch_frame_detection_state"
-

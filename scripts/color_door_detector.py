@@ -129,6 +129,8 @@ class ColorDoorDetector:
             depth-consistent lines in cyan on ``ctx.color_image_color_based``.
         """
         self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
+        # The plane detector is the range gate for this branch. Without it,
+        # vertical edges from walls and furniture would look like frame pieces.
         ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance")
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
  
@@ -139,6 +141,8 @@ class ColorDoorDetector:
         W = ctx.color_image_color_based.shape[1]
 
 
+        # Edge extraction may run on a smaller image, but all returned lines are
+        # restored to full resolution before they are paired with depth pixels.
         color_image_scaled = self.preprocessor.resize_by_scale(ctx.color_image_color_based, self.scale)
         filtered_grey_image = self.preprocessor.gaussian_blur_filter(color_image_scaled, self.blur)
         edges_scaled = self.edge_detector.canny_edge_detection(filtered_grey_image, self.canny)
@@ -157,10 +161,13 @@ class ColorDoorDetector:
             for line in color_lines:
                 x1, y1, x2, y2 = line[0]
                 cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
+                # Median depth tolerates the holes and bright outliers commonly
+                # produced when the sensor looks through or reflects from glass.
                 # Estimate Z-depth of the line robustly
                 line_depth = self.line_filter.get_median_depth_along_line(ctx.depth_image_in_meters, line , self.min_num_of_valid_depths_for_depth_estimation)
                 # Compute median depth
                 
+                # A strong RGB edge is useful only if it belongs to the door's range band.
                 if not self.line_filter.is_depth_valid(line_depth, DEPTH_RANGE):
                     continue  # skip invalid depth lines
 

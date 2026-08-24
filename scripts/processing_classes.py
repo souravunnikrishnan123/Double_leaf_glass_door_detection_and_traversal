@@ -55,6 +55,8 @@ class Preprocessor:
                 If the image format is unsupported or the configured kernel is
                 invalid.
         """
+        # Equalization helps the same Canny settings work in bright corridors
+        # and in the darker patches reflected by a glass pane.
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         contrast = cv2.equalizeHist(gray)
         k = int(blur_cfg.get("ksize", 3))
@@ -145,6 +147,7 @@ class LineFilter:
         y1_np = lines[:, 0, 1]
         x2_np = lines[:, 0, 2]
         y2_np = lines[:, 0, 3]
+        # abs(cos(theta)) approaches zero as a line approaches vertical.
         angles = np.arctan2(y2_np - y1_np, x2_np - x1_np)
         vertical_mask = (np.abs(np.cos(angles)) < angle_threshold)
         return lines[vertical_mask]
@@ -196,6 +199,8 @@ class LineFilter:
         H, W = depth_image_in_meters.shape
 
 
+        # One sample per pixel of line length gives even coverage for both
+        # short and long segments without favoring either endpoint.
         t = np.linspace(0, 1, num_samples, dtype=np.float32)
         xs = np.rint(x1 + (x2 - x1) * t).astype(int)
         ys = np.rint(y1 + (y2 - y1) * t).astype(int)
@@ -265,6 +270,8 @@ class LineFilter:
         x_right_roi_end = min(W, x_center + roi_width + 1)
 
         # List to store valid Z-depths for each ROI
+        # The two strips deliberately exclude the line column, where interpolation
+        # between surfaces tends to produce unreliable depth.
         z_depths1 = depth_image_in_meters[ys, x_left_roi_start:x_left_roi_end] if x_left_roi_end > x_left_roi_start else np.empty((0, 0), dtype=np.float32)
         z_depths2 = depth_image_in_meters[ys, x_right_roi_start:x_right_roi_end] if x_right_roi_end > x_right_roi_start else np.empty((0, 0), dtype=np.float32)   
 
@@ -287,6 +294,8 @@ class LineFilter:
         elif med_z_depth2 == 0:
             return med_z_depth1
         else:
+            # Prefer the nearer surface; a frame edge can border an opening whose
+            # background is much farther away than the frame itself.
             return min(med_z_depth1, med_z_depth2)
 
 
@@ -315,6 +324,7 @@ class EdgeDetector:
         Returns:
             Binary uint8 Canny edge image.
         """
+        # A sparse sample is plenty for a global median and saves work at camera rate.
         median_val = np.median(filtered[::4, ::4])
         lf = float(canny_cfg.get("lower_factor", 0.7))
         uf = float(canny_cfg.get("upper_factor", 2.0))
@@ -373,6 +383,7 @@ class EdgeDetector:
         k_factor = float(adaptive_cfg.get("k_factor", 2.0))
         fallback = float(adaptive_cfg.get("fallback_threshold", 0.1))
 
+        # Scene-adaptive thresholds follow sensor noise as range and lighting change.
         if len(valid_grad_vals) > 0:
             mean_val = np.mean(valid_grad_vals)
             std_val = np.std(valid_grad_vals)
@@ -437,6 +448,8 @@ class HoughPLineDetector:
             minLineLength=int(base_min_len * scale),
             maxLineGap=int(base_max_gap * scale),
         )
+        # Downstream geometry always uses original-image coordinates, regardless
+        # of the scale chosen for the expensive edge detector.
         if lines is not None and len(lines) > 0:
             # bring back to original scale
             lines[..., :4] = np.rint(lines[..., :4] / scale).astype(np.int32)
@@ -513,6 +526,7 @@ def backproject_depth_to_points(
         & (depth_image_in_meters < max_depth)
     )
 
+    # Preserve uv and point ordering; several later filters use one mask on both.
     ys, xs = np.where(valid_mask)
     if subsample > 1:
         ys = ys[::subsample]
@@ -522,12 +536,12 @@ def backproject_depth_to_points(
     xs_f = xs.astype(np.float32)
     ys_f = ys.astype(np.float32)
 
+    # Standard pinhole backprojection in the optical camera frame.
     Xs = (xs_f - cx) * zs / fx
     Ys = (ys_f - cy) * zs / fy
     points = np.stack([Xs, Ys, zs], axis=-1)
     uv = np.stack([xs, ys], axis=-1)
 
     return points, uv, valid_mask
-
 
 

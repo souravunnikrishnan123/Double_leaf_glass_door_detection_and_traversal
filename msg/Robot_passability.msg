@@ -1,18 +1,20 @@
 # Robot Sensing and Passability Data
 
-# Front distance information
+# Nearest filtered obstacle along the requested corridor, in metres.
 float64 front_clearance
 
-# Corridor center coordinates in different frames
+# Lateral center error in the fixed yaw frame used when this corridor was defined.
 float64 x_corridor_center_start_yaw_frame
+# Lateral center coordinate in the current optical camera frame, in metres.
 float64 x_corridor_center_cam
 
-# Passability check type (1: corridor, 2: local)
+# 1 checks the stored door corridor; 2 checks short-range space ahead of the robot.
 int32 type_of_passability_check
 
-# Depth and clearance measurements
+# Signed forward distance from the robot to the corridor midpoint, in metres.
 float64 corridor_middle_point_depth
+# Extra clear distance required beyond that midpoint before traversal is allowed.
 float64 clearance_needed_beyond_mid_corridor
 
-#heading
-float64 heading_error 
+# Signed angle from the robot heading to the corridor axis, in radians.
+float64 heading_error

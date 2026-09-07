@@ -4,6 +4,9 @@
   <version>0.0.0</version>
   <description>The robodog_glass_door_detection package</description>
 
+  <!-- Runtime nodes combine ROS image transport with OpenCV conversion and
+       generate Robot_passability for the traversal controller. -->
+
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
   <!-- <maintainer email="jane.doe@example.com">Jane Doe</maintainer> -->
@@ -49,6 +52,8 @@
   <!-- Use doc_depend for packages you need only for building documentation: -->
   <!--   <doc_depend>doxygen</doc_depend> -->
   <buildtool_depend>catkin</buildtool_depend>
+  <!-- message_generation is build-time only; message_runtime exposes the
+       generated Python class after the workspace has been built. -->
   <build_depend>geometry_msgs</build_depend>
   <build_depend>rospy</build_depend>
   <build_depend>sensor_msgs</build_depend>

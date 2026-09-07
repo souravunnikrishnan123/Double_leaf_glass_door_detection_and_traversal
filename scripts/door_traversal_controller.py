@@ -277,17 +277,17 @@ class DoorTraversalController:
         self.movement_is_started = False
 
         rospy.Subscriber(
-            "/check_if_corridor_is_passable/trigger_traversal_node", Bool, self.trigger_traversal_node_callback
+            "/check_if_passable/trigger_traversal_node", Bool, self.trigger_traversal_node_callback
         )
 
         rospy.Subscriber(
-            "/check_if_corridor_is_passable/virtual_corridor_definition_finished", Bool, self.virtual_corridor_definition_finished_callback
+            "/check_if_passable/virtual_corridor_definition_finished", Bool, self.virtual_corridor_definition_finished_callback
         )
 
 
         #  passability results
         rospy.Subscriber(
-            "/check_if_corridor_is_passable/door_passability", Robot_passability, self.passability_callback
+            "/check_if_passable/door_passability", Robot_passability, self.passability_callback
         )
 
         # odometry

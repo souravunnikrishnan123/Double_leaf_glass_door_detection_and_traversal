@@ -6,6 +6,16 @@ aligned depth into the robot frame, defines either a frame-anchored or virtual
 corridor, updates that corridor from odometry, and publishes clearance and
 heading information to the traversal controller.
 """
+import os
+import sys
+
+import rospkg
+
+# Ensure Python can import modules from this package's scripts directory
+_pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
+_scripts_path = os.path.join(_pkg_path, 'scripts')
+if _scripts_path not in sys.path:
+    sys.path.insert(0, _scripts_path)
 
 from check_if_passable import Passability_checker
 from duration import get_duration_seconds

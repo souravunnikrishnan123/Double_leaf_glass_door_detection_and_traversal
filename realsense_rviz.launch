@@ -1,5 +1,7 @@
 <launch>
   <!-- Launch RealSense camera node -->
+  <!-- Matching color/depth dimensions are important because detector ROIs use
+       aligned pixel coordinates across both streams. -->
   <include file="$(find realsense2_camera)/launch/rs_camera.launch">
     <arg name="enable_pointcloud" value="true"/>
     <arg name="enable_sync" value="true"/>
@@ -14,8 +16,8 @@
     <arg name="initial_reset" value="true"/>
   </include>
 
+  <!-- This RViz instance is diagnostic only; the detector does not depend on it. -->
   <!-- Launch RViz with RealSense config (optional) -->
   <node name="rviz" pkg="rviz" type="rviz" output="screen"
         args="-d $(find realsense2_camera)/rviz/rs_camera.rviz" />
 </launch>
-

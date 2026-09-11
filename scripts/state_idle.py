@@ -27,7 +27,10 @@ class idle_state(BaseState):
             Per-cycle data is reset by the surrounding state-machine workflow;
             construction only assigns the state name.
         """
+        self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
         super().__init__("idle_state")
+        self.door_state_log_path = rospy.get_param("~result_log_path")+"/door_states.txt"  # Path to log file for door states
+        self.smoothed_door_state_log_path = rospy.get_param("~result_log_path")+"/final_door_status_after_temporal_smoothing.txt"  # Path to log file for smoothed door states
 
     def do_action(self, ctx: FrameContext):
         """
@@ -50,15 +53,12 @@ class idle_state(BaseState):
             This method currently rewrites the two log headers on every idle
             frame, not only when the state is first entered.
         """
-        pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
-        log_dir = os.path.join(pkg_path, 'scripts')
-        os.makedirs(log_dir, exist_ok=True)
-        door_state_file_path = os.path.join(log_dir, 'door_states.txt')
-        final_door_status_file_path = os.path.join(log_dir, 'final_door_status_after_temporal_smoothing.txt')
-        with open(door_state_file_path, "w") as f:
-            f.write(f"Logging door state by detection algorithm\n")
-        with open(final_door_status_file_path, "w") as f:
-            f.write(f"Logging smoothed_door_state after temporal smoothing\n")
+        if self.enable_result_log:
+            # Clear old log output for this run
+            with open(self.door_state_log_path, "w") as f:
+                f.write(f"Logging door state by detection algorithm\n")
+            with open(self.smoothed_door_state_log_path, "w") as f:
+                f.write(f"Logging smoothed_door_state after temporal smoothing\n")
         
         # Consume-style triggering is handled by the surrounding controller;
         # this state only decides when a new detection run may begin.

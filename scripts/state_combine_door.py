@@ -168,6 +168,8 @@ class combine_door_state(BaseState):
         self.width = 0
         # Temporal smoothing parameters can be tuned here
         self.smoother = TemporalSmoother(window_size=8, min_consistent=3, hysteresis=True, stable_hold=2)
+        self.smoothed_door_state_log_path = rospy.get_param("~result_log_path")+"/final_door_status_after_temporal_smoothing.txt"  # Path to log file for smoothed door states
+        self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
 
     def rois_match(self, roi1, roi2, iou_threshold):
         """
@@ -430,11 +432,8 @@ class combine_door_state(BaseState):
         # Apply temporal smoothing on final label
         smoothed_door_state = self.smoother.update(result["final_door_status"])
 
-        pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
-        log_dir = os.path.join(pkg_path, 'scripts')
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, 'final_door_status_after_temporal_smoothing.txt')
-        with open(log_path, "a") as f:
+        if self.enable_result_log:
+            with open(self.smoothed_door_state_log_path, "a") as f:
                 f.write(f"smoothed_door_state: {smoothed_door_state}\n")
 
 

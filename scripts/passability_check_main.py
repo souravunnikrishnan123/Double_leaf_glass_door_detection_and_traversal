@@ -108,6 +108,7 @@ class PassabilityCheckerNode:
         self.color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         self.depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
+        self.profile_enabled = rospy.get_param("~profiling_enabled", False)
         self.bridge = CvBridge()
         ns = "~passabilility_check"
         # ---- State ----
@@ -381,9 +382,10 @@ class PassabilityCheckerNode:
         """
         # The two failure labels are accepted because a fully open doorway may
         # provide no pane or center frame even though free space is visible.
+        
         if msg.data in ["open_left", "open_right", "No_door_plane_detected", "no_frame_detected"]: # one time activation on these states
             if not self.active:
-                rospy.loginfo("PassabilityChecker: activated")
+                rospy.loginfo("PassabilityChecker: activated and door status is %s", msg.data)
                 self.active = True
                 #to create subscriptions
                 self.activate_camera()
@@ -1616,8 +1618,8 @@ class PassabilityCheckerNode:
                 #in local passability check we do not trigger traversal node, because it is already triggered in corridor passability check which will execute first
 
                              
-
-            get_duration_seconds.write_text_file()
+            if self.profile_enabled:
+                get_duration_seconds.write_text_file()
 
 
             self.trigger_traversal_node_pub.publish(Bool(data=self.trigger_traversal_node))

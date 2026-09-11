@@ -12,6 +12,7 @@ from std_msgs.msg import String, Float32, Int32
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
+from pyinstrument import Profiler
 import message_filters
 import os
 import sys
@@ -114,6 +115,15 @@ class DoorDetectionNode:
             Camera intrinsics are received separately from the synchronized
             color/depth pair and must arrive before frame processing can begin.
         """
+        # --- profiling setup ---
+        self.profile_enabled = rospy.get_param("~profiling_enabled", False)
+        self.profiler_output_path = rospy.get_param("~profiler_output_path")
+        self.profiler = Profiler(interval=0.001)
+        self.profile_frame_count = 0
+        self.profile_frames = 50          # captures 10 synchronized frames then saves
+        self.profile_done = False
+        if self.profile_enabled:
+            rospy.on_shutdown(self._save_profile)
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
@@ -174,7 +184,13 @@ class DoorDetectionNode:
         )
         ats.registerCallback(self.callback)
 
+    def _save_profile(self):
+        if self.profiler.is_running:
+            self.profiler.stop()
 
+        with open(self.profiler_output_path, "w") as f:
+            f.write(self.profiler.output_html())
+        rospy.loginfo("[Profiler] Saved to %s", self.profiler_output_path)
 
 
     def _to_cv_color(self, color_msg: Image) -> np.ndarray:
@@ -307,6 +323,12 @@ class DoorDetectionNode:
             diagnostics. Missing scalar results are not published, while a
             missing door label is published as ``"unknown"``.
         """
+
+        # --- ADD: profiler start on first frame ---
+        if self.profile_enabled and not self.profile_done:
+            if self.profile_frame_count == 0:
+                self.profiler.start()
+
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
@@ -350,7 +372,17 @@ class DoorDetectionNode:
         #write durations to file once per callback.
         # file is overwritten each time.filepath is specified by ROS param ~durations_file_path and read by duration.py 
         #when we create get_duration_seconds object in each usage
-        get_duration_seconds.write_text_file()
+        if self.profile_enabled:
+            get_duration_seconds.write_text_file()
+        # --- ADD: profiler stop after N frames ---
+        if self.profile_enabled and not self.profile_done:
+            rospy.loginfo("[Profiler] Frame %d captured", self.profile_frame_count)
+            self.profile_frame_count += 1
+            if self.profile_frame_count >= self.profile_frames:
+                self.profiler.stop()
+                self.profile_done = True
+                self._save_profile()
+                rospy.loginfo("[Profiler] Done — 50 frames captured.")
 
        
 
@@ -400,12 +432,6 @@ class DoorDetectionNode:
 
         self.plane_info_pub.publish(msg)
 
-        
-
-                
-                
-
-
         # Visualization failures must never stop the navigation-facing outputs above.
         # Publish visualizations
         try:
@@ -425,6 +451,7 @@ class DoorDetectionNode:
             rospy.logdebug(f"Viz publish exception: {e}")
 
         #cv2.waitKey(1)
+
 
 def main():
     """

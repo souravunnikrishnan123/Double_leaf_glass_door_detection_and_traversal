@@ -56,7 +56,7 @@ class dual_branch_frame_detection_state(BaseState):
         """
         super().__init__("dual_branch_frame_detection_state")
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
-
+        self.door_state_log_path = rospy.get_param("~result_log_path")+"/door_states.txt"  # Path to log file for door states
         # child current states
         # Reuse the helpers across frames so ROS parameters and timing state are
         # not rebuilt in the camera callback.
@@ -66,10 +66,8 @@ class dual_branch_frame_detection_state(BaseState):
         self.glass_frame_detector_based_on_depth = GlassFrameLineProcessor("depth_based")
         self.detecting_door_status_based_on_color = Door_Status_Detector("color_based")
         self.detecting_door_status_based_on_depth = Door_Status_Detector("depth_based")
-
-
-
-
+        self.enable_windows = rospy.get_param("~enable_visualization", False)
+        self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
         """
@@ -168,41 +166,30 @@ class dual_branch_frame_detection_state(BaseState):
         setattr(ctx, "door_state_depth_based", door_state_d)
         setattr(ctx, "roi_open_side_depth_based", roi_open_side_d)
 
-
-        # Build images even when local windows are disabled; remote ROS tools use them.
-        # Build stacked visualizations for publishing
-        ctx.viz_color_stack = build_stacked_visualization(
-            ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame
-        )
-
-        ctx.viz_depth_stack = build_stacked_visualization(
-            ctx.color_image_depth_based, MIN_DEPTH=1.9, MAX_DEPTH=2.1, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
-        )
-
-
         # Optional window display controlled by param
-        if rospy.get_param("~enable_windows", False):
+        if self.enable_windows:
+            # Build images even when local windows are disabled; remote ROS tools use them.
+            # Build stacked visualizations for publishing
+            ctx.viz_color_stack = build_stacked_visualization(
+                ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame
+            )
+
+            ctx.viz_depth_stack = build_stacked_visualization(
+                ctx.color_image_depth_based, MIN_DEPTH=1.9, MAX_DEPTH=2.1, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
+            )
+
             show_stacked_visualization(
                 ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame, window_name="Color | Depth | Edges+ Lines"
             )
             show_stacked_visualization(
                 ctx.color_image_depth_based, MIN_DEPTH=1.8, MAX_DEPTH=2.5, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame, window_name="depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
             )
+
         # Persist latest states to a text log for debugging/analysis
-
-        try:
-            # Resolve package path dynamically to avoid hard-coded container paths
-            pkg_path = rospkg.RosPack().get_path('robodog_glass_door_detection')
-            log_dir = os.path.join(pkg_path, 'scripts')
-            os.makedirs(log_dir, exist_ok=True)
-            log_path = os.path.join(log_dir, 'door_states.txt')
-
-
-            with open(log_path, "a") as f:
+        if self.enable_result_log:
+            with open(self.door_state_log_path, "a") as f:
                 f.write(f"Color-based door state: {door_state_c}, Depth-based door state: {door_state_d}\n")
 
-        except Exception as e:
-            rospy.logwarn(f"Failed to write door states: {e}")
         return "combine_door_state"
 
 

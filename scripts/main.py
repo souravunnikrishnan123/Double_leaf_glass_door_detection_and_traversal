@@ -38,6 +38,7 @@ from state_full_image_passability_check import full_image_passability_check_stat
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode
 from std_msgs.msg import Bool
+import threading
 
 
 class DoorDetectionNode:
@@ -118,18 +119,20 @@ class DoorDetectionNode:
         # --- profiling setup ---
         self.profile_enabled = rospy.get_param("~profiling_enabled", False)
         self.profiler_output_path = rospy.get_param("~profiler_output_path")
-        self.profiler = Profiler(interval=0.001)
         self.profile_frame_count = 0
         self.profile_frames = 50          # captures 10 synchronized frames then saves
         self.profile_done = False
         if self.profile_enabled:
-            rospy.on_shutdown(self._save_profile)
+            self.profiler = Profiler()
+            rospy.on_shutdown(self._save_profile)  # runs on main thread
+                 
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
         depth_topic = rospy.get_param("~depth_topic", "/camera/aligned_depth_to_color/image_raw")
         info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         queue_size = rospy.get_param("~queue_size", 30)
         slop = rospy.get_param("~sync_slop", 0.2)
+        self.sync_count = 0
 
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
@@ -184,10 +187,8 @@ class DoorDetectionNode:
         )
         ats.registerCallback(self.callback)
 
-    def _save_profile(self):
-        if self.profiler.is_running:
-            self.profiler.stop()
 
+    def _save_profile(self):
         with open(self.profiler_output_path, "w") as f:
             f.write(self.profiler.output_html())
         rospy.loginfo("[Profiler] Saved to %s", self.profiler_output_path)
@@ -323,12 +324,15 @@ class DoorDetectionNode:
             diagnostics. Missing scalar results are not published, while a
             missing door label is published as ``"unknown"``.
         """
-
-        # --- ADD: profiler start on first frame ---
-        if self.profile_enabled and not self.profile_done:
-            if self.profile_frame_count == 0:
-                self.profiler.start()
-
+        self.sync_count += 1
+        rospy.loginfo(
+            "pair=%d color=%.6f depth=%.6f delta=%.6f thread=%s",
+            self.sync_count,
+            color_msg.header.stamp.to_sec(),
+            depth_msg.header.stamp.to_sec(),
+            abs((color_msg.header.stamp - depth_msg.header.stamp).to_sec()),
+            threading.current_thread().name,
+        )
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
@@ -379,9 +383,7 @@ class DoorDetectionNode:
             rospy.loginfo("[Profiler] Frame %d captured", self.profile_frame_count)
             self.profile_frame_count += 1
             if self.profile_frame_count >= self.profile_frames:
-                self.profiler.stop()
                 self.profile_done = True
-                self._save_profile()
                 rospy.loginfo("[Profiler] Done — 50 frames captured.")
 
        

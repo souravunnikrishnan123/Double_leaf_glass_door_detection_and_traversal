@@ -455,7 +455,7 @@ class combine_door_state(BaseState):
             ctx.mid_frame_x_px_for_passability_check = None
             return "full_image_passability_check_state"  # go to a state that directly check the passability with full image and depth without relying on mid frame door detection, because no mid frame door detected
         else:
-            #door state is either closed, unknown or no_frame_detected
+            #door state is either closed, unknown 
             ctx.mid_frame_x_px_for_passability_check = None
             #loop back to parallel detection, because still need to monitor for door opening
             return "dual_branch_frame_detection_state"

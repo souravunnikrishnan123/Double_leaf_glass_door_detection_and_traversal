@@ -8,6 +8,55 @@ import open3d as o3d
 from duration import get_duration_seconds
 
 
+def grouped_median(values, group_index, num_groups):
+    """
+    Median of ``values`` within each group, ignoring NaN entries.
+
+    Computing medians with one pass per group costs one full-length scan per
+    group. Sorting by ``(group, value)`` once instead makes every group a
+    contiguous slice, so all medians come from a single ordering.
+
+    Args:
+        values:
+            Flat array of samples.
+
+        group_index:
+            Group label per sample, in ``[0, num_groups)``.
+
+        num_groups:
+            Total number of groups.
+
+    Returns:
+        Tuple ``(medians, counts)``. ``counts`` gives the number of non-NaN
+        samples per group; ``medians`` is NaN wherever that count is zero.
+
+    Notes:
+        Matches ``numpy.median`` semantics, averaging the two central samples
+        when a group has an even number of values.
+    """
+    finite = ~np.isnan(values)
+    vals = values[finite]
+    groups = group_index[finite]
+
+    counts = np.bincount(groups, minlength=num_groups)
+    medians = np.full(num_groups, np.nan, dtype=np.float64)
+    if vals.size == 0:
+        return medians, counts
+
+    # Primary key is the group, secondary key the value, so each group occupies
+    # a sorted contiguous run.
+    order = np.lexsort((vals, groups))
+    sorted_vals = vals[order]
+
+    starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
+    non_empty = counts > 0
+    # For an even count the median averages the two central samples; for an odd
+    # count both indices coincide on the single central sample.
+    lo = starts[non_empty] + (counts[non_empty] - 1) // 2
+    hi = starts[non_empty] + counts[non_empty] // 2
+    medians[non_empty] = 0.5 * (sorted_vals[lo] + sorted_vals[hi])
+    return medians, counts
+
 
 class Passability_checker:
     """
@@ -140,6 +189,10 @@ class Passability_checker:
         
         self.minimum_depth_points_after_filtering = rospy.get_param(f"{ns}/traversal_params/minimum_depth_points_after_filtering", 20)  # points
 
+        # Diagnostic overlays are six scatter writes over the full point set, so
+        # they are skipped entirely unless diagnostics are requested.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
+
         # duration timer
         self.timer = get_duration_seconds()
 
@@ -218,12 +271,16 @@ class Passability_checker:
         # Floor is usually the largest horizontal surface in the corridor ROI,
         # so stop at the first sufficiently supported horizontal fit.
         floor_inliers = None
+        # Index of each remaining point in the original array, so inliers found
+        # after peeling can still be reported in the caller's coordinates.
+        remaining_idx = np.arange(points.shape[0], dtype=np.intp)
+        remaining_points = points
         for _ in range(self.max_planes):
-            if len(points) < self.ransac_n:
+            if remaining_points.shape[0] < self.ransac_n:
                 break
 
             pc = o3d.geometry.PointCloud()
-            pc.points = o3d.utility.Vector3dVector(points)
+            pc.points = o3d.utility.Vector3dVector(remaining_points)
             plane_model, inliers = pc.segment_plane(
                 distance_threshold=self.distance_threshold,
                 ransac_n=self.ransac_n,
@@ -232,13 +289,21 @@ class Passability_checker:
             if len(inliers) < self.min_inliers:
                 break
 
-            a, b, c, d = plane_model
+            inliers = np.asarray(inliers, dtype=np.intp)
             # Check if the plane is horizontal
-            normal = np.array(plane_model[:3])
+            normal = np.asarray(plane_model[:3], dtype=np.float64)
             normal = normal / np.linalg.norm(normal)
             if abs(abs(normal[1]) - 1.0) < self.horizontal_tol:
-                floor_inliers = np.array(inliers, dtype=int)
+                floor_inliers = remaining_idx[inliers]
                 break
+
+            # The dominant plane was not the floor. Remove it before retrying;
+            # without this the next pass would re-fit the identical cloud and
+            # simply re-find the same plane at full RANSAC cost.
+            keep = np.ones(remaining_points.shape[0], dtype=bool)
+            keep[inliers] = False
+            remaining_points = remaining_points[keep]
+            remaining_idx = remaining_idx[keep]
 
         floor_height = None
         if floor_inliers is not None and floor_inliers.size > 0:
@@ -255,10 +320,9 @@ class Passability_checker:
             uv_3_nofloor = uv
 
         if floor_height is None:
-            print("Detected floor height: None (RANSAC failed)")
+            rospy.logdebug("Detected floor height: None (RANSAC failed)")
         else:
-            print(f"Detected floor height at y={floor_height:.3f} meters")
-            pass
+            rospy.logdebug("Detected floor height at y=%.3f meters", floor_height)
         """
         mask_below_robot_eye_level_for_floor_points_removal = points[:,1] > self.robot_eye_level_y  # keep points above -0.1m (assuming camera is mounted at ~0.5-0.6m height)
         
@@ -340,8 +404,10 @@ class Passability_checker:
             pc_clean.points = o3d.utility.Vector3dVector(points)
             # Open3D returns source indices, which lets us filter the paired UVs
             # without a costly nearest-neighbor rematch.
-            pc_filtered, ind = pc_clean.remove_statistical_outlier(nb_neighbors=self.nb_neighbors, std_ratio=self.std_ratio)
-            ind = np.array(ind, dtype=int)
+            _, ind = pc_clean.remove_statistical_outlier(nb_neighbors=self.nb_neighbors, std_ratio=self.std_ratio)
+            # asarray avoids the guaranteed copy np.array makes, and intp is the
+            # native index width (int is only 32-bit on 32-bit ARM builds).
+            ind = np.asarray(ind, dtype=np.intp)
             if ind.size == 0:
                 return np.empty((0, 3)), np.empty((0, 2))
             points_2_3d_outlier_removal = points[ind]
@@ -423,81 +489,56 @@ class Passability_checker:
             if num <= 1:
                 return np.empty((0, 3)), np.empty((0, 2))
 
-            # Vectorized mapping: label lookup per UV pixel
-            lbl_values = labels[
-                np.clip(uv_int[valid_uv, 1], 0, H - 1),
-                np.clip(uv_int[valid_uv, 0], 0, W - 1)
-            ]
+            # Vectorized mapping: label lookup per UV pixel. valid_uv already
+            # restricted the indices to the image, so no clipping is required.
+            lbl_values = labels[uv_int[valid_uv, 1], uv_int[valid_uv, 0]]
 
-            # Filter out background (label 0)
+            # Filter out background (label 0). Combining the two selections into a
+            # single index array avoids materializing an intermediate copy of both
+            # uv and points.
             valid_labels = lbl_values > 0
             lbl_values = lbl_values[valid_labels]
-            uv_valid = uv[valid_uv][valid_labels]
-            pts_valid = points[valid_uv][valid_labels]
+            selected = np.flatnonzero(valid_uv)[valid_labels]
+            uv_valid = uv[selected]
+            pts_valid = points[selected]
 
             # Precompute per-component area and median depth
             unique_lbls, inverse_idx = np.unique(lbl_values, return_inverse=True)
             areas = stats[unique_lbls, cv2.CC_STAT_AREA]
 
-            keep_mask = np.zeros(len(lbl_values), dtype=bool)
+            # Component statistics are evaluated for every component at once.
+            # Testing them one component at a time costs a full-length scan per
+            # component, which dominates on frames with many reflection patches.
+            num_groups = unique_lbls.size
+            z_all = pts_valid[:, 2]
+            y_all = pts_valid[:, 1]
 
-            for i, lbl in enumerate(unique_lbls):
-                """
-                ####        visualization of connected components   #####
-                # Create mask for this component
-                comp_mask = (labels == lbl).astype(np.uint8)
+            z_med, z_count = grouped_median(z_all, inverse_idx, num_groups)
+            y_med, y_count = grouped_median(y_all, inverse_idx, num_groups)
 
-                # Create a visualization copy
-                vis = color_image.copy()
+            #there could be floor noisy points due to reflection which have high z value but small area. so these should be removed.
+            #depths above 3.5m are removed during back projection itself.but there can be noisy floor points with depth less than 3.5m but higher than actual floor depth.
+            # Median absolute deviation is robust to a few reflected depth
+            # samples and exposes components spread implausibly far in Z.
+            # Deviations inherit NaN from the samples, so they drop out exactly as
+            # they do in the median above.
+            z_deviation = np.abs(z_all - z_med[inverse_idx])
+            z_mad, _ = grouped_median(z_deviation, inverse_idx, num_groups)
 
-                # Colorize the component (green overlay)
-                vis[comp_mask == 1] = (0, 0, 255)   # set component pixels to red
+            # A component survives only if it has usable depth and height samples,
+            # sits at or below the floor-relative height limit, has coherent depth,
+            # and is large enough for its range band.
+            keep_group = (z_count > 0) & (y_count > 0)
+            if floor_height is not None:
+                keep_group &= ~(y_med > floor_height + 0.1)
+            # need to review if below code is needed or not. because remving points based on  depth variation can cause removal of valid points also.
+            keep_group &= ~(z_mad > (0.30 + 0.05 * (areas / 100)))
+            #area_thresh = base_area_at_1m / (z_eff * z_eff)
+            #using above line will not remove patches due to floor reflection. the points in floor near to robot will have high z_eff which will make area_thresh small and hence these patches will be kept instead of removing them.
+            #so use minimum_area_far as threshold for far points.
+            keep_group &= ((z_med < self.near_z) & (areas >= min_area_near)) | (areas >= minimum_area_far)
 
-                # Optionally, dim background to highlight the component better
-                background_mask = (comp_mask == 0)
-                vis[background_mask] = (vis[background_mask] * 0.3).astype(np.uint8)
-
-                # Add label text
-                x, y, w, h, area = stats[lbl]
-                cv2.putText(vis, f"ID:{lbl}, area:{area}", (x, y - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-
-                cv2.imshow(f"Component {lbl}", vis)
-                ####    visualization of connected components  end  ####    
-                """
-
-                label_mask = inverse_idx == i
-                area_px = areas[i]
-                z_vals = pts_valid[label_mask, 2]
-                z_vals = z_vals[~np.isnan(z_vals)]
-                if z_vals.size == 0:
-                    continue
-                z_med = np.median(z_vals)
-                
-                #z_eff = np.clip(z_med, self.min_z, self.max_z)
-
-                y_vals = pts_valid[label_mask, 1]
-                y_vals = y_vals[~np.isnan(y_vals)]
-                if y_vals.size == 0:
-                    continue
-                y_med = np.median(y_vals)
-                if floor_height is not None and y_med > floor_height + 0.1:
-                    continue
-
-                #there could be floor noisy points due to reflection which have high z value but small area. so these should be removed.
-                #depths above 3.5m are removed during back projection itself.but there can be noisy floor points with depth less than 3.5m but higher than actual floor depth.
-                # Median absolute deviation is robust to a few reflected depth
-                # samples and exposes components spread implausibly far in Z.
-                z_mad = np.median(np.abs(z_vals - np.median(z_vals)))
-                # need to review if below code is needed or not. because remving points based on  depth variation can cause removal of valid points also.
-                if z_mad > (0.30 + 0.05 * (area_px / 100)):
-                    continue  # skip component with wildly varying depth
-                #area_thresh = base_area_at_1m / (z_eff * z_eff)
-                #using above line will not remove patches due to floor reflection. the points in floor near to robot will have high z_eff which will make area_thresh small and hence these patches will be kept instead of removing them.
-                #so use minimum_area_far as threshold for far points.
-
-                if (z_med < self.near_z and area_px >= min_area_near) or (area_px >= minimum_area_far):
-                    keep_mask[label_mask] = True
+            keep_mask = keep_group[inverse_idx]
 
             if np.any(keep_mask):
                 uv_5_remove_patches = uv_valid[keep_mask]
@@ -507,7 +548,7 @@ class Passability_checker:
             uv_5_remove_patches = uv
             points_5_remove_patches = points
 
-        print(f"number of points after CC {len(points_5_remove_patches)}")
+        rospy.logdebug("number of points after CC %d", len(points_5_remove_patches))
         return points_5_remove_patches, uv_5_remove_patches
 
     def visualize_points(self, color_image, W, H, uv_sets_with_color):
@@ -628,19 +669,24 @@ class Passability_checker:
         self.timer.stop(f"check_if_passable--> main passability check")
 
         self.timer.start(f"check_if_passable--> visualization of final points")
-        color_image = self.visualize_points(
-            color_image,
-            W,
-            H,
-            [
-                (corridor_uv_input, (0, 255, 0)), # green
-                (uv_3_nofloor, (255, 0, 255)), # magenta
-                (uv_4_normal, (0, 165, 255)), # orange
-                (uv_2_3d_outlier_removal, (255, 0, 0)), # blue
-                (uv_5_remove_patches, (0, 0, 255)),# red
-                (final_uv, (0, 255, 255)) # yellow
-            ],
-        )
+        # These overlays are plain NumPy scatter writes, so they are not disabled
+        # by the no-op cv2 patching and must be skipped explicitly. They also write
+        # into the caller's cached colour frame in place, which would otherwise
+        # accumulate debug pixels on a frame that is reused.
+        if self.enable_visualization:
+            color_image = self.visualize_points(
+                color_image,
+                W,
+                H,
+                [
+                    (corridor_uv_input, (0, 255, 0)), # green
+                    (uv_3_nofloor, (255, 0, 255)), # magenta
+                    (uv_4_normal, (0, 165, 255)), # orange
+                    (uv_2_3d_outlier_removal, (255, 0, 0)), # blue
+                    (uv_5_remove_patches, (0, 0, 255)),# red
+                    (final_uv, (0, 255, 255)) # yellow
+                ],
+            )
 
         self.timer.stop(f"check_if_passable--> visualization of final points")
 

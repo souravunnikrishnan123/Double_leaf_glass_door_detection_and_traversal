@@ -91,14 +91,11 @@ class dual_branch_frame_detection_state(BaseState):
         # these values are changed during runtime. hence need to load the door geometry and plane distance in this state as well to make sure the latest value is used for detection
 
         # Plane search can update these measurements after examining the current
-        # doorway, so cached constructor values would quickly become stale.
-        self.door_geometry = {
-            "glass_width_cm": rospy.get_param("~door_geometry/glass_width_cm", 40),
-            "center_frame_width_cm": rospy.get_param("~door_geometry/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param("~door_geometry/roi_width", 240),
-            "correction_factor": rospy.get_param("~door_geometry/correction_factor", 1.1),
-        }
-        ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance", 2.0)
+        # doorway, so cached constructor values would quickly become stale. They
+        # are read from the shared context, which the plane-search state keeps
+        # current, instead of from the parameter server once per frame.
+        self.door_geometry = ctx.door_geometry
+        ransac_plane_distance = ctx.ransac_plane_distance
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
 
         # Keep the two answers independent until fusion; a failure in one branch

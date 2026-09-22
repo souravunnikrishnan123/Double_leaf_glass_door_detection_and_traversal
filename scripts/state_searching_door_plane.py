@@ -11,8 +11,8 @@ class searching_door_plane_state(BaseState):
     Confirm a door plane and update its estimated physical geometry.
 
     The state runs plane RANSAC until temporal confirmation succeeds. Confirmed
-    inliers are then analyzed for pane and center-frame widths, which can update
-    ROS parameters used by both line branches.
+    inliers are then analyzed for pane and center-frame widths, which are written
+    into the shared frame context for use by both line branches.
 
     Attributes:
         find_door_plane:
@@ -76,8 +76,8 @@ class searching_door_plane_state(BaseState):
 
         Notes:
             Frames containing an unconfirmed candidate reset the empty-frame
-            counter. Successful width estimates update ``~door_geometry`` ROS
-            parameters before line detection begins.
+            counter. Successful width estimates update ``ctx.door_geometry``
+            before line detection begins.
         """
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
@@ -109,21 +109,25 @@ class searching_door_plane_state(BaseState):
             )
 
             if glass_and_door_width["final_glass_width_m"] is not None and glass_and_door_width["final_frame_width_m"] is not None:
-                # Cast numpy scalars to native Python floats before setting ROS params
+                # Cast numpy scalars to native Python floats before storing them.
                 # Underestimate pane width slightly so the pairing test does not
                 # discard a real frame because of a borderline measurement.
                 glass_width_cm_safe_value = float(glass_and_door_width["final_glass_width_m"]) * 100.0 * (1 - self.margin_for_glass_width_inaccuracy) # margin of safety
                 center_frame_width_cm_safe_value = float(glass_and_door_width["final_frame_width_m"]) * 100.0
                 #for glass width dont have to check the default value as the glass width detection is usually accurate enough and also, the default value is set to a lower value to handle the case, in which the algorithm couldnt detect the glass width
 
-                default_value_of_center_frame_width = rospy.get_param("~door_geometry/center_frame_width_cm", 30.0)*100.0
+                default_value_of_center_frame_width = ctx.door_geometry["center_frame_width_cm"]*100.0
 
                 center_frame_width_cm_safe_value = max(center_frame_width_cm_safe_value, default_value_of_center_frame_width)  # enforce minimum frame width.
                 #it is needed because sometimes the frame width detection can be way off when there is clutter around the door frame, especially when the door is already open
 
 
-                rospy.set_param("~door_geometry/glass_width_cm", glass_width_cm_safe_value)
-                rospy.set_param("~door_geometry/center_frame_width_cm", center_frame_width_cm_safe_value)
+                # The context is the channel downstream states read. The matching
+                # ROS parameters are not written back: nothing reads them after
+                # startup, and each write is a blocking call to the master plus a
+                # parameter-update broadcast.
+                ctx.door_geometry["glass_width_cm"] = glass_width_cm_safe_value
+                ctx.door_geometry["center_frame_width_cm"] = center_frame_width_cm_safe_value
                 # if final_glass_width_m and final_frame_width_m are None, do not update the params (keep default valid values)
 
             ctx.color_image_for_plane_detection = vis_img
@@ -132,9 +136,8 @@ class searching_door_plane_state(BaseState):
 
             distance = float(result["plane_metrics"]["distance_m"])
             rospy.loginfo(f"Detected door plane at distance: {distance:.2f} m")
-            rospy.set_param("~plane_detector/output/ransac_plane_distance", distance)
-            # Save the result in the context and ROS parameters: downstream ROS
-            # consumers use the former, while detector helpers read the latter.
+            ctx.ransac_plane_distance = distance
+            # Carried on the context only; see the note on door geometry above.
             ctx.plane_result = {"distance_m": distance, "plane_norm_vector": result["plane_metrics"]["plane_norm_vector"]}
             rospy.loginfo(f"plane detected at a distance of : {distance:.2f} m and its normal vector is {result['plane_metrics']['plane_norm_vector']}")
             """

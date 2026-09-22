@@ -114,6 +114,8 @@ class DepthDoorDetector:
             "x_threshold_to_merge_lines": rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10),
             "MIN_LINE_LENGTH_after_merging": rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50),
         }
+        # The Sobel preview image is produced for the diagnostic window only.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
 
         self.line_filter = LineFilter()
         self.edge_detector = EdgeDetector()
@@ -151,7 +153,8 @@ class DepthDoorDetector:
         self.timer.start("depth_based_edge_detection preprocessing")
 
         # Re-read this value because the plane search can refine it between runs.
-        ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance", 2.0)
+        # It travels on the context so the refresh costs nothing per frame.
+        ransac_plane_distance = ctx.ransac_plane_distance
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
     
         valid_lines = []
@@ -175,13 +178,6 @@ class DepthDoorDetector:
         valid_grad_vals = depth_grad_x[mask_ds]  #Only gradients at valid depth pixels are used to compute the threshold
         depth_edges = self.edge_detector.adaptive_threshold(depth_grad_x, valid_grad_vals, self.adaptive)
         
-        # Normalize for visualization (convert to 8-bit image)
-        sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        
-        # Convert Sobel visualization to color (BGR)
-        sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
-
-
         #physical gradient filter, to avoid detecting depth lines within the frame( with very low depth gradient)
         # but if there are depth hole within the frame, the depth gradient will be high, that case is not covered here
         # The statistical threshold follows scene noise; this fixed metric gate
@@ -189,11 +185,25 @@ class DepthDoorDetector:
         physical_mask = (depth_grad_x > self.PHYSICAL_GRADIENT_THRESHOLD).astype(np.uint8)*255
         depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
 
-        # Overlay depth edges in red
-        sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
+        # The Sobel preview feeds only the diagnostic window. Building it costs a
+        # normalize, an 8-bit cast, a grey-to-colour expansion, a masked write and
+        # a full-resolution upscale, none of which the cv2 no-op patching removes,
+        # so it is built only when the diagnostics are actually shown.
+        if self.enable_visualization:
+            # Normalize for visualization (convert to 8-bit image)
+            sobel_vis = cv2.normalize(depth_grad_x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+            # Convert Sobel visualization to color (BGR)
+            sobel_vis_color = cv2.cvtColor(sobel_vis, cv2.COLOR_GRAY2BGR)
+
+            # Overlay depth edges in red
+            sobel_vis_color[depth_edges > 0] = [0, 0, 255]  # Red for edge pixels
+        else:
+            sobel_vis_color = None
 
         depth_lines = self.line_detector.detect(depth_edges, self.hough, self.scale)
-        sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
+        if sobel_vis_color is not None:
+            sobel_vis_color = self.preprocessor.restore_size(sobel_vis_color, W, H, self.scale)
 
 
         self.timer.stop("depth_based_edge_detection preprocessing")

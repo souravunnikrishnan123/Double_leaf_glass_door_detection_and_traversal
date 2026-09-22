@@ -32,9 +32,33 @@ class idle_state(BaseState):
         self.door_state_log_path = rospy.get_param("~result_log_path")+"/door_states.txt"  # Path to log file for door states
         self.smoothed_door_state_log_path = rospy.get_param("~result_log_path")+"/final_door_status_after_temporal_smoothing.txt"  # Path to log file for smoothed door states
 
+    def entry_action(self, ctx: FrameContext):
+        """
+        Truncate the per-run diagnostic logs once, on entering idle.
+
+        Args:
+            ctx:
+                Shared frame context; unused here.
+
+        Raises:
+            OSError:
+                If either log file cannot be created or written.
+
+        Notes:
+            Clearing belongs to entering the state. Doing it in ``do_action``
+            rewrote both files on every idle frame, which is two file opens and
+            writes per frame for the whole time the node sits idle.
+        """
+        if self.enable_result_log:
+            # Clear old log output for this run
+            with open(self.door_state_log_path, "w") as f:
+                f.write(f"Logging door state by detection algorithm\n")
+            with open(self.smoothed_door_state_log_path, "w") as f:
+                f.write(f"Logging smoothed_door_state after temporal smoothing\n")
+
     def do_action(self, ctx: FrameContext):
         """
-        Clear old log output and enter plane search when requested.
+        Enter plane search when requested.
 
         Args:
             ctx:
@@ -44,22 +68,10 @@ class idle_state(BaseState):
             ``"searching_door_plane_state"`` when detection is requested;
             otherwise ``None``.
 
-        Raises:
-            OSError:
-                If the package log directory or either log file cannot be
-                created or written.
-
         Notes:
-            This method currently rewrites the two log headers on every idle
-            frame, not only when the state is first entered.
+            The log headers are written by :meth:`entry_action`, so they are
+            reset once per idle entry rather than once per frame.
         """
-        if self.enable_result_log:
-            # Clear old log output for this run
-            with open(self.door_state_log_path, "w") as f:
-                f.write(f"Logging door state by detection algorithm\n")
-            with open(self.smoothed_door_state_log_path, "w") as f:
-                f.write(f"Logging smoothed_door_state after temporal smoothing\n")
-        
         # Consume-style triggering is handled by the surrounding controller;
         # this state only decides when a new detection run may begin.
         if ctx.start_door_frame_detection:

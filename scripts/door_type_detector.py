@@ -52,6 +52,8 @@ class DoorTypeDetector():
         self.max_glass_width = rospy.get_param("~door_type_detector/max_glass_width", 1.5)
         self.num_vertical_slices = rospy.get_param("~door_type_detector/num_vertical_slices", 40)
         self.min_points_per_vertical_slice = rospy.get_param("~door_type_detector/min_points_per_vertical_slice", 2)
+        # The bin overlay is a diagnostic image; see visualize_door_bins_and_widths.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
     
     def estimate_glass_and_frame_widths(self,
         inlier_points
@@ -115,33 +117,47 @@ class DoorTypeDetector():
         # STEP 4: Classify each bin using VERTICAL SUPPORT
         # ------------------------------------------------------------
 
-        for i in range(len(bin_edges) - 1):
-            x0, x1 = bin_edges[i], bin_edges[i + 1]
-            bins.append((x0, x1))
+        # Every bin is classified from the same two quantities: how many inliers it
+        # holds, and how many height slices those inliers occupy. Both come from a
+        # single pass that assigns each point to a (width bin, height slice) cell,
+        # instead of rescanning the whole inlier set once per bin and once per
+        # slice within each bin.
+        num_bins = len(bin_edges) - 1
+        bins = [(bin_edges[i], bin_edges[i + 1]) for i in range(num_bins)]
 
-            # Inlier points whose horizontal coordinate falls in this bin
-            in_bin = (xs >= x0) & (xs < x1)
+        # Divide the FULL door height into equal slices, exactly as the per-bin
+        # occupancy helper does.
+        slice_edges = np.linspace(door_y_min, door_y_max, self.num_vertical_slices + 1)
 
-            # Sparse support is expected through glass; a solid upright usually
-            # contributes points over much of the observed height.
-            if np.count_nonzero(in_bin) < self.min_points_per_bin:
-                # No or very few inliers → no vertical support → glass
-                bin_labels.append("glass")
-                continue
+        # searchsorted with side="right" reproduces the half-open [edge_i, edge_i+1)
+        # membership test, including excluding a point sitting exactly on the final
+        # upper edge.
+        x_index = np.searchsorted(bin_edges, xs, side="right") - 1
+        y_index = np.searchsorted(slice_edges, ys, side="right") - 1
 
-            y_vals = ys[in_bin]
+        x_in_range = (x_index >= 0) & (x_index < num_bins)
+        # Bin population counts every inlier in the width bin, whatever its height.
+        points_per_bin = np.bincount(x_index[x_in_range], minlength=num_bins)
 
+        both_in_range = x_in_range & (y_index >= 0) & (y_index < self.num_vertical_slices)
+        cell_index = x_index[both_in_range] * self.num_vertical_slices + y_index[both_in_range]
+        cell_counts = np.bincount(
+            cell_index, minlength=num_bins * self.num_vertical_slices
+        ).reshape(num_bins, self.num_vertical_slices)
 
-            vertical_support_ratio = self.compute_vertical_occupancy_ratio(
-                                        y_vals=y_vals,
-                                        door_y_min=door_y_min,
-                                        door_y_max=door_y_max
-                                    )
+        # Occupancy, rather than raw point count, stops one dense patch near the
+        # floor from looking like a full-height structural frame.
+        occupied_slices = np.count_nonzero(
+            cell_counts >= self.min_points_per_vertical_slice, axis=1
+        )
+        vertical_support_ratio = occupied_slices / self.num_vertical_slices
 
-            if vertical_support_ratio >= self.min_vertical_support:
-                bin_labels.append("frame")
-            else:
-                bin_labels.append("glass")
+        # Sparse support is expected through glass; a solid upright usually
+        # contributes points over much of the observed height.
+        is_frame = (points_per_bin >= self.min_points_per_bin) & (
+            vertical_support_ratio >= self.min_vertical_support
+        )
+        bin_labels = ["frame" if flag else "glass" for flag in is_frame]
 
         # ------------------------------------------------------------
         # STEP 5: Merge consecutive bins into segments
@@ -401,7 +417,15 @@ class DoorTypeDetector():
         Notes:
             Per-bin translucent colors show the raw classification. Thick
             outlines and text identify consolidated and final segments.
+
+            The whole overlay is skipped when diagnostics are disabled. The
+            translucent fill is a full-image copy plus an alpha blend per bin, and
+            neither is removed by the no-op drawing patches, so with roughly fifty
+            bins this was the largest single allocation source in the node while
+            producing an image nothing consumed.
         """
+        if not self.enable_visualization:
+            return color_image
 
         vis = color_image.copy()
         H, W, _ = vis.shape

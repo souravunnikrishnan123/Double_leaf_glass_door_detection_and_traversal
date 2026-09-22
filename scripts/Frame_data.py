@@ -57,6 +57,14 @@ class FrameContext:
         color_image_for_plane_detection:
             Color-image copy used for RANSAC and plane overlays.
 
+        door_geometry:
+            Physical geometry of the door and its frame, refreshed during the
+            door detection process.
+
+        ransac_plane_distance:
+            Distance of the confirmed plane, used to gate line detection and
+            passability checks.
+
         roi_left_color_based:
             Left-side polygon produced by the color line branch.
 
@@ -134,6 +142,14 @@ class FrameContext:
     # Plane search fills these before either line detector is allowed to run.
     plane_result: Optional[dict] = None
     color_image_for_plane_detection: Optional[np.ndarray] = None
+
+    # Door geometry and confirmed plane distance. Plane search refines these at
+    # runtime and every branch re-reads them each frame. They are carried here
+    # rather than fetched from the parameter server per frame: producer and
+    # consumers are all in this process, and each parameter read is a blocking
+    # XML-RPC round trip to the master.
+    door_geometry: Optional[dict] = None
+    ransac_plane_distance: Optional[float] = None
     
     # color-based branch
     roi_left_color_based: Optional[np.ndarray] = None

@@ -241,6 +241,13 @@ class DoorTraversalController:
         self.minimum_clearance_beyond_corridor_mid_point = None
         self.corridor_center_x_robot_base = 0.0
         self.heading_error_to_corridor = None
+        # Read in TRAVERSE_DOOR when passability is lost before the midpoint is
+        # crossed, so it must exist from the first control iteration.
+        self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = False
+        # Set in TRAVERSE_DOOR and consumed by MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
+        # on a later iteration. Held on the instance so the value cannot depend on
+        # which branches happened to run earlier in this control loop.
+        self.distance_to_move_beyond_corridor_mid_point = 0.0
 
 
         # heading estimation
@@ -249,13 +256,25 @@ class DoorTraversalController:
         # =========================================================
         # ROS interfaces
         # =========================================================
+        # Actuation goes through Gazebo. With a recorded bag there is no simulator,
+        # and an unbounded wait here would leave the node hanging at startup for the
+        # whole session. Wait briefly, then continue without an actuation backend.
+        self.gazebo_service_timeout = rospy.get_param(f"{ns}/gazebo_service_timeout", 5.0)
         rospy.loginfo("Waiting for /gazebo/set_model_state service...")
-        rospy.wait_for_service("/gazebo/set_model_state")
-        self.set_model_state = rospy.ServiceProxy(
-            "/gazebo/set_model_state",
-            SetModelState
-        )
-        rospy.loginfo("Connected to /gazebo/set_model_state service")
+        try:
+            rospy.wait_for_service("/gazebo/set_model_state", timeout=self.gazebo_service_timeout)
+            self.set_model_state = rospy.ServiceProxy(
+                "/gazebo/set_model_state",
+                SetModelState
+            )
+            rospy.loginfo("Connected to /gazebo/set_model_state service")
+        except rospy.ROSException:
+            self.set_model_state = None
+            rospy.logwarn(
+                "/gazebo/set_model_state unavailable after %.1fs. The controller will "
+                "run its state machine but cannot command motion.",
+                self.gazebo_service_timeout,
+            )
 
         self.modelstate = ModelState()
 
@@ -291,10 +310,12 @@ class DoorTraversalController:
         )
 
         # odometry
-        rospy.Subscriber("/odom_bridge_output", Odometry, self.odom_callback)
+        # Only the newest pose matters; an unbounded queue would let a backlog of
+        # stale poses build up and be acted on after the fact.
+        rospy.Subscriber("/odom_bridge_output", Odometry, self.odom_callback, queue_size=1)
 
         # pose from gazebo just for sending current pose info to /gazebo/set_model_state service
-        rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_callback)
+        rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_callback, queue_size=1)
 
 
         rospy.loginfo("DoorTraversalController initialized")
@@ -560,8 +581,12 @@ class DoorTraversalController:
 
         rospy.loginfo("Publishing cmd_vel: v_forward=%.3f m/s, v_lateral=%.3f m/s, omega=%.3f rad/s", v_forward, v_lateral, omega)
 
+        if self.set_model_state is None:
+            rospy.logwarn_throttle(10.0, "No actuation backend; motion command discarded.")
+            return
+
         response = self.set_model_state(self.modelstate)
-        rospy.loginfo(
+        rospy.logdebug(
             "Service response: success=%s message=%s",
             response.success,
             response.status_message
@@ -674,12 +699,17 @@ class DoorTraversalController:
              
 
         while not rospy.is_shutdown():
+            # Rate-limit at the top of the iteration rather than the bottom. Many
+            # state branches below wait for a condition by calling `continue`,
+            # which skipped a trailing sleep and spun this loop as fast as Python
+            # allows - publishing a log line and a stop command on every pass.
+            # Sleeping here guarantees every path through the loop is throttled.
+            self.rate.sleep()
+
             if not self.start_movement:# node is activated as there is a corridor to traverse
-                self.rate.sleep()
                 continue
-            
+
             if not self.data_ready():
-                self.rate.sleep()
                 continue
             
         
@@ -916,7 +946,7 @@ class DoorTraversalController:
                             rospy.logwarn("Passability lost but virtual corridor definition already requested hence donot abort, go to MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state and request new corridor definition")
                             self.stop_robot()
                             self.movement_is_started = False
-                            distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
+                            self.distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
                             self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
                             self.state = MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
                             # set reference  for move after crossing corridor midpoint state.
@@ -941,7 +971,7 @@ class DoorTraversalController:
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()
                     self.movement_is_started = False
-                    distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
+                    self.distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
                     self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
                     self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = True
                     self.state = MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
@@ -1037,11 +1067,11 @@ class DoorTraversalController:
                         msg = Twist()
                         msg.linear.x = True # to request new corridor definition
                         #set the middle depth of requested corridor for corridor definition
-                        if distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point <= 0.25:
+                        if self.distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point <= 0.25:
                             msg.linear.y = 0.25  # corridor is of 0.5m
                             # because we cannot give very low value as corridor as defining a new corridor use back projection and it has some minimum depth limit
                         else:
-                            msg.linear.y = (distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point)/2.0
+                            msg.linear.y = (self.distance_to_move_beyond_corridor_mid_point - distance_travelled_beyond_corridor_mid_point)/2.0
 
                         # Hand corridor selection back to perception; steering
                         # blindly around the new obstacle would be unsafe.
@@ -1056,9 +1086,9 @@ class DoorTraversalController:
                 # Completion check
                 # -----------------------------
                 
-                rospy.loginfo(f"MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT: moved distance = {distance_travelled_beyond_corridor_mid_point:.3f} m, distance to move {distance_to_move_beyond_corridor_mid_point:.3f}")
+                rospy.loginfo(f"MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT: moved distance = {distance_travelled_beyond_corridor_mid_point:.3f} m, distance to move {self.distance_to_move_beyond_corridor_mid_point:.3f}")
                 
-                if distance_travelled_beyond_corridor_mid_point >= distance_to_move_beyond_corridor_mid_point:
+                if distance_travelled_beyond_corridor_mid_point >= self.distance_to_move_beyond_corridor_mid_point:
                     rospy.loginfo("move after Door frame crossed state --> DONE")
                     self.stop_robot()
                     self.movement_is_started = False
@@ -1132,11 +1162,9 @@ class DoorTraversalController:
             elif self.state == DONE:
                 self.stop_robot()
                 self.done_pub.publish(Bool(data=True))
-                self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = False 
-                # publish done signal in the DONE state  
+                self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = False
+                # publish done signal in the DONE state
                 return
-
-            self.rate.sleep()
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ class StateMachine:
             exit_action_duration = time.time() - start_exit_action
             elapsed_time = time.time() - self.state_start_time
             #print(f"[INFO]     Exit action took {exit_action_duration:.4f} seconds")
-            print(f"[INFO] ← Exiting state: {self.current_state.name} after {elapsed_time:.2f} seconds")
+            rospy.logdebug("← Exiting state: %s after %.2f seconds", self.current_state.name, elapsed_time)
         self.current_state = self.states[name]
         
         self.state_start_time = time.time() # Record entry time
@@ -86,7 +86,7 @@ class StateMachine:
         self.current_state.entry_action(self.ctx)
         entry_action_duration = time.time() - start_entry_action
 
-        print(f"[INFO] → Entering state: {name}")
+        rospy.logdebug("→ Entering state: %s", name)
         #print(f"[INFO]     entry_action took {entry_action_duration:.4f} s")
 
 

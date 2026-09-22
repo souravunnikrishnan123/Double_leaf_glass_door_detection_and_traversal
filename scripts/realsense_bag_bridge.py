@@ -108,6 +108,63 @@ def intrinsics_to_camera_info(intr, frame_id):
     return ci
 
 
+def scale_camera_info(ci: CameraInfo, new_w: int, new_h: int) -> CameraInfo:
+    """
+    Rescale a camera-info message to match a resized image.
+
+    Focal lengths and the principal point are expressed in pixels, so they must
+    be scaled by exactly the same factor applied to the image. Publishing
+    unscaled intrinsics alongside a resized image places the principal point
+    outside the image and corrupts every back-projected point.
+
+    Args:
+        ci:
+            Camera info describing the image before resizing.
+
+        new_w:
+            Width of the resized image in pixels.
+
+        new_h:
+            Height of the resized image in pixels.
+
+    Returns:
+        The same message, updated in place, or unchanged when the original
+        dimensions are unknown or already match.
+
+    Notes:
+        The scale is recovered from the actual output dimensions rather than
+        the requested factor, so integer rounding in ``cv2.resize`` cannot make
+        the intrinsics disagree with the published image.
+    """
+    if ci is None or ci.width <= 0 or ci.height <= 0:
+        return ci
+    if ci.width == new_w and ci.height == new_h:
+        return ci
+
+    sx = float(new_w) / float(ci.width)
+    sy = float(new_h) / float(ci.height)
+
+    K = list(ci.K)
+    K[0] *= sx  # fx
+    K[2] *= sx  # cx
+    K[4] *= sy  # fy
+    K[5] *= sy  # cy
+    ci.K = K
+
+    P = list(ci.P)
+    P[0] *= sx  # fx
+    P[2] *= sx  # cx
+    P[3] *= sx  # Tx, also in pixel units
+    P[5] *= sy  # fy
+    P[6] *= sy  # cy
+    P[7] *= sy  # Ty
+    ci.P = P
+
+    ci.width = int(new_w)
+    ci.height = int(new_h)
+    return ci
+
+
 def calculate_camera_info_for_gazebo(color_msg: Image, hfov:float, vfov : float) -> CameraInfo:
     """
     Derive pinhole camera intrinsics for a Gazebo image.
@@ -450,6 +507,14 @@ def main():
                     new_w = int(depth_image.shape[1] * resize_scale)
                     new_h = int(depth_image.shape[0] * resize_scale)
                     depth_image = cv2.resize(depth_image, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                # Intrinsics are in pixels, so they must follow the image. Depth is
+                # aligned to color, so a single scaling keeps both consistent.
+                if camera_info is not None:
+                    reference_image = color_image if color_image is not None else depth_image
+                    if reference_image is not None:
+                        camera_info = scale_camera_info(
+                            camera_info, reference_image.shape[1], reference_image.shape[0]
+                        )
             # Try to detect color encoding; many bags store color as RGB8 -> cv_bridge expects 'rgb8' or convert to bgr8
             # We'll publish as bgr8 for OpenCV compatibility. If color image is RGB, swap channels.
             # A quick heuristic: check number of channels

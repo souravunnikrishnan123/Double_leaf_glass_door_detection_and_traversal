@@ -4,6 +4,7 @@ import numpy as np
 from typing import Optional, Tuple
 import cv2
 import math
+import rospy
 
 class Preprocessor:
     """
@@ -247,7 +248,7 @@ class LineFilter:
         """
         x1, y1, x2, y2 = line[0]
         if abs(x1 - x2) > abs(y1 - y2):
-            print("Warning: Line is not primarily vertical. This method assumes vertical lines.")
+            rospy.logdebug("Line is not primarily vertical. This method assumes vertical lines.")
             return None
         
         H, W = depth_image_in_meters.shape
@@ -512,19 +513,21 @@ def backproject_depth_to_points(
         and Z forward.
     """
     H, W = depth_image_in_meters.shape
-    mask = np.ones((H, W), dtype=np.uint8) * 255
 
+    # The depth range test already rejects every non-finite value: NaN compares
+    # false against both bounds, and +/-inf fails one of them. A separate
+    # np.isfinite pass over the full image would be redundant.
+    valid_mask = (depth_image_in_meters > min_depth) & (depth_image_in_meters < max_depth)
+
+    # Restrict to the ROI only when one is given. Allocating a full-frame
+    # all-ones mask for the unrestricted case would cost several full-resolution
+    # passes to express "keep everything".
     if roi_polygon is not None:
-        mask[:] = 0
-        cv2.fillPoly(mask, [np.array(roi_polygon, dtype=np.int32)], 255)
-
-    # Find valid pixels inside ROI and with valid depth
-    valid_mask = (
-        (mask == 255)
-        & (depth_image_in_meters > min_depth)
-        & np.isfinite(depth_image_in_meters)
-        & (depth_image_in_meters < max_depth)
-    )
+        roi_mask = np.zeros((H, W), dtype=np.uint8)
+        # Filled with 1 rather than 255 so the buffer can be reinterpreted as bool
+        # directly; a bool array must only ever hold 0 or 1.
+        cv2.fillPoly(roi_mask, [np.array(roi_polygon, dtype=np.int32)], 1)
+        valid_mask &= roi_mask.view(bool)
 
     # Preserve uv and point ordering; several later filters use one mask on both.
     ys, xs = np.where(valid_mask)
@@ -533,12 +536,14 @@ def backproject_depth_to_points(
         xs = xs[::subsample]
 
     zs = depth_image_in_meters[ys, xs]
-    xs_f = xs.astype(np.float32)
-    ys_f = ys.astype(np.float32)
 
-    # Standard pinhole backprojection in the optical camera frame.
-    Xs = (xs_f - cx) * zs / fx
-    Ys = (ys_f - cy) * zs / fy
+    # Standard pinhole backprojection in the optical camera frame. Computing in
+    # float32 keeps the cloud at half the memory traffic of the NumPy default.
+    fx_inv = np.float32(1.0 / fx)
+    fy_inv = np.float32(1.0 / fy)
+    zs = zs.astype(np.float32, copy=False)
+    Xs = (xs.astype(np.float32) - np.float32(cx)) * zs * fx_inv
+    Ys = (ys.astype(np.float32) - np.float32(cy)) * zs * fy_inv
     points = np.stack([Xs, Ys, zs], axis=-1)
     uv = np.stack([xs, ys], axis=-1)
 

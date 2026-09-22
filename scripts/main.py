@@ -122,9 +122,20 @@ class DoorDetectionNode:
         self.profile_frame_count = 0
         self.profile_frames = 50          # captures 10 synchronized frames then saves
         self.profile_done = False
+        self.profiler = None
+        # pyinstrument requires that a session is started and stopped on the same
+        # thread, and all real work happens on the subscriber callback thread. The
+        # profiler is therefore created here but started lazily on the first
+        # callback, so both calls land on the thread being measured.
+        self.profile_started = False
         if self.profile_enabled:
             self.profiler = Profiler()
-            rospy.on_shutdown(self._save_profile)  # runs on main thread
+            rospy.on_shutdown(self._save_profile)
+        # Timing averages are written on a timer instead of once per frame: the
+        # writer does a full read-modify-write of the output file, which is far too
+        # expensive to run at frame rate on flash storage.
+        if self.profile_enabled:
+            rospy.Timer(rospy.Duration(5.0), self._write_durations)
                  
 
         color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
@@ -133,6 +144,12 @@ class DoorDetectionNode:
         queue_size = rospy.get_param("~queue_size", 30)
         slop = rospy.get_param("~sync_slop", 0.2)
         self.sync_count = 0
+        # Serializes frame processing so a frame arriving mid-computation is dropped
+        # rather than queued behind the one in flight.
+        self._frame_lock = threading.Lock()
+        self.dropped_frame_count = 0
+        # Per-frame pair logging is a diagnostic; it publishes to /rosout every frame.
+        self.verbose_frame_logging = rospy.get_param("~verbose_frame_logging", False)
 
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
@@ -170,8 +187,12 @@ class DoorDetectionNode:
         
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
-        color_sub = message_filters.Subscriber(color_topic, Image)
-        depth_sub = message_filters.Subscriber(depth_topic, Image)
+        # queue_size=1 is essential: rospy defaults to an unbounded receive queue, so a
+        # consumer slower than the camera would buffer full-resolution images without
+        # limit and act on ever more stale frames. buff_size must exceed one image or
+        # each frame costs many socket reads.
+        color_sub = message_filters.Subscriber(color_topic, Image, queue_size=1, buff_size=2**22)
+        depth_sub = message_filters.Subscriber(depth_topic, Image, queue_size=1, buff_size=2**22)
         
         # camera intrinsics will be cached on first receipt
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
@@ -188,11 +209,107 @@ class DoorDetectionNode:
         ats.registerCallback(self.callback)
 
 
-    def _save_profile(self):
-        with open(self.profiler_output_path, "w") as f:
-            f.write(self.profiler.output_html())
-        rospy.loginfo("[Profiler] Saved to %s", self.profiler_output_path)
+    def _write_durations(self, _event=None):
+        """
+        Flush stage timing averages to disk.
 
+        Notes:
+            Driven by a low-rate timer. Failures are logged rather than raised so
+            a profiling problem cannot stop detection.
+        """
+        try:
+            get_duration_seconds.write_text_file()
+        except Exception as exc:
+            rospy.logwarn_throttle(30.0, "Could not write durations file: %s", exc)
+
+    def _stop_profile(self):
+        """
+        End the sampling session and write the HTML report.
+
+        Notes:
+            Must run on the thread that started the session. Called from the
+            frame callback once enough frames are captured. Any failure is logged
+            rather than raised so profiling cannot break detection.
+        """
+        if self.profiler is None or self.profile_done:
+            return
+        self.profile_done = True
+        try:
+            if self.profile_started:
+                self.profiler.stop()
+                with open(self.profiler_output_path, "w") as f:
+                    f.write(self.profiler.output_html())
+                rospy.loginfo("[Profiler] Saved to %s", self.profiler_output_path)
+        except Exception as exc:
+            rospy.logwarn("[Profiler] Could not save profile: %s", exc)
+
+    def _save_profile(self):
+        """
+        Flush profiling output at shutdown.
+
+        Notes:
+            The sampling session can only be stopped from the thread that started
+            it, so if it is still running at shutdown the report is skipped; the
+            frame-count path above is the normal way it is written. Timing
+            averages are flushed here regardless.
+        """
+        if self.profiler is not None and not self.profile_done:
+            rospy.loginfo(
+                "[Profiler] Shutting down before %d frames were captured; "
+                "no call-graph report written.", self.profile_frames,
+            )
+        # The durations file is written on a timer, so flush a final sample here.
+        self._write_durations()
+
+
+    def _assign_branch_wise_debug_images(self, ctx, color_image: np.ndarray):
+        """
+        Give each detection branch the image it draws diagnostics onto.
+
+        Args:
+            ctx:
+                Shared frame context to populate.
+
+            color_image:
+                Current BGR frame.
+
+        Notes:
+            Each branch needs a private copy only when diagnostics are actually
+            drawn. With visualization disabled nothing mutates these buffers, so
+            all three share the incoming frame and three full-frame copies per
+            callback are avoided.
+        """
+        if self.enable_visualization:
+            ctx.color_image_color_based = color_image.copy()
+            ctx.color_image_depth_based = color_image.copy()
+            ctx.color_image_for_plane_detection = color_image.copy()
+        else:
+            ctx.color_image_color_based = color_image
+            ctx.color_image_depth_based = color_image
+            ctx.color_image_for_plane_detection = color_image
+
+    def _seed_runtime_door_geometry(self, ctx):
+        """
+        Load the initial door geometry and plane distance into the context.
+
+        Args:
+            ctx:
+                Shared frame context to seed.
+
+        Notes:
+            These values are refined at runtime by the plane-search state and are
+            then read once per frame by both branches. Seeding them here means the
+            per-frame reads never touch the parameter server.
+        """
+        ctx.door_geometry = {
+            "glass_width_cm": rospy.get_param("~door_geometry/glass_width_cm", 40),
+            "center_frame_width_cm": rospy.get_param("~door_geometry/center_frame_width_cm", 30),
+            "roi_width": rospy.get_param("~door_geometry/roi_width", 240),
+            "correction_factor": rospy.get_param("~door_geometry/correction_factor", 1.1),
+        }
+        ctx.ransac_plane_distance = rospy.get_param(
+            "~plane_detector/output/ransac_plane_distance", 2.0
+        )
 
     def _to_cv_color(self, color_msg: Image) -> np.ndarray:
         """
@@ -232,19 +349,28 @@ class DoorDetectionNode:
             Floating-point NaN and infinity values are replaced with zero only
             for the uint16 adapter image. The metric float image retains the
             original nonfinite values for later validity masking.
+
+            The millimetre image feeds only the RealSense-compatible adapter used
+            by the diagnostic views, so it is produced only when visualization is
+            enabled; otherwise ``None`` is returned in its place.
         """
         img = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
         # Keep both units: geometry is easier to reason about in metres, while
         # the RealSense-compatible adapter expects the original millimetres.
         if depth_msg.encoding in ("16UC1", "mono16"):
-            depth_mm = img.astype(np.uint16)
-            depth_m = depth_mm.astype(np.float32) / 1000.0
+            # astype() always copies, and the array is already uint16 here, so
+            # convert straight to metres and scale by a reciprocal.
+            depth_m = img.astype(np.float32) * np.float32(0.001)
+            depth_mm = img.astype(np.uint16, copy=False) if self.enable_visualization else None
         else:
             depth_m = img.astype(np.float32)
-            # Sanitize invalid values before casting (NaN/Inf can trigger warnings)
-            scaled_mm = depth_m * 1000.0
-            scaled_mm = np.nan_to_num(scaled_mm, nan=0.0, posinf=0.0, neginf=0.0)
-            depth_mm = np.clip(np.rint(scaled_mm), 0, 65535).astype(np.uint16)
+            if self.enable_visualization:
+                # Sanitize invalid values before casting (NaN/Inf can trigger warnings)
+                scaled_mm = depth_m * 1000.0
+                scaled_mm = np.nan_to_num(scaled_mm, nan=0.0, posinf=0.0, neginf=0.0)
+                depth_mm = np.clip(np.rint(scaled_mm), 0, 65535).astype(np.uint16)
+            else:
+                depth_mm = None
         return depth_mm, depth_m
 
     def _info_cb(self, info_msg: CameraInfo):
@@ -324,15 +450,45 @@ class DoorDetectionNode:
             diagnostics. Missing scalar results are not published, while a
             missing door label is published as ``"unknown"``.
         """
+        # Drop frames that arrive while a previous one is still being processed.
+        # Without this the node would fall progressively further behind the camera
+        # and publish a door state describing an increasingly old observation.
+        if not self._frame_lock.acquire(blocking=False):
+            self.dropped_frame_count += 1
+            rospy.logwarn_throttle(
+                5.0,
+                "Detection is slower than the camera; dropped %d frame(s) so far.",
+                self.dropped_frame_count,
+            )
+            return
+        try:
+            self._process_frame(color_msg, depth_msg)
+        finally:
+            self._frame_lock.release()
+
+    def _process_frame(self, color_msg: Image, depth_msg: Image):
+        """
+        Run one detection step for an already-admitted frame pair.
+
+        Split out of :meth:`callback` so the drop-if-busy guard wraps the whole
+        body. See :meth:`callback` for the argument contract.
+        """
+        # Start sampling on this thread, which is where the work happens and the
+        # only thread the session may later be stopped from.
+        if self.profile_enabled and not self.profile_started and not self.profile_done:
+            self.profiler.start()
+            self.profile_started = True
+
         self.sync_count += 1
-        rospy.loginfo(
-            "pair=%d color=%.6f depth=%.6f delta=%.6f thread=%s",
-            self.sync_count,
-            color_msg.header.stamp.to_sec(),
-            depth_msg.header.stamp.to_sec(),
-            abs((color_msg.header.stamp - depth_msg.header.stamp).to_sec()),
-            threading.current_thread().name,
-        )
+        if self.verbose_frame_logging:
+            rospy.loginfo(
+                "pair=%d color=%.6f depth=%.6f delta=%.6f thread=%s",
+                self.sync_count,
+                color_msg.header.stamp.to_sec(),
+                depth_msg.header.stamp.to_sec(),
+                abs((color_msg.header.stamp - depth_msg.header.stamp).to_sec()),
+                threading.current_thread().name,
+            )
         color_image = self._to_cv_color(color_msg)
         depth_mm, depth_m = self._to_depth_mm_and_m(depth_msg)
         # Use latest camera info; require not None
@@ -342,7 +498,13 @@ class DoorDetectionNode:
             rospy.logwarn_throttle(5.0, "Waiting for CameraInfo (only needed once)...")
             return
 
-        depth_frame_adapter = DepthFrameAdapter(depth_mm, self.fx, self.fy, self.cx, self.cy)
+        # The adapter exists purely to satisfy the RealSense-style access pattern
+        # used by the diagnostic views, so build it only when those run.
+        depth_frame_adapter = (
+            DepthFrameAdapter(depth_mm, self.fx, self.fy, self.cx, self.cy)
+            if self.enable_visualization
+            else None
+        )
 
         # Reuse the context to preserve state outputs, but give each detector its
         # own image copy because overlays are drawn in place.
@@ -353,18 +515,15 @@ class DoorDetectionNode:
                 fx=self.fx, fy=self.fy, cx=self.cx, cy=self.cy,
                 depth_frame=depth_frame_adapter,
             )
-            self.sm.ctx.color_image_color_based = color_image.copy()
-            self.sm.ctx.color_image_depth_based = color_image.copy()
-            self.sm.ctx.color_image_for_plane_detection = color_image.copy()
+            self._assign_branch_wise_debug_images(self.sm.ctx, color_image)
+            self._seed_runtime_door_geometry(self.sm.ctx)
             self.sm.ctx.go_to_idle_from_finish_state = False
             self.sm.ctx.start_door_frame_detection = False
         else: # update existing context object with new subscriped data.
             ctx = self.sm.ctx
             ctx.depth_image_in_meters = depth_m
             ctx.color_image = color_image
-            ctx.color_image_color_based = color_image.copy()
-            ctx.color_image_depth_based = color_image.copy()
-            ctx.color_image_for_plane_detection = color_image.copy()
+            self._assign_branch_wise_debug_images(ctx, color_image)
             ctx.fx, ctx.fy, ctx.cx, ctx.cy = self.fx, self.fy, self.cx, self.cy
             ctx.depth_frame = depth_frame_adapter
             ctx.go_to_idle_from_finish_state = self.go_to_idle_from_finish_state
@@ -373,18 +532,14 @@ class DoorDetectionNode:
         
         # One synchronized frame drives exactly one state-machine step.
         self.sm.update(self.sm.ctx)
-        #write durations to file once per callback.
-        # file is overwritten each time.filepath is specified by ROS param ~durations_file_path and read by duration.py 
-        #when we create get_duration_seconds object in each usage
-        if self.profile_enabled:
-            get_duration_seconds.write_text_file()
-        # --- ADD: profiler stop after N frames ---
+        # Timing averages are flushed by a timer, not here: the writer rewrites the
+        # whole output file and must not run at frame rate.
+        # Stop sampling once enough frames are captured so the report stays bounded.
         if self.profile_enabled and not self.profile_done:
-            rospy.loginfo("[Profiler] Frame %d captured", self.profile_frame_count)
             self.profile_frame_count += 1
             if self.profile_frame_count >= self.profile_frames:
-                self.profile_done = True
-                rospy.loginfo("[Profiler] Done — 50 frames captured.")
+                self._stop_profile()
+                rospy.loginfo("[Profiler] Captured %d frames.", self.profile_frames)
 
        
 

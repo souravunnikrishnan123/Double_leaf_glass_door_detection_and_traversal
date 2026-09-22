@@ -28,7 +28,8 @@ class GazeboOdomBridge:
         """
         self.model_name = rospy.get_param("~model_name", "go1_gazebo")
         self.odom_pub = rospy.Publisher("/odom_bridge_output", Odometry, queue_size=10)
-        rospy.Subscriber("/gazebo/model_states", ModelStates, self.cb)
+        # /gazebo/model_states is high rate and only the latest sample is used.
+        rospy.Subscriber("/gazebo/model_states", ModelStates, self.cb, queue_size=1)
 
     def cb(self, msg):
         """

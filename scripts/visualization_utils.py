@@ -53,6 +53,30 @@ def setup_visualization_mode(enable: bool):
     # Functions that create images (like applyColorMap) remain unchanged
 
 
+_VISUALIZATION_ENABLED = None
+
+
+def _visualization_enabled():
+    """
+    Report whether diagnostic display is enabled, caching the answer.
+
+    Returns:
+        ``True`` when ``~enable_visualization`` is set or unreadable, matching
+        the previous permissive default.
+
+    Notes:
+        The flag is fixed for the lifetime of a node, so it is fetched once
+        instead of on every draw call.
+    """
+    global _VISUALIZATION_ENABLED
+    if _VISUALIZATION_ENABLED is None:
+        try:
+            _VISUALIZATION_ENABLED = bool(rospy.get_param("~enable_visualization", True))
+        except Exception:
+            _VISUALIZATION_ENABLED = True
+    return _VISUALIZATION_ENABLED
+
+
 def get_z_depth(depth_frame, x, y):
     """
     Read a valid metric depth at a pixel from a RealSense-like frame.
@@ -164,12 +188,12 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
         Display is skipped when the ROS parameter ``~enable_visualization`` is
         false. The stack is resized without changing its aspect ratio.
     """
-    # Respect global visualization toggle; no functionality changes otherwise
-    try:
-        if not rospy.get_param("~enable_visualization", True):
-            return
-    except Exception:
-        pass
+    # Respect global visualization toggle; no functionality changes otherwise.
+    # Read once per process: this is called twice per frame and each parameter
+    # lookup is a blocking XML-RPC round trip to the master. Callers already gate
+    # on the same flag, so this is a backstop rather than the primary check.
+    if not _visualization_enabled():
+        return
     depth_image = np.asanyarray(depth_frame.get_data())
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
 

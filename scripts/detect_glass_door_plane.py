@@ -329,6 +329,8 @@ class PlaneDetector:
         self.min_height_m = rospy.get_param(f"{ns}/outline/min_height_m", 0.5)
         #
         self.max_inlier_density = rospy.get_param(f"{ns}/max_inlier_density", 1.0)
+        # Plane inlier overlays are diagnostics only.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
         # Temporal smoothing tracker
         self.tracker = TemporalPlaneTracker()
 
@@ -387,9 +389,9 @@ class PlaneDetector:
             if abs(abs(normal[2]) - 1.0) < self.vertical_tol:
                 # Save vertical plane
                 found_vertical_planes.append((plane_model, orig_inlier_indices, orig_inlier_points))
-                print(f"Found vertical plane with {len(inliers)} inliers.")
+                rospy.logdebug("Found vertical plane with %d inliers.", len(inliers))
             else:
-                print("Detected plane is not vertical; skipping.")
+                rospy.logdebug("Detected plane is not vertical; skipping.")
 
 
             mask = np.ones(len(remaining_points), dtype=bool)
@@ -472,8 +474,25 @@ class PlaneDetector:
         # Retain source indices so every surviving 3D point still maps to the
         # correct color pixel after downsampling.
         vox_coords = np.floor(points / self.voxel_size).astype(np.int64)
-        _, unique_idx = np.unique(vox_coords, axis=0, return_index=True)
-        unique_idx = np.sort(np.array(unique_idx, dtype=np.int64))
+        # np.unique(..., axis=0) builds a structured view and lexsorts three
+        # columns. Packing the three voxel indices into one integer key lets the
+        # much cheaper 1-D unique do the same job. The packing is only valid while
+        # each axis fits in its bit field, so the extent is checked first and the
+        # row-wise form is kept as an exact fallback.
+        vox_min = vox_coords.min(axis=0)
+        vox_extent = vox_coords.max(axis=0) - vox_min
+        BITS_PER_AXIS = 21
+        if vox_coords.size and np.all(vox_extent < (1 << BITS_PER_AXIS)):
+            shifted = vox_coords - vox_min
+            keys = (
+                (shifted[:, 0] << (2 * BITS_PER_AXIS))
+                | (shifted[:, 1] << BITS_PER_AXIS)
+                | shifted[:, 2]
+            )
+            _, unique_idx = np.unique(keys, return_index=True)
+        else:
+            _, unique_idx = np.unique(vox_coords, axis=0, return_index=True)
+        unique_idx = np.sort(np.asarray(unique_idx, dtype=np.intp))
         points = points[unique_idx]
         uv = uv[unique_idx]
         return points, uv
@@ -653,8 +672,12 @@ class PlaneDetector:
 
         Notes:
             Colors repeat when more planes are provided than entries in the
-            fixed palette.
+            fixed palette. The overlay is skipped entirely when diagnostics are
+            disabled, since the pixel writes below are plain NumPy and are not
+            removed by the no-op drawing patches.
         """
+        if not self.enable_visualization:
+            return
         # Define a list of distinct colors (BGR for OpenCV)
         plane_colors = [
             (0, 0, 255),    # Red
@@ -666,14 +689,18 @@ class PlaneDetector:
             (128, 128, 255),# Pinkish
             (0, 128, 255),  # Orange
         ]
+        # Marking inliers one at a time meant thousands of Python iterations per
+        # frame, and the index lookup and bounds test ran even when the drawing
+        # call itself was disabled. A single-pixel dot is a direct pixel write, so
+        # the whole plane is marked in one vectorized assignment.
+        H_img, W_img = color_image.shape[:2]
         for i, (_, inlier_indices, _) in enumerate(found_vertical_planes):
             color = plane_colors[i % len(plane_colors)]
-            for idx in inlier_indices:
-                u, v = uv[idx]
-                u, v = int(u), int(v)
-
-                if 0 <= v < color_image.shape[0] and 0 <= u < color_image.shape[1]:
-                    cv2.circle(color_image, (u, v), 1, color, -1)  # Draw a small dot
+            inlier_uv = uv[np.asarray(inlier_indices, dtype=np.intp)]
+            u = inlier_uv[:, 0].astype(np.intp)
+            v = inlier_uv[:, 1].astype(np.intp)
+            in_bounds = (u >= 0) & (u < W_img) & (v >= 0) & (v < H_img)
+            color_image[v[in_bounds], u[in_bounds]] = color
 
 
 

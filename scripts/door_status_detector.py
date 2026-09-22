@@ -58,6 +58,12 @@ class Door_Status_Detector:
         self.roi_width = rospy.get_param(f"{ns}/roi_width",240)
         self.margin = rospy.get_param(f"{ns}/margin", 10)
         self.threshold = rospy.get_param(f"{ns}/threshold", 0.05)
+        # Backprojection stride for the side ROIs. Exposed as a parameter so it can
+        # track the input resolution instead of being fixed in code.
+        self.roi_subsample = rospy.get_param(f"{ns}/roi_subsample", 4)
+        # Diagnostic overlays cost a full scatter write per ROI, four times per
+        # frame, so they are gated here rather than relying on no-op drawing calls.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
 
         #duration timer
         self.timer = get_duration_seconds()
@@ -143,13 +149,14 @@ class Door_Status_Detector:
         
         # Include everything behind the frame while dropping foreground people
         # or robot parts that should not decide whether the pane is closed.
-        filtered_points, filtered_uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=door_depth * 20, min_depth=door_depth * 0.9, subsample=4, roi_polygon = roi_polygon)
-        
+        filtered_points, filtered_uv,_ = backproject_depth_to_points(depth_image_in_meters, fx, fy, cx, cy, max_depth=door_depth * 20, min_depth=door_depth * 0.9, subsample=self.roi_subsample, roi_polygon = roi_polygon)
+
         if len(filtered_points) == 0:
             return 0.0
 
-        filtered_points = np.asarray(filtered_points,dtype=np.float32)
-        filtered_uv = np.asarray(filtered_uv,dtype=np.float32)
+        # Backprojection already returns float32 points and integer pixel indices;
+        # keeping the indices integral avoids a float round trip before drawing.
+        filtered_uv = np.asarray(filtered_uv, dtype=np.int32)
 
         # A closed pane or frame returns points close to the confirmed door range;
         # an opening mostly exposes surfaces much farther away.
@@ -186,27 +193,21 @@ class Door_Status_Detector:
         self.timer.stop(f"check_side_roi_against_door {self.keyword}")
         
         self.timer.start(f"check_side_roi_against_door--> visualization {self.keyword}")
-        # Visualization
-        if color_image is not None:
+        # Visualization. The scatter writes below are plain NumPy, so unlike the
+        # cv2 drawing calls they are not disabled by the no-op patching and must be
+        # skipped explicitly when diagnostics are off.
+        if color_image is not None and self.enable_visualization:
             # Draw ROI polygon
             cv2.polylines(color_image, [roi_polygon.astype(np.int32)], isClosed=True, color=color, thickness=2)
-            
-            # Prepare coordinate arrays
-            uv_filtered = filtered_uv.astype(np.int32)
-            uv_close = close_uv.astype(np.int32)
-            #uv_removed = removed_close_uv.astype(np.int32)
 
             # Validity masks to avoid out-of-bounds
-            valid_filtered = (uv_filtered[:, 0] >= 0) & (uv_filtered[:, 0] < W) & (uv_filtered[:, 1] >= 0) & (uv_filtered[:, 1] < H)
-            valid_close = (uv_close[:, 0] >= 0) & (uv_close[:, 0] < W) & (uv_close[:, 1] >= 0) & (uv_close[:, 1] < H)
-            #valid_removed = (uv_removed[:, 0] >= 0) & (uv_removed[:, 0] < W) & (uv_removed[:, 1] >= 0) & (uv_removed[:, 1] < H)
+            valid_filtered = (filtered_uv[:, 0] >= 0) & (filtered_uv[:, 0] < W) & (filtered_uv[:, 1] >= 0) & (filtered_uv[:, 1] < H)
+            valid_close = (close_uv[:, 0] >= 0) & (close_uv[:, 0] < W) & (close_uv[:, 1] >= 0) & (close_uv[:, 1] < H)
 
             # Draw "all filtered points" as blue
-            color_image[uv_filtered[valid_filtered][:, 1], uv_filtered[valid_filtered][:, 0]] = (255, 0, 0)
+            color_image[filtered_uv[valid_filtered, 1], filtered_uv[valid_filtered, 0]] = (255, 0, 0)
             # Draw "close to door depth" points as cyan
-            color_image[uv_close[valid_close][:, 1], uv_close[valid_close][:, 0]] = (0, 255, 255)
-            # Draw "removed (coplanar/floor)" points as green
-            #color_image[uv_removed[valid_removed][:, 1], uv_removed[valid_removed][:, 0]] = (0, 255, 0)
+            color_image[close_uv[valid_close, 1], close_uv[valid_close, 0]] = (0, 255, 255)
 
 
         self.timer.stop(f"check_side_roi_against_door--> visualization {self.keyword}")                 
@@ -253,7 +254,7 @@ class Door_Status_Detector:
         left_match = self.check_side_roi_against_door(ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, getattr(ctx, f"color_image_{self.keyword}"), roi_left_offset, getattr(ctx, f"door_depth_m_{self.keyword}"), color=(255, 0, 255))
         right_match = self.check_side_roi_against_door(ctx.depth_image_in_meters, ctx.fx, ctx.fy, ctx.cx, ctx.cy, getattr(ctx, f"color_image_{self.keyword}"), roi_right_offset, getattr(ctx, f"door_depth_m_{self.keyword}"), color=(0, 255, 255))
 
-        print(f"Left match: {left_match:.2f}, Right match: {right_match:.2f}")
+        rospy.logdebug("Left match: %.2f, Right match: %.2f", left_match, right_match)
 
         # Each side is judged independently; the asymmetric cases tell us which
         # half of the doorway is open.

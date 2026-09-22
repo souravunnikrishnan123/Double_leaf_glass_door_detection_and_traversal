@@ -95,6 +95,8 @@ class ColorDoorDetector:
             "gradient_threshold_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/gradient_threshold_for_extrapolation", 0.1),
             "window_size_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/window_size_for_extrapolation", 5),
         }
+        # The full-resolution edge map is produced for the diagnostic window only.
+        self.enable_visualization = rospy.get_param("~enable_visualization", True)
 
         # Compose strategy components
         self.preprocessor = Preprocessor()
@@ -131,7 +133,9 @@ class ColorDoorDetector:
         self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         # The plane detector is the range gate for this branch. Without it,
         # vertical edges from walls and furniture would look like frame pieces.
-        ransac_plane_distance = rospy.get_param("~plane_detector/output/ransac_plane_distance")
+        # Carried on the context by the plane-search state. Reading it from the
+        # parameter server here cost a blocking round trip inside the timed block.
+        ransac_plane_distance = ctx.ransac_plane_distance
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
  
         # Detect vertical lines in color image using Canny + Hough
@@ -147,7 +151,9 @@ class ColorDoorDetector:
         filtered_grey_image = self.preprocessor.gaussian_blur_filter(color_image_scaled, self.blur)
         edges_scaled = self.edge_detector.canny_edge_detection(filtered_grey_image, self.canny)
         color_lines = self.line_detector.detect(edges_scaled, self.hough, self.scale)
-        edges = self.preprocessor.restore_size(edges_scaled, W, H, self.scale)
+        # The full-resolution edge map is consumed only by the diagnostic stack, so
+        # the upscale is skipped when diagnostics are off.
+        edges = self.preprocessor.restore_size(edges_scaled, W, H, self.scale) if self.enable_visualization else None
 
         self.timer.stop("get_rgb_based_lines_using_canny_and_hough_lines")
         

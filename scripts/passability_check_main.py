@@ -277,6 +277,29 @@ class PassabilityCheckerNode:
         self.rate = rospy.Rate(5)  # 5 Hz decision loop
 
         self.R_rc, self.t_rc = self.get_camera_extrinsics_tf()
+        # Single-precision copies for the bulk point-cloud transform. The clouds are
+        # float32, so using the float64 originals would widen the whole array and
+        # double the memory traffic of the hottest transform in the node.
+        self.R_rc_f32 = np.asarray(self.R_rc, dtype=np.float32)
+        self.t_rc_f32 = np.asarray(self.t_rc, dtype=np.float32)
+
+        # Stage timings are flushed on a slow timer instead of once per control
+        # iteration; the writer rewrites the whole file on every call.
+        if self.profile_enabled:
+            rospy.Timer(rospy.Duration(5.0), self._write_durations)
+
+    def _write_durations(self, _event=None):
+        """
+        Flush stage timing averages to disk.
+
+        Notes:
+            Driven by a low-rate timer. Failures are logged rather than raised so
+            a profiling problem cannot stop the passability loop.
+        """
+        try:
+            get_duration_seconds.write_text_file()
+        except Exception as exc:
+            rospy.logwarn_throttle(30.0, "Could not write durations file: %s", exc)
 
 
 
@@ -558,8 +581,9 @@ class PassabilityCheckerNode:
         img = self.bridge.imgmsg_to_cv2(depth_msg, "passthrough")
 
         if depth_msg.encoding in ("16UC1", "mono16"):
-            depth_mm = img.astype(np.uint16)
-            depth_m = depth_mm.astype(np.float32) / 1000.0
+            # The intermediate uint16 copy is a no-op for an already-16-bit image;
+            # convert once and scale by a reciprocal instead.
+            depth_m = img.astype(np.float32) * np.float32(0.001)
         else:
             depth_m = img.astype(np.float32)
 
@@ -869,56 +893,49 @@ class PassabilityCheckerNode:
         slide_centers_corridor_frame = np.arange(lat_min_corridor_frame + self.half_width, lat_max_corridor_frame - self.half_width, self.slide_step_x_direction)
         # because lateral min and max depends on entire image,not just on the obstacle points. 
 
-        valid_corridors = []
+        # A candidate corridor is accepted when its nearest obstacle is at least
+        # min_clearance away. Rather than slicing the cloud once per candidate,
+        # note that this is equivalent to asking whether any point closer than
+        # min_clearance falls inside the candidate's lateral window. Sorting the
+        # lateral coordinates once turns every candidate into two binary searches.
+        x_left_all = slide_centers_corridor_frame - self.half_width
+        x_right_all = slide_centers_corridor_frame + self.half_width
 
-        for lat_c in slide_centers_corridor_frame:
-            x_left  = lat_c - self.half_width
-            x_right = lat_c + self.half_width
+        lateral_sorted = np.sort(lateral_coordinate_of_points_in_corridor_frame)
+        blocking_lateral_sorted = np.sort(
+            lateral_coordinate_of_points_in_corridor_frame[
+                forward_coordinate_of_points_in_corridor_frame < min_clearance
+            ]
+        )
 
-            corridor_mask = (
-                (lateral_coordinate_of_points_in_corridor_frame > x_left) &
-                (lateral_coordinate_of_points_in_corridor_frame < x_right)
+        # Counts over the open interval (x_left, x_right), matching the strict
+        # comparisons the per-candidate test used.
+        def count_within(sorted_values):
+            return (
+                np.searchsorted(sorted_values, x_right_all, side="left")
+                - np.searchsorted(sorted_values, x_left_all, side="right")
             )
 
-            corridor_forward_coordinates = forward_coordinate_of_points_in_corridor_frame[corridor_mask]
+        blocking_count = count_within(blocking_lateral_sorted)
+        total_count = count_within(lateral_sorted)
 
-            # no points in corridor means free of obstacles
-            if len(corridor_forward_coordinates) == 0:
-                front_clearance_for_virtual_corridor = z_max
-            else:
-                front_clearance_for_virtual_corridor = np.min(corridor_forward_coordinates)
+        # An empty window is treated as clear out to z_max, so it qualifies only
+        # if z_max itself satisfies the clearance requirement.
+        valid_corridor_mask = (blocking_count == 0) & ((total_count > 0) | (z_max >= min_clearance))
 
-            if front_clearance_for_virtual_corridor >= min_clearance:
-                valid_corridors.append({
-                    "x_center": lat_c,
-                    "clearance": front_clearance_for_virtual_corridor,
-                })
-
-        def corridor_cost(c):
-            """
-            Score one valid corridor by distance from the forward axis.
-
-            Args:
-                c:
-                    Dictionary with ``x_center`` and ``clearance`` entries.
-
-            Returns:
-                Non-negative lateral cost in meters. Smaller is preferred.
-            """
-            lateral_cost   = abs(c["x_center"] - 0.0)  # prefer corridors near center of robot fov (x=0 in camera frame)
-
-            return lateral_cost
-        
-        if len(valid_corridors) == 0:
+        if not np.any(valid_corridor_mask):
             rospy.logwarn("Cannot find any valid virtual corridor for passability check.")
             # there is no virtual corridor available. you cannot consider in front of the robot as coridor. because there may be no passable corridor at all
             return None
-        
-        # Prefer the smallest steering correction once safety requirements are met.
-        best_corridor = min(valid_corridors, key=corridor_cost) # it iterates over the list of dicts and passes each dict to corridor_cost
 
-        rospy.loginfo(f"Virtual corridor center defined at x: {best_corridor['x_center']:.3f} m in camera frame")
-        return best_corridor['x_center']
+        # Prefer the smallest steering correction once safety requirements are met.
+        # argmin returns the first minimum, preserving the original tie-breaking
+        # towards the earliest candidate in the sweep.
+        valid_centers = slide_centers_corridor_frame[valid_corridor_mask]
+        best_x_center = valid_centers[np.argmin(np.abs(valid_centers))]
+
+        rospy.loginfo(f"Virtual corridor center defined at x: {best_x_center:.3f} m in camera frame")
+        return best_x_center
     
 
     def find_a_virtual_corridor(self, z_min, z_max, min_clearance):
@@ -984,7 +1001,11 @@ class PassabilityCheckerNode:
             )
 
             if final_points_3d_for_virtual_corridor_definition_camera_frame is not None and len(final_points_3d_for_virtual_corridor_definition_camera_frame) > 0:
-                final_points_3d_for_virtual_corridor_definition_robot_frame = (self.R_rc @ final_points_3d_for_virtual_corridor_definition_camera_frame.T).T + self.t_rc 
+                # Equivalent to (R @ p.T).T + t, but without the two transposes and
+                # the float64 promotion of the whole cloud.
+                final_points_3d_for_virtual_corridor_definition_robot_frame = (
+                    final_points_3d_for_virtual_corridor_definition_camera_frame @ self.R_rc_f32.T + self.t_rc_f32
+                )
                 # Keep only ground-plane components. Project to ground plane (robot X–Y)
                 final_points_2d_for_virtual_corridor_definition_robot_frame = final_points_3d_for_virtual_corridor_definition_robot_frame[:, :2]  # Extract 2D points (x, y)
                 # donot use the value of front clearance directly because corridor is not defined yet.  this front clerance is for full width of image
@@ -1376,7 +1397,11 @@ class PassabilityCheckerNode:
 
             if self.define_new_corridor_req_from_frame_detection or self.define_new_corridor_req_from_traversal:
                 # if corridor is not yet defined, we cannot do passability check. so skip the rest of the loop and wait for next iteration when corridor is defined
-                self.passability_view_pub.publish(self.bridge.cv2_to_imgmsg(passability_view, encoding="bgr8"))
+                # Serializing a full-resolution image on this retry path is pure
+                # diagnostic cost, and this branch repeats for as long as corridor
+                # definition keeps failing.
+                if self.enable_visualization and passability_view is not None:
+                    self.passability_view_pub.publish(self.bridge.cv2_to_imgmsg(passability_view, encoding="bgr8"))
                 self.rate.sleep()
                 continue
 
@@ -1546,7 +1571,6 @@ class PassabilityCheckerNode:
                     subsample=self.subsample, roi_polygon=None
                 )
 
-                rospy.loginfo(f"minimum depth is {self.depth_image.min()} and maximum depth is {self.depth_image.max()} for the current depth image used in passability check.")
                 rospy.loginfo(f"z_min is {z_min} and z_max is {z_max} for back projection in passability check. number of valid depth points for passability check is {len(valid_points_3d_camera_frame)}")
                 if len(valid_points_3d_camera_frame) == 0: 
                     rospy.logwarn("No valid depth points for passability check.")
@@ -1554,7 +1578,9 @@ class PassabilityCheckerNode:
                     passability_view = self.color_image
 
                 else:
-                    valid_points_3d_robot_frame = (self.R_rc @ valid_points_3d_camera_frame.T).T + self.t_rc 
+                    # Equivalent to (R @ p.T).T + t, but without the two transposes
+                    # and the float64 promotion of the whole cloud.
+                    valid_points_3d_robot_frame = valid_points_3d_camera_frame @ self.R_rc_f32.T + self.t_rc_f32
                     # Keep only ground-plane components
                     valid_points_2d_robot_frame = valid_points_3d_robot_frame[:, :2]  # Extract 2D points (x, y)
                     
@@ -1617,9 +1643,7 @@ class PassabilityCheckerNode:
 
                 #in local passability check we do not trigger traversal node, because it is already triggered in corridor passability check which will execute first
 
-                             
-            if self.profile_enabled:
-                get_duration_seconds.write_text_file()
+                        
 
 
             self.trigger_traversal_node_pub.publish(Bool(data=self.trigger_traversal_node))

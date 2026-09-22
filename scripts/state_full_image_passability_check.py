@@ -30,9 +30,12 @@ class full_image_passability_check_state(BaseState):
         Initialize fallback depth references from ROS parameters.
 
         Notes:
-            ``~plane_detector/output/ransac_plane_distance`` is updated during the run. hence it shall not be read during the class init constructor
+            ``~plane_detector/output/ransac_plane_distance`` is updated during the
+            run, so it is taken from the frame context rather than read here. The
+            reference distance is static and is cached once.
         """
         super().__init__("full_image_passability_check_state")
+        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
         
     def do_action(self, ctx: FrameContext):
         """
@@ -53,8 +56,9 @@ class full_image_passability_check_state(BaseState):
         # too little planar surface for the glass detector to confirm.
         ctx.mid_frame_x_px_for_passability_check = None  # Not applicable
         # door state label should have been set in the previous state when determine to transition to this state
-        self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
-        self.ransac_plane_distance = rospy.get_param(f"~plane_detector/output/ransac_plane_distance")
+        # The plane distance is refreshed by the plane-search state and travels on
+        # the context, so neither value needs a parameter-server round trip here.
+        self.ransac_plane_distance = ctx.ransac_plane_distance
         
         if ctx.door_state_label == "No_door_plane_detected":
             ctx.door_depth = self.reference_door_distance_m  # set a default door depth for passability check when no door plane is detected

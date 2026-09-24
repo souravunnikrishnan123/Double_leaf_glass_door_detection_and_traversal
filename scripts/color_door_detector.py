@@ -9,6 +9,7 @@ for the shared glass-frame pairing stage.
 import cv2
 import rospy
 from duration import get_duration_seconds
+from resolution_scaling import ResolutionScaler
 from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
 
 
@@ -42,9 +43,6 @@ class ColorDoorDetector:
         min_num_of_valid_depths_for_depth_estimation:
             Minimum finite line samples required for a median depth.
 
-        extrapolation:
-            Depth-gradient and smoothing settings retained for line extension.
-
         preprocessor:
             Shared image preprocessing helper.
 
@@ -74,6 +72,10 @@ class ColorDoorDetector:
 
         self.ransac_error = rospy.get_param("~plane_detector/output/ransac_error")
 
+        # Pixel-domain values below are calibrated for the reference resolution
+        # and are converted to whatever resolution the bridge is publishing.
+        scaler = ResolutionScaler()
+
         self.scale = rospy.get_param(f"{ns}/scale", 1.0)
         # Optional tunables for image processing
         self.canny = {
@@ -85,16 +87,12 @@ class ColorDoorDetector:
             "sigma": rospy.get_param(f"{ns}/blur/sigma", 0.8),
         }
         self.hough = {
-            "threshold": rospy.get_param(f"{ns}/hough/threshold", 100),
-            "min_line_length": rospy.get_param(f"{ns}/hough/min_line_length", 100),
-            "max_line_gap": rospy.get_param(f"{ns}/hough/max_line_gap", 20),
+            "threshold": scaler.length(rospy.get_param(f"{ns}/hough/threshold", 100)),
+            "min_line_length": scaler.length(rospy.get_param(f"{ns}/hough/min_line_length", 100)),
+            "max_line_gap": scaler.length(rospy.get_param(f"{ns}/hough/max_line_gap", 20)),
         }
         self.angle_threshold = rospy.get_param(f"{ns}/angle_threshold", 0.2)
         self.min_num_of_valid_depths_for_depth_estimation = rospy.get_param(f"{ns}/min_num_of_valid_depths_for_depth_estimation", 5)
-        self.extrapolation = {
-            "gradient_threshold_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/gradient_threshold_for_extrapolation", 0.1),
-            "window_size_for_extrapolation": rospy.get_param(f"{ns}/extrapolation/window_size_for_extrapolation", 5),
-        }
         # The full-resolution edge map is produced for the diagnostic window only.
         self.enable_visualization = rospy.get_param("~enable_visualization", True)
 

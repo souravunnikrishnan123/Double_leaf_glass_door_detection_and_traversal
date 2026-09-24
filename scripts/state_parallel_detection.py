@@ -68,6 +68,43 @@ class dual_branch_frame_detection_state(BaseState):
         self.detecting_door_status_based_on_depth = Door_Status_Detector("depth_based")
         self.enable_windows = rospy.get_param("~enable_visualization", False)
         self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
+        # Held open for the lifetime of the node; see _write_result_log.
+        self._result_log_file = None
+        if self.enable_result_log:
+            try:
+                self._result_log_file = open(self.door_state_log_path, "a")
+                rospy.on_shutdown(self._close_result_log)
+            except Exception as exc:
+                rospy.logwarn("Could not open result log: %s", exc)
+
+
+    def _write_result_log(self, line):
+        """
+        Append one diagnostic line to the result log.
+
+        Notes:
+            The handle is kept open across frames. Opening and closing the file on
+            every frame cost a pair of syscalls plus a directory lookup inside the
+            image callback, which is measurable on flash storage. Each line is
+            flushed so the file stays readable while the pipeline runs.
+        """
+        handle = self._result_log_file
+        if handle is None:
+            return
+        try:
+            handle.write(line)
+            handle.flush()
+        except Exception as exc:
+            rospy.logwarn_throttle(30.0, "Could not write result log: %s", exc)
+
+    def _close_result_log(self):
+        """Close the diagnostic log handle at shutdown."""
+        if self._result_log_file is not None:
+            try:
+                self._result_log_file.close()
+            except Exception:
+                pass
+            self._result_log_file = None
 
     def do_action(self, ctx: FrameContext) -> Optional[str]:
         """
@@ -184,8 +221,8 @@ class dual_branch_frame_detection_state(BaseState):
 
         # Persist latest states to a text log for debugging/analysis
         if self.enable_result_log:
-            with open(self.door_state_log_path, "a") as f:
-                f.write(f"Color-based door state: {door_state_c}, Depth-based door state: {door_state_d}\n")
+            self._write_result_log(
+                f"Color-based door state: {door_state_c}, Depth-based door state: {door_state_d}\n")
 
         return "combine_door_state"
 

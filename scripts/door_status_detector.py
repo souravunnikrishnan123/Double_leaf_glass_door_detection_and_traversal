@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 from duration import get_duration_seconds
+from resolution_scaling import ResolutionScaler
 
 
 from processing_classes import backproject_depth_to_points
@@ -55,12 +56,18 @@ class Door_Status_Detector:
         ns = "~door_status_detector"
         self.keyword = keyword
         # Core ROI params
-        self.roi_width = rospy.get_param(f"{ns}/roi_width",240)
-        self.margin = rospy.get_param(f"{ns}/margin", 10)
+        # Pixel-domain values are calibrated for the reference resolution.
+        scaler = ResolutionScaler()
+        self.roi_width = scaler.length(rospy.get_param(f"{ns}/roi_width", 240))
+        self.margin = scaler.length(rospy.get_param(f"{ns}/margin", 10))
         self.threshold = rospy.get_param(f"{ns}/threshold", 0.05)
-        # Backprojection stride for the side ROIs. Exposed as a parameter so it can
-        # track the input resolution instead of being fixed in code.
-        self.roi_subsample = rospy.get_param(f"{ns}/roi_subsample", 4)
+        # Deliberately NOT converted by the scaler. check_side_roi_against_door
+        # returns a *fraction* of ROI points rather than an absolute count, so this
+        # only sets how finely the strip is sampled; holding the point count
+        # constant would buy nothing and cost the normal estimation below. Cast and
+        # floored because it indexes a slice step, where 0 raises and a float is a
+        # TypeError.
+        self.roi_subsample = max(1, int(rospy.get_param(f"{ns}/roi_subsample", 4)))
         # Diagnostic overlays cost a full scatter write per ROI, four times per
         # frame, so they are gated here rather than relying on no-op drawing calls.
         self.enable_visualization = rospy.get_param("~enable_visualization", True)

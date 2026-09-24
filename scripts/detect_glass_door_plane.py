@@ -7,6 +7,7 @@ import numpy as np
 import open3d as o3d
 
 from processing_classes import backproject_depth_to_points
+from resolution_scaling import ResolutionScaler
 
 
 
@@ -302,7 +303,13 @@ class PlaneDetector:
         # strong guard against fitting one of the corridor walls behind the door.
         self.max_depth_backprojection = self.reference_door_distance_m + self.distance_range_m
         self.min_depth_backprojection = self.reference_door_distance_m - self.distance_range_m
-        self.subsample = rospy.get_param(f"{ns}/backproject/subsample", 1)
+        # The stride is taken over the list of valid pixels, whose length scales
+        # with image area, so it is converted by the square of the linear factor.
+        # This holds the back-projected point count roughly constant, keeping
+        # min_inliers below meaningful at any resolution.
+        self.subsample = ResolutionScaler().stride(
+            rospy.get_param(f"{ns}/backproject/subsample", 1)
+        )
 
         #filter points
         # Downsampling

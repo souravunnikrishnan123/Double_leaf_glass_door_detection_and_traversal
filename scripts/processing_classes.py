@@ -514,23 +514,50 @@ def backproject_depth_to_points(
     """
     H, W = depth_image_in_meters.shape
 
-    # The depth range test already rejects every non-finite value: NaN compares
-    # false against both bounds, and +/-inf fails one of them. A separate
-    # np.isfinite pass over the full image would be redundant.
-    valid_mask = (depth_image_in_meters > min_depth) & (depth_image_in_meters < max_depth)
-
     # Restrict to the ROI only when one is given. Allocating a full-frame
     # all-ones mask for the unrestricted case would cost several full-resolution
     # passes to express "keep everything".
     if roi_polygon is not None:
-        roi_mask = np.zeros((H, W), dtype=np.uint8)
+        # Every kept pixel lies inside the polygon, so it also lies inside the
+        # polygon's bounding box. Running the depth test and the polygon fill on
+        # that box alone touches only the pixels that can survive. The side strips
+        # this is called with cover roughly a fifth of the frame, so the full-image
+        # passes here were mostly work on pixels that were about to be discarded.
+        polygon = np.asarray(roi_polygon, dtype=np.int32).reshape(-1, 2)
+        x_start = max(0, int(polygon[:, 0].min()))
+        x_end = min(W, int(polygon[:, 0].max()) + 1)
+        y_start = max(0, int(polygon[:, 1].min()))
+        y_end = min(H, int(polygon[:, 1].max()) + 1)
+        valid_mask = np.zeros((H, W), dtype=bool)
+        if x_end <= x_start or y_end <= y_start:
+            # The polygon lies entirely outside the image.
+            return (np.empty((0, 3), dtype=np.float32),
+                    np.empty((0, 2), dtype=np.intp),
+                    valid_mask)
+        depth_in_box = depth_image_in_meters[y_start:y_end, x_start:x_end]
+        # The depth range test already rejects every non-finite value: NaN compares
+        # false against both bounds, and +/-inf fails one of them. A separate
+        # np.isfinite pass would be redundant.
+        box_mask = (depth_in_box > min_depth) & (depth_in_box < max_depth)
         # Filled with 1 rather than 255 so the buffer can be reinterpreted as bool
         # directly; a bool array must only ever hold 0 or 1.
-        cv2.fillPoly(roi_mask, [np.array(roi_polygon, dtype=np.int32)], 1)
-        valid_mask &= roi_mask.view(bool)
-
-    # Preserve uv and point ordering; several later filters use one mask on both.
-    ys, xs = np.where(valid_mask)
+        roi_mask = np.zeros((y_end - y_start, x_end - x_start), dtype=np.uint8)
+        cv2.fillPoly(roi_mask, [polygon - np.array([x_start, y_start], dtype=np.int32)], 1)
+        box_mask &= roi_mask.view(bool)
+        valid_mask[y_start:y_end, x_start:x_end] = box_mask
+        # Row-major order inside the box matches row-major order over the full
+        # image restricted to the box, so the pixel sequence - and therefore the
+        # subsampling below - is unchanged by cropping.
+        ys, xs = np.where(box_mask)
+        ys = ys + y_start
+        xs = xs + x_start
+    else:
+        # The depth range test already rejects every non-finite value: NaN compares
+        # false against both bounds, and +/-inf fails one of them. A separate
+        # np.isfinite pass over the full image would be redundant.
+        valid_mask = (depth_image_in_meters > min_depth) & (depth_image_in_meters < max_depth)
+        # Preserve uv and point ordering; several later filters use one mask on both.
+        ys, xs = np.where(valid_mask)
     if subsample > 1:
         ys = ys[::subsample]
         xs = xs[::subsample]

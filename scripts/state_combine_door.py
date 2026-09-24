@@ -170,6 +170,43 @@ class combine_door_state(BaseState):
         self.smoother = TemporalSmoother(window_size=8, min_consistent=3, hysteresis=True, stable_hold=2)
         self.smoothed_door_state_log_path = rospy.get_param("~result_log_path")+"/final_door_status_after_temporal_smoothing.txt"  # Path to log file for smoothed door states
         self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
+        # Held open for the lifetime of the node; see _write_result_log.
+        self._result_log_file = None
+        if self.enable_result_log:
+            try:
+                self._result_log_file = open(self.smoothed_door_state_log_path, "a")
+                rospy.on_shutdown(self._close_result_log)
+            except Exception as exc:
+                rospy.logwarn("Could not open result log: %s", exc)
+
+
+    def _write_result_log(self, line):
+        """
+        Append one diagnostic line to the result log.
+
+        Notes:
+            The handle is kept open across frames. Opening and closing the file on
+            every frame cost a pair of syscalls plus a directory lookup inside the
+            image callback, which is measurable on flash storage. Each line is
+            flushed so the file stays readable while the pipeline runs.
+        """
+        handle = self._result_log_file
+        if handle is None:
+            return
+        try:
+            handle.write(line)
+            handle.flush()
+        except Exception as exc:
+            rospy.logwarn_throttle(30.0, "Could not write result log: %s", exc)
+
+    def _close_result_log(self):
+        """Close the diagnostic log handle at shutdown."""
+        if self._result_log_file is not None:
+            try:
+                self._result_log_file.close()
+            except Exception:
+                pass
+            self._result_log_file = None
 
     def rois_match(self, roi1, roi2, iou_threshold):
         """
@@ -433,8 +470,7 @@ class combine_door_state(BaseState):
         smoothed_door_state = self.smoother.update(result["final_door_status"])
 
         if self.enable_result_log:
-            with open(self.smoothed_door_state_log_path, "a") as f:
-                f.write(f"smoothed_door_state: {smoothed_door_state}\n")
+            self._write_result_log(f"smoothed_door_state: {smoothed_door_state}\n")
 
 
         ctx.door_state_label = smoothed_door_state

@@ -29,6 +29,7 @@ import numpy as np
 from geometry_msgs.msg import Twist
 from robodog_glass_door_detection.msg import Robot_passability
 from processing_classes import backproject_depth_to_points
+from resolution_scaling import ResolutionScaler
 import cv2
 import tf2_ros
 from scipy.spatial.transform import Rotation as R
@@ -155,7 +156,20 @@ class PassabilityCheckerNode:
         # -----------------------------
         self.minimum_depth_for_back_projection = rospy.get_param(f"{ns}/back_proj_params/minimum_depth", 0.05)  # meters
         self.maximum_depth_beyond_corridor_center_point_for_back_projection = rospy.get_param(f"{ns}/back_proj_params/maximum_depth_beyond_corridor_center_point", 1.5)  # meters
-        self.subsample = rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
+        # Converted the same way Passability_checker converts it, and it must stay
+        # that way. This node back-projects the cloud; Passability_checker sizes its
+        # connectivity-restoring dilation from the point spacing it expects
+        # (kernel_size = its own subsample). If the two disagree, a cloud sampled
+        # every 4th pixel is dilated with a 1x1 kernel and components fragment.
+        # Measured at resize_scale=0.5: a square obstacle up to about 14 px on a
+        # side breaks into fragments that each fall under the resolved area
+        # threshold and is dropped entirely, while larger ones survive but have
+        # their median depth, median height and depth MAD computed from a fortieth
+        # of the samples. Both failures are toward declaring a blocked corridor
+        # clear, so the two values must be converted identically.
+        self.subsample = ResolutionScaler().stride(
+            rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
+        )
 
         # local passability check parameters
         self.minimum_depth_for_back_projection_local_passability_check = rospy.get_param(f"{ns}/back_proj_params/minimum_depth_local_passability_check", 0.05)  # meters

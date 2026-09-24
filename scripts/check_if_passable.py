@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 from duration import get_duration_seconds
+from resolution_scaling import ResolutionScaler
 
 
 def grouped_median(values, group_index, num_groups):
@@ -141,7 +142,14 @@ class Passability_checker:
         # -----------------------------
         # Backprojection parameters
         # -----------------------------
-        self.subsample = rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
+        # Pixel-domain values are calibrated for the reference resolution.
+        self.scaler = ResolutionScaler()
+        # The stride runs over the list of valid pixels, whose length scales with
+        # image area, so converting it by the square of the linear factor keeps
+        # the filtered point count, and thus the absolute count thresholds below,
+        # meaningful at any resolution.
+        self.reference_subsample = rospy.get_param(f"{ns}/back_proj_params/subsample", 2)
+        self.subsample = self.scaler.stride(self.reference_subsample)
 
         # -----------------------------
         # split eye level params
@@ -178,6 +186,20 @@ class Passability_checker:
         self.near_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/near_z", 0.6)
         self.min_area_near = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_area_near", 640)
         self.minimum_area_far = rospy.get_param(f"{ns}/filter_points_params/cc_filter/minimum_area_far", 600)
+        # These thresholds are written as areas in reference-resolution pixels,
+        # reduced by the reference stride because subsampling thins the mask.
+        # Both conversions are applied once here rather than per frame: the
+        # reference stride is used for the reduction, so that the value no longer
+        # moves when the stride itself is converted, and the result is then
+        # scaled by image area for the resolution actually in use.
+        reference_area_scale = max(1, int(self.reference_subsample) ** 2)
+        # Truncation, not rounding, reproduces the original threshold exactly at
+        # the reference resolution.
+        reference_min_area_near = max(6, int(self.min_area_near / reference_area_scale))
+        reference_minimum_area_far = max(6, int(self.minimum_area_far / reference_area_scale))
+        area_factor = self.scaler.resize_scale ** 2
+        self.min_area_near_px = max(6, int(reference_min_area_near * area_factor))
+        self.minimum_area_far_px = max(6, int(reference_minimum_area_far * area_factor))
         self.min_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1)
         self.max_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/max_z", 4.0)
         #self.min_z = rospy.get_param(f"{ns}/filter_points_params/cc_filter/min_z", 0.1)
@@ -458,15 +480,12 @@ class Passability_checker:
             uv_5_remove_patches = uv
             points_5_remove_patches = points
 
-            # Image components lose roughly stride squared pixels during
-            # subsampling, so scale area thresholds by the same amount.
-            area_scale = self.subsample * self.subsample  # compensate for subsampling
-            # Depth-aware params
+            # Area thresholds are resolved once at start-up; see __init__.
             # be it corridor or local passability check, the depth range is small (like 0.5m for local and 2-3m for corridor). so using min_z and max_z for area scaling.
             # because setting min_area_near and minimum_area_far has nothing to do with depth of points in corridor or local passability check. these are just area thresholds to remove small patches.
             # because points that are about 0.5m to robot is considered as near points( always )
-            min_area_near = max(6, int(self.min_area_near / area_scale))
-            minimum_area_far = max(6, int(self.minimum_area_far / area_scale))
+            min_area_near = self.min_area_near_px
+            minimum_area_far = self.minimum_area_far_px
 
             # Build 1px mask (no morphology and vectorized)
             uv_int = np.round(uv).astype(int)

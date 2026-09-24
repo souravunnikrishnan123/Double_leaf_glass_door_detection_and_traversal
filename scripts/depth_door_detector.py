@@ -12,6 +12,7 @@ import cv2
 
 
 from duration import get_duration_seconds
+from resolution_scaling import ResolutionScaler
 from post_processing_of_detected_vertical_lines import cluster_and_merge_lines
 from processing_classes import LineFilter, EdgeDetector, HoughPLineDetector, Preprocessor
 
@@ -89,30 +90,49 @@ class DepthDoorDetector:
         
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
         
-        self.PHYSICAL_GRADIENT_THRESHOLD = rospy.get_param(f"{ns}/PHYSICAL_GRADIENT_THRESHOLD", 0.25)
+        # Pixel-domain values below are calibrated for the reference resolution
+        # and are converted to whatever resolution the bridge is publishing.
+        scaler = ResolutionScaler()
+
+        # A depth step of a given physical size spans fewer pixels in a smaller
+        # image, so the gradient measured per pixel grows as the image shrinks.
+        self.PHYSICAL_GRADIENT_THRESHOLD = scaler.gradient(
+            rospy.get_param(f"{ns}/PHYSICAL_GRADIENT_THRESHOLD", 0.25)
+        )
         self.scale = rospy.get_param(f"{ns}/scale", 0.5)
         self.hough = {
-            "threshold": rospy.get_param(f"{ns}/hough/threshold", 100),
-            "min_line_length": rospy.get_param(f"{ns}/hough/min_line_length", 100),
-            "max_line_gap": rospy.get_param(f"{ns}/hough/max_line_gap", 30),
+            "threshold": scaler.length(rospy.get_param(f"{ns}/hough/threshold", 100)),
+            "min_line_length": scaler.length(rospy.get_param(f"{ns}/hough/min_line_length", 100)),
+            "max_line_gap": scaler.length(rospy.get_param(f"{ns}/hough/max_line_gap", 30)),
         }
         self.bilateral = {
-            "d": rospy.get_param(f"{ns}/bilateral/d", 5),
+            # d is a pixel neighbourhood diameter and sigma_space a pixel
+            # distance; sigma_color is a depth range and stays as configured.
+            "d": scaler.odd_length(rospy.get_param(f"{ns}/bilateral/d", 5)),
             "sigma_color": rospy.get_param(f"{ns}/bilateral/sigma_color", 50),
-            "sigma_space": rospy.get_param(f"{ns}/bilateral/sigma_space", 75),
+            "sigma_space": scaler.length(rospy.get_param(f"{ns}/bilateral/sigma_space", 75)),
         }
         self.sobel = {
             "ksize": rospy.get_param(f"{ns}/sobel/ksize", 3),
         }
         self.adaptive = {
             "k_factor": rospy.get_param(f"{ns}/adaptive/k_factor", 2.0),
-            "fallback_threshold": rospy.get_param(f"{ns}/adaptive/fallback_threshold", 0.1),
+            # Also a per-pixel depth gradient, so it scales inversely too.
+            "fallback_threshold": scaler.gradient(
+                rospy.get_param(f"{ns}/adaptive/fallback_threshold", 0.1)
+            ),
         }
         self.angle_threshold = rospy.get_param(f"{ns}/angle_threshold", 0.2)
-        self.roi_width_for_depth_estimation = rospy.get_param(f"{ns}/roi_width_for_depth_estimation", 10)
+        self.roi_width_for_depth_estimation = scaler.length(
+            rospy.get_param(f"{ns}/roi_width_for_depth_estimation", 10)
+        )
         self.merge_lines = {
-            "x_threshold_to_merge_lines": rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10),
-            "MIN_LINE_LENGTH_after_merging": rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50),
+            "x_threshold_to_merge_lines": scaler.length(
+                rospy.get_param(f"{ns}/merge_lines/x_threshold_to_merge_lines", 10)
+            ),
+            "MIN_LINE_LENGTH_after_merging": scaler.length(
+                rospy.get_param(f"{ns}/merge_lines/MIN_LINE_LENGTH_after_merging", 50)
+            ),
         }
         # The Sobel preview image is produced for the diagnostic window only.
         self.enable_visualization = rospy.get_param("~enable_visualization", True)

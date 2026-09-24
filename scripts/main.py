@@ -34,6 +34,7 @@ from state_parallel_detection import dual_branch_frame_detection_state
 from state_final import final_state
 from ros_frame_adapter import DepthFrameAdapter
 from duration import get_duration_seconds
+from resolution_scaling import ResolutionScaler
 from state_full_image_passability_check import full_image_passability_check_state
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode
@@ -150,7 +151,6 @@ class DoorDetectionNode:
         self.dropped_frame_count = 0
         # Per-frame pair logging is a diagnostic; it publishes to /rosout every frame.
         self.verbose_frame_logging = rospy.get_param("~verbose_frame_logging", False)
-
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
         self.go_to_idle_from_finish_state = False
@@ -239,7 +239,13 @@ class DoorDetectionNode:
                 self.profiler.stop()
                 with open(self.profiler_output_path, "w") as f:
                     f.write(self.profiler.output_html())
-                rospy.loginfo("[Profiler] Saved to %s", self.profiler_output_path)
+                # A plain-text copy is far easier to read over a terminal session
+                # on the robot than the HTML report.
+                text_path = os.path.splitext(self.profiler_output_path)[0] + ".txt"
+                with open(text_path, "w") as f:
+                    f.write(self.profiler.output_text(unicode=False, color=False))
+                rospy.loginfo("[Profiler] Saved to %s and %s",
+                              self.profiler_output_path, text_path)
         except Exception as exc:
             rospy.logwarn("[Profiler] Could not save profile: %s", exc)
 
@@ -302,9 +308,13 @@ class DoorDetectionNode:
             per-frame reads never touch the parameter server.
         """
         ctx.door_geometry = {
+            # Widths are physical measurements in centimetres and do not depend
+            # on image size; roi_width is a pixel width and does.
             "glass_width_cm": rospy.get_param("~door_geometry/glass_width_cm", 40),
             "center_frame_width_cm": rospy.get_param("~door_geometry/center_frame_width_cm", 30),
-            "roi_width": rospy.get_param("~door_geometry/roi_width", 240),
+            "roi_width": ResolutionScaler().length(
+                rospy.get_param("~door_geometry/roi_width", 240)
+            ),
             "correction_factor": rospy.get_param("~door_geometry/correction_factor", 1.1),
         }
         ctx.ransac_plane_distance = rospy.get_param(

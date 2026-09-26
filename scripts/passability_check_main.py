@@ -182,8 +182,7 @@ class PassabilityCheckerNode:
         self.robot_width = rospy.get_param(f"{ns}/traversal_params/robot_width", 0.45)  # meters ,robot  width
         self.robot_length = rospy.get_param(f"{ns}/traversal_params/robot_length", 0.7)  # meters
         self.safety_margin_robot_width = rospy.get_param(f"{ns}/traversal_params/safety_margin_robot_width", 0.05)  # meters
-        self.door_frame_margin = rospy.get_param(f"{ns}/traversal_params/door_frame_margin", 0.05)  # meters
-        
+
         # Every corridor is sized for the robot body plus clearance on one side;
         # using a half-width keeps the later symmetric bounds readable.
         self.half_width = (self.robot_width /2.0) + self.safety_margin_robot_width

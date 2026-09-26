@@ -263,10 +263,6 @@ class PlaneDetector:
         min_inliers:
             Minimum RANSAC inlier count.
 
-        max_inlier_density:
-            Configured upper inlier-density limit retained for candidate
-            evaluation.
-
         max_planes:
             Maximum planes segmented from one frame.
 
@@ -334,8 +330,6 @@ class PlaneDetector:
         self.upper_pct = rospy.get_param(f"{ns}/outline/upper_pct", 95)
         self.min_width_m = rospy.get_param(f"{ns}/outline/min_width_m", 0.8)
         self.min_height_m = rospy.get_param(f"{ns}/outline/min_height_m", 0.5)
-        #
-        self.max_inlier_density = rospy.get_param(f"{ns}/max_inlier_density", 1.0)
         # Plane inlier overlays are diagnostics only.
         self.enable_visualization = rospy.get_param("~enable_visualization", True)
         # Temporal smoothing tracker

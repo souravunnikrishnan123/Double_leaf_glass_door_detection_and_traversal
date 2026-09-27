@@ -9,8 +9,6 @@ from depth_door_detector import DepthDoorDetector
 from find_glass_frame_lines import GlassFrameLineProcessor
 from visualization_utils import show_stacked_visualization, build_stacked_visualization
 import rospy
-import rospkg
-import os
 
 class dual_branch_frame_detection_state(BaseState):
     """
@@ -132,6 +130,7 @@ class dual_branch_frame_detection_state(BaseState):
         # are read from the shared context, which the plane-search state keeps
         # current, instead of from the parameter server once per frame.
         self.door_geometry = ctx.door_geometry
+        rospy.loginfo(f"door geometry used in dual branch state: {self.door_geometry}")
         ransac_plane_distance = ctx.ransac_plane_distance
         DEPTH_RANGE = [ransac_plane_distance * (1 - self.ransac_error), ransac_plane_distance * (1 + self.ransac_error)]
 
@@ -205,19 +204,20 @@ class dual_branch_frame_detection_state(BaseState):
             # Build images even when local windows are disabled; remote ROS tools use them.
             # Build stacked visualizations for publishing
             ctx.viz_color_stack = build_stacked_visualization(
-                ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame
+                ctx.color_image_color_based, edges=ctx.edges, depth_frame=ctx.depth_frame
             )
 
             ctx.viz_depth_stack = build_stacked_visualization(
-                ctx.color_image_depth_based, MIN_DEPTH=1.9, MAX_DEPTH=2.1, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
+                ctx.color_image_depth_based, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
             )
-
+            """
             show_stacked_visualization(
-                ctx.color_image_color_based, MIN_DEPTH=0.3, MAX_DEPTH=6.0, edges=ctx.edges, depth_frame=ctx.depth_frame, window_name="Color | Depth | Edges+ Lines"
+                ctx.color_image_color_based, edges=ctx.edges, depth_frame=ctx.depth_frame, window_name="Color | Depth | Edges+ Lines"
             )
             show_stacked_visualization(
-                ctx.color_image_depth_based, MIN_DEPTH=1.8, MAX_DEPTH=2.5, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame, window_name="depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
+                ctx.color_image_depth_based, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame, window_name="depth lines in color image | Depth for depth lines| Sobel + Depth Edges"
             )
+            """
 
         # Persist latest states to a text log for debugging/analysis
         if self.enable_result_log:

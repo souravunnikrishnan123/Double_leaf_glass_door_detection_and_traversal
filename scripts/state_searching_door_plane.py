@@ -113,12 +113,13 @@ class searching_door_plane_state(BaseState):
                 # Underestimate pane width slightly so the pairing test does not
                 # discard a real frame because of a borderline measurement.
                 glass_width_cm_safe_value = float(glass_and_door_width["final_glass_width_m"]) * 100.0 * (1 - self.margin_for_glass_width_inaccuracy) # margin of safety
-                center_frame_width_cm_safe_value = float(glass_and_door_width["final_frame_width_m"]) * 100.0
+                estimated_center_frame_width_cm = float(glass_and_door_width["final_frame_width_m"]) * 100.0
                 #for glass width dont have to check the default value as the glass width detection is usually accurate enough and also, the default value is set to a lower value to handle the case, in which the algorithm couldnt detect the glass width
 
-                default_value_of_center_frame_width = ctx.door_geometry["center_frame_width_cm"]*100.0
+                default_value_of_center_frame_width = ctx.door_geometry["center_frame_width_cm"] #already in cm
 
-                center_frame_width_cm_safe_value = max(center_frame_width_cm_safe_value, default_value_of_center_frame_width)  # enforce minimum frame width.
+
+                center_frame_width_cm_safe_value = max(estimated_center_frame_width_cm, default_value_of_center_frame_width)  # enforce minimum frame width.
                 #it is needed because sometimes the frame width detection can be way off when there is clutter around the door frame, especially when the door is already open
 
 
@@ -128,6 +129,7 @@ class searching_door_plane_state(BaseState):
                 # parameter-update broadcast.
                 ctx.door_geometry["glass_width_cm"] = glass_width_cm_safe_value
                 ctx.door_geometry["center_frame_width_cm"] = center_frame_width_cm_safe_value
+                rospy.loginfo(f"Estimated glass width: {glass_width_cm_safe_value:.1f} cm, estimated center frame width: {estimated_center_frame_width_cm:.1f} cm")
                 # if final_glass_width_m and final_frame_width_m are None, do not update the params (keep default valid values)
 
             ctx.color_image_for_plane_detection = vis_img

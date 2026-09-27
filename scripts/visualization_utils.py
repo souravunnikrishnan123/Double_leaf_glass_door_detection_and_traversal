@@ -116,7 +116,7 @@ def get_z_depth(depth_frame, x, y):
 
     
 
-def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame):
+def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edges=None, depth_frame=None):
     """
     Build a side-by-side color, depth, and edge visualization.
 
@@ -125,10 +125,10 @@ def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_
             BGR image that defines the output panel dimensions.
 
         MIN_DEPTH:
-            Minimum displayed depth in meters.
+            Minimum displayed depth in meters, or ``None`` to fit the frame.
 
         MAX_DEPTH:
-            Maximum displayed depth in meters.
+            Maximum displayed depth in meters, or ``None`` to fit the frame.
 
         edges:
             Optional grayscale or BGR edge visualization.
@@ -138,11 +138,22 @@ def build_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_
 
     Returns:
         BGR image containing the three horizontally stacked panels.
+
+    Notes:
+        With no limits given the depth panel fits the range present in the
+        frame. That range is printed on the panel, because an automatic scale
+        makes a color meaningless without the numbers beside it.
     """
     # Use the same three-panel order everywhere; this makes recorded diagnostics
     # easy to compare frame by frame.
     depth_image = np.asanyarray(depth_frame.get_data())
+    auto_scaled = MIN_DEPTH is None or MAX_DEPTH is None
+    if auto_scaled:
+        MIN_DEPTH, MAX_DEPTH = auto_depth_range_m(depth_image)
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
+    cv2.putText(depth_colormap,
+                f"{MIN_DEPTH:.2f}-{MAX_DEPTH:.2f} m" + (" (auto)" if auto_scaled else ""),
+                (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
     target_height, target_width = color_image.shape[:2]
     if edges is None:
         edges_vis = np.zeros_like(color_image)
@@ -227,34 +238,80 @@ def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_f
 # -------------------------------
 # Convert raw depth image to color for visualization
 # -------------------------------
-def depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH):
+def auto_depth_range_m(depth_image, lower_pct=1.0, upper_pct=99.0):
     """
-    Convert a millimeter depth image into a clipped JET color map.
+    Derive display depth limits from the data actually present in a frame.
+
+    Args:
+        depth_image:
+            ``H x W`` depth array in millimeters. Zero marks an invalid pixel.
+
+        lower_pct:
+            Percentile taken as the near limit.
+
+        upper_pct:
+            Percentile taken as the far limit.
+
+    Returns:
+        Tuple ``(min_m, max_m)`` in meters.
+
+    Notes:
+        Percentiles rather than the raw extremes, because a handful of
+        speckle returns at the sensor's limits would otherwise stretch the
+        range and flatten everything else. Frames with no valid depth fall
+        back to a nominal one-metre span.
+    """
+    depth = np.asarray(depth_image)
+    valid = depth > 0
+    if not np.any(valid):
+        return 0.0, 1.0
+    lo_mm, hi_mm = np.percentile(depth[valid], (lower_pct, upper_pct))
+    if hi_mm - lo_mm < 1.0:
+        hi_mm = lo_mm + 1.0
+    return float(lo_mm) / 1000.0, float(hi_mm) / 1000.0
+
+
+def depth_to_colormap(depth_image, MIN_DEPTH=None, MAX_DEPTH=None):
+    """
+    Convert a millimeter depth image into a JET color map.
 
     Args:
         depth_image:
             ``H x W`` depth array in millimeters.
 
         MIN_DEPTH:
-            Lower visualization limit in meters.
+            Lower visualization limit in meters, or ``None`` to derive it from
+            the frame.
 
         MAX_DEPTH:
-            Upper visualization limit in meters.
+            Upper visualization limit in meters, or ``None`` to derive it from
+            the frame.
 
     Returns:
         ``H x W x 3`` uint8 BGR color-map image.
 
     Notes:
-        Values outside the requested interval are clipped before conversion.
+        The requested interval is mapped across the full 0-255 range, so a
+        narrow window spends the whole color map on it. Pixels with no depth
+        reading are painted black rather than left at the map's near end, where
+        they would be indistinguishable from a surface against the lens.
     """
-    # Clip depth image to desired range
-    # Raw adapter data is millimetres even though display limits are configured
-    # in metres.
-    depth_scaled = np.clip(depth_image, MIN_DEPTH*1000, MAX_DEPTH*1000)
-    # Convert depth to 8-bit for color mapping
-    depth_scaled = cv2.convertScaleAbs(depth_scaled, alpha=0.03)
-    # Apply colormap (Jet: Blue → Red gradient)
-    return cv2.applyColorMap(depth_scaled, cv2.COLORMAP_JET)
+    depth = np.asarray(depth_image)
+    valid = depth > 0
+    if MIN_DEPTH is None or MAX_DEPTH is None:
+        MIN_DEPTH, MAX_DEPTH = auto_depth_range_m(depth)
+    lo_mm = float(MIN_DEPTH) * 1000.0
+    hi_mm = float(MAX_DEPTH) * 1000.0
+    if hi_mm - lo_mm < 1.0:
+        hi_mm = lo_mm + 1.0
+    # Linear rescale onto the full 8-bit range. The previous fixed alpha of 0.03
+    # ignored the requested limits entirely: it saturated everything past 8.5 m
+    # and squeezed a 1.9-2.1 m window into 6 of the 255 available levels.
+    normalized = (depth.astype(np.float32) - lo_mm) * (255.0 / (hi_mm - lo_mm))
+    normalized = np.clip(normalized, 0.0, 255.0).astype(np.uint8)
+    colored = cv2.applyColorMap(normalized, cv2.COLORMAP_JET)
+    colored[~valid] = 0
+    return colored
 
 # -------------------------------
 # Mouse click event for checking depth at pixel

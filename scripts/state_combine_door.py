@@ -69,6 +69,12 @@ class TemporalSmoother:
         self.current_stable = None
         self.stable_count = 0
 
+    def reset(self) -> None:
+        """Discard all history so the next observation starts a fresh warm-up."""
+        self.buffer.clear()
+        self.current_stable = None
+        self.stable_count = 0
+
     def update(self, label: str) -> Optional[str]:
         """
         Add one observation and return the current stable label.
@@ -466,29 +472,43 @@ class combine_door_state(BaseState):
         # talking about substantially the same image region.
         result = self.resolve_door_status(ctx.door_state_color_based, ctx.door_state_depth_based, ctx.roi_open_side_color_based, ctx.roi_open_side_depth_based, ctx.door_depth_m_color_based, ctx.door_depth_m_depth_based, iou_threshold=0.5)
 
+        raw_door_state = result["final_door_status"]
+
         # Apply temporal smoothing on final label
-        smoothed_door_state = self.smoother.update(result["final_door_status"])
+        smoothed_door_state = self.smoother.update(raw_door_state)
 
         if self.enable_result_log:
             self._write_result_log(f"smoothed_door_state: {smoothed_door_state}\n")
 
-
         ctx.door_state_label = smoothed_door_state
-        ctx.door_depth = result["door_depth"]
-        pipeline_used = result["pipeline"]
+        ctx.door_depth = None
+        ctx.mid_frame_x_px_for_passability_check = None
 
-        # Use an inner-edge percentile rather than a single polygon vertex; small
-        # ROI rotations then have little effect on the corridor anchor.
-        if smoothed_door_state == "open_left":
-            roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
-            ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 95)  # get the max x position of the open side roi polygon, to find the center of the central frame
-            return "final_state"  # go to final state
-        elif smoothed_door_state == "open_right":
-            roi_open_side = getattr(ctx, f"roi_open_side_{pipeline_used}") # get the open side roi polygon
-            ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:,0], 5)  # get the min x position of the open side roi polygon, to find the center of the central frame
-            return "final_state"  # go to final state
+        if smoothed_door_state in ("open_left", "open_right"):
+            # Smoothing confirms the label only. ROI x and door depth are tied to the
+            # camera pose of the frame they were measured in, so they must come from
+            # the current frame, and only if it agrees with the smoothed label (a
+            # conflict frame has pipeline "full_image_view" and no ROI).
+            if raw_door_state == smoothed_door_state:
+                roi_open_side = getattr(ctx, f"roi_open_side_{result['pipeline']}") # get the open side roi polygon
+                if roi_open_side is not None and result["door_depth"] is not None:
+                    # Use an inner-edge percentile rather than a single polygon vertex; small
+                    # ROI rotations then have little effect on the corridor anchor.
+                    # open_left: max x of the open side roi, open_right: min x (center of the central frame)
+                    percentile = 95 if smoothed_door_state == "open_left" else 5
+                    ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:, 0], percentile)
+                    ctx.door_depth = result["door_depth"]
+                    # This detection cycle ends here; the next one (after idle) must not
+                    # inherit this door's votes. ctx already holds the latched outputs.
+                    self.smoother.reset()
+                    return "final_state"  # go to final state
+            # No usable geometry in this frame. Do not publish an open label yet (the
+            # passability node activates on it); wait for the next agreeing frame.
+            ctx.door_state_label = "unknown"
+            return "dual_branch_frame_detection_state"
         elif smoothed_door_state == "no_frame_detected":
             ctx.mid_frame_x_px_for_passability_check = None
+            self.smoother.reset()  # detection cycle ends here, see final_state branch above
             return "full_image_passability_check_state"  # go to a state that directly check the passability with full image and depth without relying on mid frame door detection, because no mid frame door detected
         else:
             #door state is either closed, unknown 

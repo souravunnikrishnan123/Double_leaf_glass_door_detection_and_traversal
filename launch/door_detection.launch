@@ -12,7 +12,7 @@
   <arg name="debug_port_passability" default="5679"/>
   <arg name="debug_port_traversal" default="5680"/>
   <arg name="debug_port_odom_bridge" default="5681"/>
-  <arg name="frame_skip" default="0"/>
+  <arg name="frame_skip" default="2"/>
   <arg name="resize_scale" default="1.0"/>
   <arg name="loop" default="true"/>
   <arg name="enable_visualization_global" default="true" />
@@ -23,6 +23,16 @@
   <arg name="enable_result_log" default="false" />
   <arg name="result_log_path_global" default="/app/catkin_ws/src/robodog_glass_door_detection/scripts" />
   <arg name="profiler_output_path" default="/app/catkin_ws/src/robodog_glass_door_detection/scripts/door_detection_profile_python.html" />
+  <!-- Visualization image saving: every launch writes to a new run folder,
+       <results_root>/<bag file name without .bag>/run<N>/<topic name>NNNN.png -->
+  <arg name="save_images" default="true" />
+  <!-- Save only frames with lines, ROIs or text drawn on them (the <topic>/annotated twins).
+       The normal topics still carry every frame for rqt_image_view. -->
+  <arg name="save_only_annotated" default="true" />
+  <arg name="saved_topic_suffix" value="$(eval '/annotated' if str(arg('save_only_annotated')).lower() == 'true' else '')" />
+  <arg name="results_root" default="/app/catkin_ws/src/results" />
+  <arg name="bag_name" default="$(eval arg('bag_file').split('/')[-1].rsplit('.', 1)[0])" />
+  <arg name="results_dir" default="$(eval arg('results_root') + '/' + arg('bag_name'))" />
   <!-- Auto-detect the correct topics based on input mode -->
   <!-- The bridge appends _final to these source names. Every downstream node
         subscribes to that normalized output, independent of bag/Gazebo mode. -->
@@ -38,10 +48,13 @@
   <!-- Static camera TF is required only for bag playback -->
   <group if="$(eval arg('input_mode') == 'bag')">
 
+      <!-- Same optical-frame rotation as the Go1 model's realsense_d455_optical_joint
+           (rpy -1.5708 0 -1.5708): the optical frame is x right, y down, z forward,
+           while trunk is x forward, y left, z up. -->
       <node pkg="tf2_ros"
             type="static_transform_publisher"
             name="camera_static_tf"
-            args="0.279 0.013 0.080 0 0 0 1 trunk realsense_d455_optical_frame" />
+            args="0.279 0.013 0.080 -0.5 0.5 -0.5 0.5 trunk realsense_d455_optical_frame" />
 
   </group>
 
@@ -68,6 +81,8 @@
 
     <!-- Start the realsense bag bridge (reads bag via librealsense + publishes aligned depth) -->
   <node pkg="robodog_glass_door_detection" type="odom_bridge.py" name="odom_bridge" output="screen" launch-prefix="$(eval str(arg('debug')).lower() == 'true' and 'python3 -m debugpy --listen 0.0.0.0:' + str(arg('debug_port_odom_bridge')) + ' --wait-for-client' or '')">
+    <!-- In bag mode there is no Gazebo, so the bridge publishes a fixed pose at the origin instead -->
+    <param name="input_mode" value="$(arg input_mode)" />
     <rosparam>
       model_name : go1_gazebo
     </rosparam>
@@ -94,7 +109,6 @@
     <rosparam>
       plane_detector:  
         max_no_candidate_frames: 5
-        max_inlier_density: 0.5
         global_map_distance_accuracy_to_door_plane : 0.4
         margin_for_glass_width_inaccuracy : 0.2
         backproject:
@@ -244,7 +258,6 @@
           robot_length : 0.7  # meters
           robot_height_above_camera_level : 0.5  # meters
           safety_margin_robot_width: 0.05  # meters
-          door_frame_margin: 0.05  # meters
           minimum_depth_points_after_filtering : 10  # points
     </rosparam>
   </node>
@@ -260,8 +273,7 @@
         control_rate_hz: 5
         min_front_clearance_local_passability_check: 0.6  # meters. this limit is set because, gazebo mode, min depth available is 0.4m
         robot_length : 0.7  # meters
-
-
+        gazebo_service_timeout : 5.0
         passability_hysteresis:
           consecutive_passable_to_true: 5
           consecutive_unpassable_to_false: 4
@@ -306,5 +318,17 @@
           abort_backoff_distance: 0.25
           abort_backoff_speed: -0.08
     </rosparam>
+  </node>
+
+  <!-- Save visualization frames to disk (disable with save_images:=false) -->
+  <node if="$(arg save_images)" pkg="robodog_glass_door_detection" type="image_recorder.py" name="image_recorder" output="screen" clear_params="true">
+    <param name="results_dir" value="$(arg results_dir)" />
+    <!-- file name prefix : topic -->
+    <param name="topics/passability_view" value="/check_if_passable/passability_view$(arg saved_topic_suffix)" />
+    <param name="topics/color_branch_color_image" value="/glass_door_detection/viz/color_branch_color_image$(arg saved_topic_suffix)" />
+    <param name="topics/depth_branch_color_image" value="/glass_door_detection/viz/depth_branch_color_image$(arg saved_topic_suffix)" />
+    <param name="topics/color_branch" value="/glass_door_detection/viz/color_branch$(arg saved_topic_suffix)" />
+    <param name="topics/depth_branch" value="/glass_door_detection/viz/depth_branch$(arg saved_topic_suffix)" />
+    <param name="topics/plane_overlay" value="/glass_door_detection/viz/plane_overlay$(arg saved_topic_suffix)" />
   </node>
 </launch>

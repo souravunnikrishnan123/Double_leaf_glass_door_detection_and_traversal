@@ -93,7 +93,7 @@ class DoorDetectionNode:
         plane_info_pub:
             Publisher encoding plane distance and normal in a ``Twist``.
 
-        debug_pub:
+        color_branch_color_image_pub:
             Publisher for the selected color-branch debug image.
 
         viz_color_pub:
@@ -180,10 +180,18 @@ class DoorDetectionNode:
 
         self.plane_info_pub = rospy.Publisher("~plane_info", Twist, queue_size=10)
         # visualization publishers
-        self.debug_pub = rospy.Publisher("~debug_image", Image, queue_size=1)
+        self.color_branch_color_image_pub = rospy.Publisher("~viz/color_branch_color_image", Image, queue_size=1)
+        self.depth_branch_color_image_pub = rospy.Publisher("~viz/depth_branch_color_image", Image, queue_size=1)
         self.viz_color_pub = rospy.Publisher("~viz/color_branch", Image, queue_size=1)
         self.viz_depth_pub = rospy.Publisher("~viz/depth_branch", Image, queue_size=1)
         self.viz_plane_pub = rospy.Publisher("~viz/plane_overlay", Image, queue_size=1)
+        # The same images, but only on frames where something was drawn on them.
+        # Image recording subscribes to these so plain camera frames are not saved.
+        self.color_branch_color_image_annotated_pub = rospy.Publisher("~viz/color_branch_color_image/annotated", Image, queue_size=1)
+        self.depth_branch_color_image_annotated_pub = rospy.Publisher("~viz/depth_branch_color_image/annotated", Image, queue_size=1)
+        self.viz_color_annotated_pub = rospy.Publisher("~viz/color_branch/annotated", Image, queue_size=1)
+        self.viz_depth_annotated_pub = rospy.Publisher("~viz/depth_branch/annotated", Image, queue_size=1)
+        self.viz_plane_annotated_pub = rospy.Publisher("~viz/plane_overlay/annotated", Image, queue_size=1)
         
 
         # Subscribers: sync color + depth; cache camera info separately for robustness
@@ -299,6 +307,52 @@ class DoorDetectionNode:
             ctx.color_image_color_based = color_image
             ctx.color_image_depth_based = color_image
             ctx.color_image_for_plane_detection = color_image
+
+    def _has_diagnostics(self, image, banner):
+        """
+        Report whether anything was drawn on a debug image this frame.
+
+        Args:
+            image:
+                Branch image the detectors draw on, or ``None``.
+
+            banner:
+                :class:`DiagnosticBanner` holding that image's text.
+
+        Returns:
+            ``True`` when the banner has text or the image differs from the raw
+            frame; ``False`` for a missing image.
+
+        Notes:
+            Every branch image starts the frame as a copy of
+            ``ctx.color_image``, which no detector draws on, so any difference
+            is a line, ROI or overlay drawn this frame.
+        """
+        if image is None:
+            return False
+        return bool(banner.rows) or not np.array_equal(image, self.sm.ctx.color_image)
+
+    def _publish_viz(self, pub, annotated_pub, image, has_diagnostics):
+        """
+        Publish a debug image, and its annotated copy when it has content.
+
+        Args:
+            pub:
+                Publisher that receives every frame.
+
+            annotated_pub:
+                Publisher that receives only frames with diagnostics.
+
+            image:
+                BGR image to publish.
+
+            has_diagnostics:
+                Result of :meth:`_has_diagnostics` for the image.
+        """
+        msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
+        pub.publish(msg)
+        if has_diagnostics:
+            annotated_pub.publish(msg)
 
     def _seed_runtime_door_geometry(self, ctx):
         """
@@ -609,18 +663,28 @@ class DoorDetectionNode:
         # Publish visualizations
         try:
             if self.enable_visualization:
-                dbg = self.sm.ctx.color_image_color_based
-                if dbg is not None:
-                    dbg = add_banner(dbg, self.sm.ctx.banner_color_based)
-                    self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding="bgr8"))
-                if self.sm.ctx.viz_color_stack is not None:
-                    self.viz_color_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_color_stack, encoding="bgr8"))
-                if self.sm.ctx.viz_depth_stack is not None:
-                    self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
+                ctx = self.sm.ctx
+                # The stacks are built from the branch images, so they follow the
+                # same test. That also keeps a stack left over from an earlier
+                # frame, which is republished while other states run, off the
+                # annotated topics.
+                color_has_info = self._has_diagnostics(ctx.color_image_color_based, ctx.banner_color_based)
+                depth_has_info = self._has_diagnostics(ctx.color_image_depth_based, ctx.banner_depth_based)
+                if ctx.color_image_color_based is not None:
+                    color_branch_vis = add_banner(ctx.color_image_color_based, ctx.banner_color_based)
+                    self._publish_viz(self.color_branch_color_image_pub, self.color_branch_color_image_annotated_pub, color_branch_vis, color_has_info)
+                if ctx.color_image_depth_based is not None:
+                    depth_branch_vis = add_banner(ctx.color_image_depth_based, ctx.banner_depth_based)
+                    self._publish_viz(self.depth_branch_color_image_pub, self.depth_branch_color_image_annotated_pub, depth_branch_vis, depth_has_info)
+                if ctx.viz_color_stack is not None:
+                    self._publish_viz(self.viz_color_pub, self.viz_color_annotated_pub, ctx.viz_color_stack, color_has_info)
+                if ctx.viz_depth_stack is not None:
+                    self._publish_viz(self.viz_depth_pub, self.viz_depth_annotated_pub, ctx.viz_depth_stack, depth_has_info)
                 # plane overlay: use base color image (with plane outlines drawn)
-                if self.sm.ctx.color_image_for_plane_detection is not None:
-                    plane_vis = add_banner(self.sm.ctx.color_image_for_plane_detection, self.sm.ctx.banner_for_plane_detection)
-                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(plane_vis, encoding="bgr8"))
+                if ctx.color_image_for_plane_detection is not None:
+                    plane_vis = add_banner(ctx.color_image_for_plane_detection, ctx.banner_for_plane_detection)
+                    plane_has_info = self._has_diagnostics(ctx.color_image_for_plane_detection, ctx.banner_for_plane_detection)
+                    self._publish_viz(self.viz_plane_pub, self.viz_plane_annotated_pub, plane_vis, plane_has_info)
 
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")

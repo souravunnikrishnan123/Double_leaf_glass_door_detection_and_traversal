@@ -39,6 +39,7 @@ __all__ = [
     "evaluate_detected_ransac_planes",
     "extra_functions",
     "find_glass_frame_lines",
+    "image_recorder",
     "main",
     "odom_bridge",
     "passability_check_main",

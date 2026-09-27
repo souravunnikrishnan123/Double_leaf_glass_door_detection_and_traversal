@@ -551,7 +551,9 @@ class DoorTraversalController:
         """
 
         if self.gazebo_pose is None:
-            rospy.logwarn("Gazebo pose not yet received; cannot publish velocity and angular velocity to /set_model_state service")
+            # Never arrives in bag mode, where there is no simulator; throttle so
+            # every control step does not repeat it.
+            rospy.logwarn_throttle(10.0, "Gazebo pose not yet received; cannot publish velocity and angular velocity to /set_model_state service")
             return
 
         # SetModelState replaces the whole state. Copying the latest pose avoids

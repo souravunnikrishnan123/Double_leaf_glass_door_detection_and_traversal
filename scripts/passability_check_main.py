@@ -284,6 +284,13 @@ class PassabilityCheckerNode:
             Image,
             queue_size=1
         )
+        # Same view, but only when something was drawn on it; image recording
+        # subscribes here so plain camera frames are not saved.
+        self.passability_view_annotated_pub = rospy.Publisher(
+            "~passability_view/annotated",
+            Image,
+            queue_size=1
+        )
 
         # Passability checker instance
         self.passability_checker = Passability_checker()
@@ -970,10 +977,11 @@ class PassabilityCheckerNode:
                 Required obstacle-free distance in meters.
 
         Returns:
-            A tuple ``(center, image)``. ``center`` is the selected lateral
+            A tuple ``(center, image, drawn)``. ``center`` is the selected lateral
             coordinate in the corridor frame, ``0.0`` when filtering finds no
             obstacles, or ``None`` when obstacles leave no valid candidate.
-            ``image`` is the passability visualization.
+            ``image`` is the passability visualization and ``drawn`` tells
+            whether any points were drawn on it.
 
         Notes:
             An empty point cloud is interpreted as open space within the
@@ -995,7 +1003,8 @@ class PassabilityCheckerNode:
         if len(valid_points_3d_for_virtual_corridor_definition_camera_frame) == 0:
             rospy.logwarn("No valid depth points after back-projection. Cannot define virtual corridor. but it is also possible that there is no points at all because entire region in front is free because of small depth range. consider virtual corridor is directly in front of robot.")
             x_virtual_corridor_center_corridor_frame = 0.0
-            return x_virtual_corridor_center_corridor_frame, self.color_image
+            # Nothing is drawn on this path, so the view is the bare camera frame.
+            return x_virtual_corridor_center_corridor_frame, self.color_image, False
         else:
             corridor_mask_camera_frame = (
                 valid_points_3d_for_virtual_corridor_definition_camera_frame[:, 1] > -self.robot_height_above_camera_level
@@ -1012,6 +1021,8 @@ class PassabilityCheckerNode:
                 corridor_uv_for_virtual_corridor_definition_camera_frame,
                 z_max
             )
+            # Every point set the checker draws is a subset of these pixels.
+            drawn = len(corridor_uv_for_virtual_corridor_definition_camera_frame) > 0
 
             if final_points_3d_for_virtual_corridor_definition_camera_frame is not None and len(final_points_3d_for_virtual_corridor_definition_camera_frame) > 0:
                 # Equivalent to (R @ p.T).T + t, but without the two transposes and
@@ -1031,7 +1042,7 @@ class PassabilityCheckerNode:
                 rospy.logwarn("Cannot find any valid points after filtering for virtual corridor definition. This is possible that there is no points left after filtering, means entire region in front is free. consider virtual corridor is directly in front of robot.")
                 x_virtual_corridor_center_corridor_frame = 0.0
             
-            return x_virtual_corridor_center_corridor_frame, image
+            return x_virtual_corridor_center_corridor_frame, image, drawn
 
     def relative_robot_motion(self):
         """
@@ -1101,6 +1112,23 @@ class PassabilityCheckerNode:
 
         return p_now  # [X_forward, Y_lateral] in robot frame
     
+    def publish_passability_view(self, view, drawn):
+        """
+        Publish a passability view, and its annotated copy when it has content.
+
+        Args:
+            view:
+                BGR passability visualization.
+
+            drawn:
+                Whether anything was drawn on ``view``. Only then is it also
+                published on ``~passability_view/annotated``.
+        """
+        msg = self.bridge.cv2_to_imgmsg(view, encoding="bgr8")
+        self.passability_view_pub.publish(msg)
+        if drawn:
+            self.passability_view_annotated_pub.publish(msg)
+
     def project_to_pixel(self, P_cam):
         """
         Project one camera-frame point into image coordinates.
@@ -1317,7 +1345,7 @@ class PassabilityCheckerNode:
                     min_clearance =  self.corridor_middle_point_depth_first_time_camera_frame + clearance_needed_beyond_mid_corridor
                     # With no reliable frame edge, choose a robot-width opening
                     # directly from the filtered obstacle cloud.
-                    self.x_corridor_center_first_time_corridor_frame , passability_view = self.find_a_virtual_corridor(z_min, z_max, min_clearance)
+                    self.x_corridor_center_first_time_corridor_frame , passability_view, passability_view_drawn = self.find_a_virtual_corridor(z_min, z_max, min_clearance)
                     # once virtual corridor is found, we can consider corridor defined for next iterations
                     # calculate x coordinate of corridor center in robot base frame at start yaw frame
                     if self.x_corridor_center_first_time_corridor_frame is not None:# can be corridor center or zero( means consider corridor directly in front of the robot asw there were not enough points to check corridor.)
@@ -1370,7 +1398,7 @@ class PassabilityCheckerNode:
                 z_min = self.minimum_depth_for_back_projection
                 z_max = self.corridor_middle_point_depth_first_time_camera_frame + self.maximum_depth_beyond_corridor_center_point_for_back_projection
                 min_clearance = self.corridor_middle_point_depth_first_time_camera_frame + clearance_needed_beyond_mid_corridor # door traversal node request this value based on the total corridor length it is trying to traverse. so always publish half of the value
-                self.x_corridor_center_first_time_corridor_frame , passability_view= self.find_a_virtual_corridor(z_min, z_max, min_clearance)
+                self.x_corridor_center_first_time_corridor_frame , passability_view, passability_view_drawn = self.find_a_virtual_corridor(z_min, z_max, min_clearance)
                 # once virtual corridor is found, we can consider corridor defined for next iterations
                 # calculate x coordinate of corridor center in robot base frame at start yaw frame
                 if self.x_corridor_center_first_time_corridor_frame is not None: #can be corridor center or zero( means consider corridor directly in front of the robot asw there were not enough points to check corridor.)
@@ -1414,7 +1442,7 @@ class PassabilityCheckerNode:
                 # diagnostic cost, and this branch repeats for as long as corridor
                 # definition keeps failing.
                 if self.enable_visualization and passability_view is not None:
-                    self.passability_view_pub.publish(self.bridge.cv2_to_imgmsg(passability_view, encoding="bgr8"))
+                    self.publish_passability_view(passability_view, passability_view_drawn)
                 self.rate.sleep()
                 continue
 
@@ -1690,7 +1718,8 @@ class PassabilityCheckerNode:
                     cv2.line(passability_view, p1, p2, (0, 255, 0), 2)  # green
                     cv2.line(passability_view, p3, p4, (0, 0, 255), 2)  # red
                     
-                    self.passability_view_pub.publish(self.bridge.cv2_to_imgmsg(passability_view, encoding="bgr8"))
+                    # The corridor lines above are always drawn on this path.
+                    self.publish_passability_view(passability_view, drawn=True)
 
             except Exception as e:
                 rospy.logdebug(f"Viz publish exception: {e}")

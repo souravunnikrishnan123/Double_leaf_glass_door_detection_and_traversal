@@ -3,6 +3,7 @@
 import cv2
 import numpy as np
 from duration import get_duration_seconds
+from visualization_utils import DiagnosticBanner
 
 
 class GlassFrameLineProcessor:
@@ -22,6 +23,9 @@ class GlassFrameLineProcessor:
 
         color_image:
             Branch image receiving ROI and line-pair overlays.
+
+        banner:
+            Banner receiving the ROI and line depth readings.
 
         fx:
             Horizontal camera focal length in pixels.
@@ -61,6 +65,7 @@ class GlassFrameLineProcessor:
         self.keyword = keyword
         self.depth_image_in_meters = None
         self.color_image = None
+        self.banner = DiagnosticBanner()
         self.fx = None
         self.lines = []
         self.depth_of_each_lines = []
@@ -463,15 +468,14 @@ class GlassFrameLineProcessor:
                 if roi_polygon_right is not None:
                     cv2.polylines(self.color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
 
-                # Annotate average Z values
-                cv2.putText(self.color_image, f"Left ROI {i+1} Z: {avg_z_left_roi:.2f} m", (30, 30 + i*40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-                cv2.putText(self.color_image, f"Right ROI {i+1} Z: {avg_z_right_roi:.2f} m", (30, 50 + i*40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                cv2.putText(self.color_image, f"Left Line {i+1} Z: {mean_z_left_line:.2f} m", (300, 30 + i*40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
-                cv2.putText(self.color_image, f"Right Line {i+1} Z: {mean_z_right_line:.2f} m", (300, 50 + i*40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                # Report average Z values in the banner strip
+                self.banner.add(
+                    f"Pair {i+1} Avg Depth",
+                    (f"L ROI {avg_z_left_roi:.2f} m", (255, 0, 255)),
+                    (f"L line {mean_z_left_line:.2f} m", (255, 0, 255)),
+                    (f"R ROI {avg_z_right_roi:.2f} m", (0, 0, 255)),
+                    (f"R line {mean_z_right_line:.2f} m", (0, 0, 255)),
+                )
 
         if filtered_pairs:
             if len(filtered_pairs) > 1:  # more than one pair detected as glass frame.
@@ -522,6 +526,7 @@ class GlassFrameLineProcessor:
                                         depth_of_each_lines,
                                         door_geometry,
                                         DEPTH_RANGE,
+                                        banner=None,
                                         ):
         """
         Select a frame pair and derive its left/right status-checking ROIs.
@@ -555,6 +560,10 @@ class GlassFrameLineProcessor:
             DEPTH_RANGE:
                 Accepted door-depth interval in meters.
 
+            banner:
+                :class:`DiagnosticBanner` receiving the per-pair depth
+                readings. When omitted they are discarded.
+
         Returns:
             Left ROI polygon, right ROI polygon, and mean frame depth. Missing
             detections are reported as ``(None, None, 0)`` or
@@ -562,11 +571,13 @@ class GlassFrameLineProcessor:
 
         Notes:
             Candidate pairs are drawn red/cyan and accepted side ROIs are drawn
-            magenta/yellow on ``color_image``.
+            magenta/yellow on ``color_image``. Their depths go to ``banner``
+            rather than onto the image.
         """
 
         self.depth_image_in_meters = depth_image_in_meters
         self.color_image = color_image
+        self.banner = banner if banner is not None else DiagnosticBanner()
         self.fx = fx
         self.lines = lines
         self.depth_of_each_lines = depth_of_each_lines

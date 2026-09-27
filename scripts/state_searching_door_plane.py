@@ -106,6 +106,7 @@ class searching_door_plane_state(BaseState):
             fx=ctx.fx,
             cx=ctx.cx,
             color_image=ctx.color_image_for_plane_detection,
+            banner=ctx.banner_for_plane_detection,
             )
 
             if glass_and_door_width["final_glass_width_m"] is not None and glass_and_door_width["final_frame_width_m"] is not None:

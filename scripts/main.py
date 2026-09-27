@@ -37,7 +37,7 @@ from duration import get_duration_seconds
 from resolution_scaling import ResolutionScaler
 from state_full_image_passability_check import full_image_passability_check_state
 from setup_realsense_pipeline import setup_realsense_pipeline
-from visualization_utils import  show_stacked_visualization, setup_visualization_mode
+from visualization_utils import  show_stacked_visualization, setup_visualization_mode, DiagnosticBanner, add_banner
 from std_msgs.msg import Bool
 import threading
 
@@ -284,7 +284,13 @@ class DoorDetectionNode:
             drawn. With visualization disabled nothing mutates these buffers, so
             all three share the incoming frame and three full-frame copies per
             callback are avoided.
+
+            Each image also gets an empty banner, so text from the previous
+            frame is never shown with the current one.
         """
+        ctx.banner_color_based = DiagnosticBanner()
+        ctx.banner_depth_based = DiagnosticBanner()
+        ctx.banner_for_plane_detection = DiagnosticBanner()
         if self.enable_visualization:
             ctx.color_image_color_based = color_image.copy()
             ctx.color_image_depth_based = color_image.copy()
@@ -605,6 +611,7 @@ class DoorDetectionNode:
             if self.enable_visualization:
                 dbg = self.sm.ctx.color_image_color_based
                 if dbg is not None:
+                    dbg = add_banner(dbg, self.sm.ctx.banner_color_based)
                     self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding="bgr8"))
                 if self.sm.ctx.viz_color_stack is not None:
                     self.viz_color_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_color_stack, encoding="bgr8"))
@@ -612,7 +619,8 @@ class DoorDetectionNode:
                     self.viz_depth_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.viz_depth_stack, encoding="bgr8"))
                 # plane overlay: use base color image (with plane outlines drawn)
                 if self.sm.ctx.color_image_for_plane_detection is not None:
-                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(self.sm.ctx.color_image_for_plane_detection, encoding="bgr8"))
+                    plane_vis = add_banner(self.sm.ctx.color_image_for_plane_detection, self.sm.ctx.banner_for_plane_detection)
+                    self.viz_plane_pub.publish(self.bridge.cv2_to_imgmsg(plane_vis, encoding="bgr8"))
 
         except Exception as e:
             rospy.logdebug(f"Viz publish exception: {e}")

@@ -378,7 +378,8 @@ class DoorTypeDetector():
         final_glass_index,
         final_frame_index,
         fx, cx,
-        color_image
+        color_image,
+        banner=None,
     ):
         """
         Draw width-bin classifications and selected segments.
@@ -411,12 +412,17 @@ class DoorTypeDetector():
             color_image:
                 Source BGR image.
 
+            banner:
+                Optional :class:`DiagnosticBanner` receiving the segment widths,
+                listed left to right in their outline colors.
+
         Returns:
             Annotated BGR image copy suitable for ROS publication.
 
         Notes:
             Per-bin translucent colors show the raw classification. Thick
-            outlines and text identify consolidated and final segments.
+            outlines identify consolidated and final segments; their labels go
+            to ``banner`` rather than onto the image.
 
             The whole overlay is skipped when diagnostics are disabled. The
             translucent fill is a full-image copy plus an alpha blend per bin, and
@@ -478,6 +484,7 @@ class DoorTypeDetector():
         # --------------------------------------------------
         # STEP 4: Draw consolidated segments (thick boxes)
         # --------------------------------------------------
+        segment_labels = []
         for i, (x0, x1, label) in enumerate(segments):
             u0 = world_x_to_img_u(x0)
             u1 = world_x_to_img_u(x1)
@@ -502,17 +509,10 @@ class DoorTypeDetector():
                     text = f"Glass {width_cm:.1f} cm"
 
             cv2.rectangle(vis, (u0, 5), (u1, H - 5), color, 3)
+            segment_labels.append((text, color))
 
-            cv2.putText(
-                vis,
-                text,
-                (u0 + 5, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                color,
-                2,
-                cv2.LINE_AA
-            )
+        if banner is not None and segment_labels:
+            banner.add(*segment_labels)
 
         return vis
 

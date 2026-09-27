@@ -7,9 +7,10 @@ intermediate and final results to the same object.
 """
 
 import rospy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Any
 import numpy as np
+from visualization_utils import DiagnosticBanner
 
 @dataclass
 class FrameContext:
@@ -57,6 +58,9 @@ class FrameContext:
         color_image_for_plane_detection:
             Color-image copy used for RANSAC and plane overlays.
 
+        banner_for_plane_detection:
+            Text shown in the banner strip of the plane overlay image.
+
         door_geometry:
             Physical geometry of the door and its frame, refreshed during the
             door detection process.
@@ -83,6 +87,9 @@ class FrameContext:
         color_image_color_based:
             Color-image copy receiving color-branch overlays.
 
+        banner_color_based:
+            Text shown in the banner strip of the color-branch images.
+
         edges:
             Full-resolution Canny edge visualization.
 
@@ -103,6 +110,9 @@ class FrameContext:
 
         color_image_depth_based:
             Color-image copy receiving depth-branch overlays.
+
+        banner_depth_based:
+            Text shown in the banner strip of the depth-branch image.
 
         sobel_vis_color:
             Color visualization of the depth Sobel response and thresholded
@@ -142,6 +152,7 @@ class FrameContext:
     # Plane search fills these before either line detector is allowed to run.
     plane_result: Optional[dict] = None
     color_image_for_plane_detection: Optional[np.ndarray] = None
+    banner_for_plane_detection: DiagnosticBanner = field(default_factory=DiagnosticBanner)
 
     # Door geometry and confirmed plane distance. Plane search refines these at
     # runtime and every branch re-reads them each frame. They are carried here
@@ -158,6 +169,7 @@ class FrameContext:
     roi_open_side_color_based: Optional[np.ndarray] = None
     door_state_color_based: Optional[str] = None
     color_image_color_based: Optional[np.ndarray] = None
+    banner_color_based: DiagnosticBanner = field(default_factory=DiagnosticBanner)
     edges : Optional[np.ndarray] = None
 
     # depth-based branch
@@ -167,6 +179,7 @@ class FrameContext:
     roi_open_side_depth_based: Optional[np.ndarray] = None
     door_state_depth_based: Optional[str] = None
     color_image_depth_based: Optional[np.ndarray] = None
+    banner_depth_based: DiagnosticBanner = field(default_factory=DiagnosticBanner)
     sobel_vis_color : Optional[np.ndarray] = None
 
     # Fusion owns these values; the individual branches should not set them.

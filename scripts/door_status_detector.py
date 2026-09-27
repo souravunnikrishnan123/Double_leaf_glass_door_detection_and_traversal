@@ -19,8 +19,8 @@ class Door_Status_Detector:
     Classify a color- or depth-derived frame pair using side ROI depths.
 
     ``keyword`` selects the matching fields on ``FrameContext``; for example,
-    ``"color_based"`` reads ``roi_left_color_based`` and draws on
-    ``color_image_color_based``.
+    ``"color_based"`` reads ``roi_left_color_based``, draws on
+    ``color_image_color_based`` and writes its text to ``banner_color_based``.
 
     Attributes:
         keyword:
@@ -247,8 +247,9 @@ class Door_Status_Detector:
                 If context fields for the configured ``keyword`` do not exist.
 
         Notes:
-            The method draws the decision and both side-match fractions on the
-            branch visualization image.
+            The decision and both side-match fractions are added as the first
+            row of the branch banner, so they stay visible when the strip
+            overflows.
         """
 
         #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to
@@ -286,13 +287,12 @@ class Door_Status_Detector:
         elif door_state == "open_right":
             roi_open_side = roi_right_offset
 
-        # Overlay decision text
-        cv2.putText(getattr(ctx, f"color_image_{self.keyword}"), f"Door State: {door_state}", (30, 130),
-            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 200, 0), 2)
-        
-        cv2.putText(getattr(ctx, f"color_image_{self.keyword}"), f"Left match: {left_match:.2f}", (30, 170),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-        cv2.putText(getattr(ctx, f"color_image_{self.keyword}"), f"Right match: {right_match:.2f}", (30, 210),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        # Report the decision in the banner strip
+        getattr(ctx, f"banner_{self.keyword}").add(
+            (f"Door State: {door_state}", (0, 200, 0)),
+            (f"Left ROI Door Depth Consistency: {left_match:.2f}", (255, 0, 255)),
+            (f"Right ROI Door Depth Consistency: {right_match:.2f}", (0, 255, 255)),
+            first=True,
+        )
         
         return door_state, roi_open_side

@@ -146,7 +146,8 @@ class dual_branch_frame_detection_state(BaseState):
                 potential_frame_lines_from_c,
                 depth_of_potential_frame_lines_c,
                 self.door_geometry,
-                DEPTH_RANGE
+                DEPTH_RANGE,
+                banner=ctx.banner_color_based,
             )
 
 
@@ -175,7 +176,8 @@ class dual_branch_frame_detection_state(BaseState):
                 potential_frame_lines_from_d,
                 depth_of_potential_frame_lines_d,
                 self.door_geometry,
-                DEPTH_RANGE
+                DEPTH_RANGE,
+                banner=ctx.banner_depth_based,
             )
 
         if roi_left_d is not None and roi_right_d is not None:
@@ -204,11 +206,13 @@ class dual_branch_frame_detection_state(BaseState):
             # Build images even when local windows are disabled; remote ROS tools use them.
             # Build stacked visualizations for publishing
             ctx.viz_color_stack = build_stacked_visualization(
-                ctx.color_image_color_based, edges=ctx.edges, depth_frame=ctx.depth_frame
+                ctx.color_image_color_based, edges=ctx.edges, depth_frame=ctx.depth_frame,
+                banner=ctx.banner_color_based,
             )
 
             ctx.viz_depth_stack = build_stacked_visualization(
-                ctx.color_image_depth_based, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame
+                ctx.color_image_depth_based, edges=ctx.sobel_vis_color, depth_frame=ctx.depth_frame,
+                banner=ctx.banner_depth_based,
             )
             """
             show_stacked_visualization(

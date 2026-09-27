@@ -114,9 +114,149 @@ def get_z_depth(depth_frame, x, y):
     z = float(depth_frame.get_distance(xi, yi))
     return z if np.isfinite(z) and z > 0 else None
 
-    
 
-def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edges=None, depth_frame=None):
+# -------------------------------
+# Diagnostic text banner
+# -------------------------------
+# Published diagnostic images carry their text in a black strip padded onto the
+# frame rather than on the scene, so labels never hide the lines and ROIs they
+# describe. The strip has a fixed height, so every frame on a topic has the same
+# size, which recorded image sequences and videos rely on.
+BANNER_POSITION = "top"  # "top" or "bottom"
+BANNER_ROWS = 4
+BANNER_FONT = cv2.FONT_HERSHEY_SIMPLEX
+BANNER_FONT_SCALE = 0.7
+BANNER_THICKNESS = 2
+BANNER_MARGIN_PX = 10
+BANNER_PART_GAP_PX = 30
+BANNER_TEXT_COLOR = (255, 255, 255)
+BANNER_NOTE_COLOR = (160, 160, 160)
+
+(_, _BANNER_TEXT_H), _BANNER_BASELINE = cv2.getTextSize(
+    "Ag", BANNER_FONT, BANNER_FONT_SCALE, BANNER_THICKNESS
+)
+BANNER_ROW_PX = _BANNER_TEXT_H + _BANNER_BASELINE + 8
+
+
+class DiagnosticBanner:
+    """
+    Collect the diagnostic text belonging to one published image.
+
+    Detection code records its readings here instead of drawing them onto the
+    frame; :func:`add_banner` renders them when the image is published.
+
+    Attributes:
+        rows:
+            Recorded rows, each a list of ``(text, bgr)`` parts drawn left to
+            right.
+    """
+
+    def __init__(self):
+        """
+        Start with no rows.
+        """
+        self.rows = []
+
+    def add(self, *parts, first=False):
+        """
+        Record one row of text.
+
+        Args:
+            parts:
+                Plain strings, drawn white, or ``(text, bgr)`` tuples.
+
+            first:
+                Place the row above those already recorded. Used for headline
+                results so they stay visible when the strip overflows.
+        """
+        row = [(p, BANNER_TEXT_COLOR) if isinstance(p, str) else p for p in parts]
+        if first:
+            self.rows.insert(0, row)
+        else:
+            self.rows.append(row)
+
+
+def banner_height(rows=BANNER_ROWS):
+    """
+    Height in pixels of a banner strip reserving ``rows`` text lines.
+    """
+    return 2 * BANNER_MARGIN_PX + rows * BANNER_ROW_PX
+
+
+def _wrap_banner_rows(rows, width):
+    """
+    Lay out banner rows, moving parts that do not fit onto extra lines.
+
+    Args:
+        rows:
+            ``DiagnosticBanner.rows``.
+
+        width:
+            Strip width in pixels.
+
+    Returns:
+        List of lines, each a list of ``(text, bgr, x_offset)`` tuples.
+    """
+    usable = width - 2 * BANNER_MARGIN_PX
+    lines = []
+    for row in rows:
+        line, x = [], 0
+        for text, color in row:
+            (w, _), _ = cv2.getTextSize(text, BANNER_FONT, BANNER_FONT_SCALE, BANNER_THICKNESS)
+            if line and x + w > usable:
+                lines.append(line)
+                line, x = [], 0
+            line.append((text, color, x))
+            x += w + BANNER_PART_GAP_PX
+        if line:
+            lines.append(line)
+    return lines
+
+
+def add_banner(image, banner, rows=BANNER_ROWS, position=BANNER_POSITION):
+    """
+    Pad an image with a fixed-height black strip holding its diagnostic text.
+
+    Args:
+        image:
+            BGR image. It is not modified.
+
+        banner:
+            :class:`DiagnosticBanner` to render, or ``None`` for an empty strip.
+
+        rows:
+            Number of text lines the strip reserves.
+
+        position:
+            ``"top"`` or ``"bottom"``.
+
+    Returns:
+        New image ``banner_height(rows)`` pixels taller than ``image``.
+
+    Notes:
+        The strip is added even when there is no text, so image size never
+        changes between frames. Lines beyond ``rows`` are dropped and the last
+        line reports how many were hidden.
+    """
+    width = image.shape[1]
+    lines = _wrap_banner_rows(banner.rows if banner is not None else [], width)
+    if len(lines) > rows:
+        hidden = len(lines) - (rows - 1)
+        lines = lines[:rows - 1] + [[(f"... {hidden} more line(s) not shown", BANNER_NOTE_COLOR, 0)]]
+
+    strip = np.zeros((banner_height(rows), width) + image.shape[2:], dtype=image.dtype)
+    for i, line in enumerate(lines):
+        y = BANNER_MARGIN_PX + i * BANNER_ROW_PX + _BANNER_TEXT_H
+        for text, color, x in line:
+            cv2.putText(strip, text, (BANNER_MARGIN_PX + x, y), BANNER_FONT,
+                        BANNER_FONT_SCALE, color, BANNER_THICKNESS, cv2.LINE_AA)
+
+    if position == "bottom":
+        return np.vstack((image, strip))
+    return np.vstack((strip, image))
+
+
+def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edges=None, depth_frame=None, banner=None):
     """
     Build a side-by-side color, depth, and edge visualization.
 
@@ -136,8 +276,13 @@ def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edg
         depth_frame:
             RealSense-like frame whose data is stored in millimeters.
 
+        banner:
+            Optional :class:`DiagnosticBanner` rendered in a strip spanning all
+            three panels.
+
     Returns:
-        BGR image containing the three horizontally stacked panels.
+        BGR image containing the three horizontally stacked panels, plus the
+        banner strip when ``banner`` is given.
 
     Notes:
         With no limits given the depth panel fits the range present in the
@@ -151,9 +296,6 @@ def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edg
     if auto_scaled:
         MIN_DEPTH, MAX_DEPTH = auto_depth_range_m(depth_image)
     depth_colormap = depth_to_colormap(depth_image, MIN_DEPTH, MAX_DEPTH)
-    cv2.putText(depth_colormap,
-                f"{MIN_DEPTH:.2f}-{MAX_DEPTH:.2f} m" + (" (auto)" if auto_scaled else ""),
-                (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
     target_height, target_width = color_image.shape[:2]
     if edges is None:
         edges_vis = np.zeros_like(color_image)
@@ -164,6 +306,8 @@ def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edg
             edges_vis = edges
     edges_resized = cv2.resize(edges_vis, (target_width, target_height))
     stacked = np.hstack((color_image, depth_colormap, edges_resized))
+    if banner is not None:
+        stacked = add_banner(stacked, banner)
     return stacked
 
 def show_stacked_visualization(color_image, MIN_DEPTH, MAX_DEPTH, edges, depth_frame, window_name="Color | Depth | Edges+ Lines", screen_width=1920, screen_height=1080):

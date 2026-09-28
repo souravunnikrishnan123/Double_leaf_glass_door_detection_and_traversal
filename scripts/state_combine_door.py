@@ -176,6 +176,8 @@ class combine_door_state(BaseState):
         self.smoother = TemporalSmoother(window_size=8, min_consistent=3, hysteresis=True, stable_hold=2)
         self.smoothed_door_state_log_path = rospy.get_param("~result_log_path")+"/final_door_status_after_temporal_smoothing.txt"  # Path to log file for smoothed door states
         self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
+        self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
+        self.maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state = rospy.get_param("~maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state", 10)  # Maximum allowed consecutive frames with no frame detected before concluding door state as no_frame_detected
         # Held open for the lifetime of the node; see _write_result_log.
         self._result_log_file = None
         if self.enable_result_log:
@@ -480,7 +482,6 @@ class combine_door_state(BaseState):
         if self.enable_result_log:
             self._write_result_log(f"smoothed_door_state: {smoothed_door_state}\n")
 
-        ctx.door_state_label = smoothed_door_state
         ctx.door_depth = None
         ctx.mid_frame_x_px_for_passability_check = None
 
@@ -495,23 +496,47 @@ class combine_door_state(BaseState):
                     # Use an inner-edge percentile rather than a single polygon vertex; small
                     # ROI rotations then have little effect on the corridor anchor.
                     # open_left: max x of the open side roi, open_right: min x (center of the central frame)
+                    ctx.door_state_label = smoothed_door_state  #opem_left or open_right
                     percentile = 95 if smoothed_door_state == "open_left" else 5
                     ctx.mid_frame_x_px_for_passability_check = np.percentile(roi_open_side[:, 0], percentile)
                     ctx.door_depth = result["door_depth"]
                     # This detection cycle ends here; the next one (after idle) must not
                     # inherit this door's votes. ctx already holds the latched outputs.
                     self.smoother.reset()
+                    # Reset counters on transition
+                    self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
                     return "final_state"  # go to final state
             # No usable geometry in this frame. Do not publish an open label yet (the
             # passability node activates on it); wait for the next agreeing frame.
             ctx.door_state_label = "unknown"
+            # Reset counters on transition
+            self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
             return "dual_branch_frame_detection_state"
-        elif smoothed_door_state == "no_frame_detected":
-            ctx.mid_frame_x_px_for_passability_check = None
-            self.smoother.reset()  # detection cycle ends here, see final_state branch above
-            return "full_image_passability_check_state"  # go to a state that directly check the passability with full image and depth without relying on mid frame door detection, because no mid frame door detected
-        else:
-            #door state is either closed, unknown 
-            ctx.mid_frame_x_px_for_passability_check = None
+        elif smoothed_door_state == "no_frame_detected": 
+            #need higher waiting time before concluding door state as no_frame_detected.because it is possible that human is still opening the door causing 
+            #depth branch and color branch to not detect the door in mid frame. So wait for a longer period to ensure the door is truly not detected .
+            # Wait for a longer period to ensure the door is truly not detected .
+            self.number_of_times_no_frame_detected_as_smoothed_door_state += 1
+            if self.number_of_times_no_frame_detected_as_smoothed_door_state >= self.maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state:
+                # Reset counters on transition
+                self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
+                ctx.door_state_label = "no_frame_detected"
+                self.smoother.reset()  # detection cycle ends here, see final_state branch above
+                return "full_image_passability_check_state"  # go to a state that directly check the passability with full image and depth without relying on mid frame door detection, because no mid frame door detected
+            else:
+                #stay in this state and keep waiting for a few more frames to ensure the door is truly not detected. door could be still opening by the human and causing the mid frame detection to not detect the door in some frames. So wait for a few more frames to ensure the door is truly not detected.
+                ctx.door_state_label = "unknown"
+                return "dual_branch_frame_detection_state"
+        elif smoothed_door_state == "closed":
+            #door state is either closed
+            ctx.door_state_label = "closed" # closed
             #loop back to parallel detection, because still need to monitor for door opening
+            # Reset counters on transition
+            self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
+            return "dual_branch_frame_detection_state"
+        else:
+            #door state is unknown, loop back to parallel detection, because still need to monitor for door opening
+            ctx.door_state_label = "unknown" # unknown
+            # Reset counters on transition
+            self.number_of_times_no_frame_detected_as_smoothed_door_state = 0
             return "dual_branch_frame_detection_state"

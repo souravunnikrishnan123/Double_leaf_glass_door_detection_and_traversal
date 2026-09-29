@@ -39,12 +39,24 @@ def extrapolate_along_line_segment(depth_image_in_meters, start_point, direction
 
     Returns:
         List of accepted ``(x, y)`` pixels in sampling order. Returns an empty
-        list when no in-bounds pixel has valid depth.
+        list when no in-bounds pixel has valid depth or when the first smoothed
+        sample already deviates from ``center_depth``.
 
     Notes:
         The current implementation returns pixel ``(x, y)`` pairs; depth is
-        used only to decide where extrapolation should stop. Convolution uses
-        zero-padding and the result is front-padded with its edge value.
+        used only to decide where extrapolation should stop.
+
+        Smoothing uses ``numpy.convolve`` in ``"same"`` mode, which pads with
+        zeros, so the first smoothed value is only about
+        ``(window // 2 + 1) / window`` of the local depth. When that shortfall
+        exceeds ``gradient_threshold`` - for example with the defaults
+        (``window=5``, ``gradient_threshold=0.1``) at any depth above 0.25 m -
+        the first sample already counts as a deviation and an empty list is
+        returned. The smoothed sequence is also front-padded with
+        ``window - 1`` copies of its first value before the stop index is
+        found, so a few samples beyond the first deviating smoothed value are
+        still returned. Only :class:`extra_functions.LineExtender` calls this
+        function.
     """
     
 

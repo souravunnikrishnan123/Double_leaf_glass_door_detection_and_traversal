@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Track approximately vertical line candidates across recent frames."""
+"""Track approximately vertical line candidates across recent frames.
+
+Not called by the current nodes; the line branches rely on plane gating and
+fusion-level temporal smoothing instead.
+"""
 
 import rospy
 import numpy as np

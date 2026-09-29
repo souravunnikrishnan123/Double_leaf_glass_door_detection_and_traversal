@@ -51,6 +51,9 @@ class full_image_passability_check_state(BaseState):
         Notes:
             ``No_door_plane_detected`` uses the configured nominal distance,
             whereas ``no_frame_detected`` uses the most recent RANSAC distance.
+            The label itself is set by the state that chose this fallback and
+            is left unchanged. ``ctx.mid_frame_x_px_for_passability_check`` is
+            always cleared because no frame edge is available.
         """
         # This path is deliberate, not an error: a fully open doorway may leave
         # too little planar surface for the glass detector to confirm.

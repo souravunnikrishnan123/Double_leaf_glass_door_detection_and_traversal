@@ -94,7 +94,10 @@ class DoorDetectionNode:
             Publisher encoding plane distance and normal in a ``Twist``.
 
         color_branch_color_image_pub:
-            Publisher for the selected color-branch debug image.
+            Publisher for the color-branch debug image.
+
+        depth_branch_color_image_pub:
+            Publisher for the depth-branch debug image.
 
         viz_color_pub:
             Publisher for the stacked color-processing visualization.
@@ -104,24 +107,47 @@ class DoorDetectionNode:
 
         viz_plane_pub:
             Publisher for the detected-plane overlay.
+
+        color_branch_color_image_annotated_pub:
+            ``/annotated`` twin of ``color_branch_color_image_pub``. Each debug
+            publisher has such a twin that receives only frames on which
+            something was drawn; the image recorder subscribes to these.
+
+        _frame_lock:
+            Lock that makes a frame arriving during processing be dropped
+            rather than queued.
+
+        dropped_frame_count:
+            Number of frames dropped because processing was still busy.
     """
 
     def __init__(self):
         """
         Configure ROS interfaces and construct the detection state machine.
 
-        Topic names, synchronization queue size, synchronization tolerance, and
-        visualization behavior are read from private ROS parameters.
+        Topic names, synchronization queue size, synchronization tolerance,
+        visualization, and profiling behavior are read from private ROS
+        parameters.
+
+        Raises:
+            KeyError:
+                If a required parameter without a default, such as
+                ``~profiler_output_path`` or ``~result_log_path``, is missing.
 
         Notes:
             Camera intrinsics are received separately from the synchronized
             color/depth pair and must arrive before frame processing can begin.
+            With ``~profiling_enabled`` a pyinstrument session is started on
+            the first frame callback and saved after fifty frames, and stage
+            timings are flushed every five seconds. The image subscribers use a
+            queue of one so a slow node never processes a backlog of stale
+            frames.
         """
         # --- profiling setup ---
         self.profile_enabled = rospy.get_param("~profiling_enabled", False)
         self.profiler_output_path = rospy.get_param("~profiler_output_path")
         self.profile_frame_count = 0
-        self.profile_frames = 50          # captures 10 synchronized frames then saves
+        self.profile_frames = 50          # captures 50 synchronized frames then saves
         self.profile_done = False
         self.profiler = None
         # pyinstrument requires that a session is started and stopped on the same
@@ -503,9 +529,8 @@ class DoorDetectionNode:
         """
         Process one approximately synchronized color/depth message pair.
 
-        The callback updates or creates the shared frame context, runs one state
-        step, writes timing averages, and publishes every currently available
-        result.
+        If a previous pair is still being processed, this pair is dropped and
+        counted; otherwise it is handed to :meth:`_process_frame`.
 
         Args:
             color_msg:
@@ -515,10 +540,8 @@ class DoorDetectionNode:
                 Aligned depth image paired with ``color_msg``.
 
         Notes:
-            Processing is deferred until camera intrinsics are available.
-            Separate color copies are created because each branch draws its own
-            diagnostics. Missing scalar results are not published, while a
-            missing door label is published as ``"unknown"``.
+            Dropping instead of queueing keeps the published door state tied
+            to a recent observation when detection is slower than the camera.
         """
         # Drop frames that arrive while a previous one is still being processed.
         # Without this the node would fall progressively further behind the camera
@@ -540,8 +563,30 @@ class DoorDetectionNode:
         """
         Run one detection step for an already-admitted frame pair.
 
-        Split out of :meth:`callback` so the drop-if-busy guard wraps the whole
-        body. See :meth:`callback` for the argument contract.
+        The frame is converted, the shared context is created or refreshed, the
+        state machine advances one step, and the navigation results and
+        optional debug images are published.
+
+        Args:
+            color_msg:
+                Color image selected by ``ApproximateTimeSynchronizer``.
+
+            depth_msg:
+                Aligned depth image paired with ``color_msg``.
+
+        Notes:
+            Split out of :meth:`callback` so the drop-if-busy guard wraps the
+            whole body. Processing is deferred until camera intrinsics are
+            available. Per-branch color copies and the depth-frame adapter are
+            created only when visualization is enabled; otherwise the branches
+            share the incoming frame and ``ctx.depth_frame`` is ``None``.
+
+            The door label is published on every frame, as ``"unknown"`` when
+            it is ``None``; the mid-frame pixel and door depth only when they
+            are not ``None``. Plane information is always published, with a
+            zero-distance sentinel and normal ``(0, 0, 1)`` when no plane has
+            been confirmed. Visualization errors are logged at debug level and
+            never stop the navigation outputs.
         """
         # Start sampling on this thread, which is where the work happens and the
         # only thread the session may later be stopped from.

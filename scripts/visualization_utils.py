@@ -274,7 +274,9 @@ def build_stacked_visualization(color_image, MIN_DEPTH=None, MAX_DEPTH=None, edg
             Optional grayscale or BGR edge visualization.
 
         depth_frame:
-            RealSense-like frame whose data is stored in millimeters.
+            RealSense-like frame whose data is stored in millimeters. Despite
+            the ``None`` default it is required; the detection node only
+            creates it when visualization is enabled.
 
         banner:
             Optional :class:`DiagnosticBanner` rendered in a strip spanning all

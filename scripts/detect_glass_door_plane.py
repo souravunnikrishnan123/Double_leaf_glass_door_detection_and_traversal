@@ -20,7 +20,8 @@ class TemporalPlaneTracker:
     New planes are associated with the smoothed hypothesis using normal-angle
     and distance gates. Associated measurements update an exponential moving
     average, while a bounded Boolean history applies separate confirmation and
-    drop thresholds.
+    drop thresholds. :class:`PlaneDetector` uses only the confirmation flag;
+    the smoothed normal and distance serve as the association reference.
 
     Attributes:
         alpha:
@@ -228,7 +229,9 @@ class PlaneDetector:
             Exclusive near limit for point generation.
 
         subsample:
-            Pixel stride used during backprojection.
+            Stride over the list of valid depth pixels used during
+            backprojection, converted to the active resolution with
+            :meth:`resolution_scaling.ResolutionScaler.stride`.
 
         voxel_size:
             Voxel edge length in meters.
@@ -278,6 +281,9 @@ class PlaneDetector:
         min_height_m:
             Minimum accepted physical plane height.
 
+        enable_visualization:
+            Whether plane inliers are painted onto the color image.
+
         tracker:
             :class:`TemporalPlaneTracker` used for cross-frame confirmation.
     """
@@ -288,7 +294,9 @@ class PlaneDetector:
 
         Notes:
             Parameters are read once. The resulting object should be reused
-            between frames so temporal confirmation history is preserved.
+            between frames so temporal confirmation history is preserved. The
+            tracker is never reset, so its history also carries over from one
+            detection cycle to the next.
         """
         ns = "~plane_detector"
         self.reference_door_distance_m = rospy.get_param("~reference_door_distance_m", 2.0)
@@ -739,9 +747,16 @@ class PlaneDetector:
             candidates.
 
         Notes:
-            ``had_candidates`` is true when geometry was found but rejected by
-            distance or not yet confirmed. A confirmed result is selected by
-            maximum inlier count among candidates inside the distance gate.
+            ``had_candidates`` is true when a door-sized plane was found but
+            rejected by distance or not yet confirmed; planes rejected by the
+            size gate count as no candidate. The candidate with the most
+            inliers inside the distance gate is passed to the tracker. The
+            tracker is updated only on such frames, so frames without a
+            candidate neither confirm nor weaken the track. The returned model,
+            metrics and inliers come from the current frame's chosen plane; the
+            tracker's smoothed normal and distance only decide confirmation.
+            Inliers of every front-facing RANSAC plane are painted before any
+            gating; the outline is drawn only for a confirmed plane.
         """
 
 

@@ -1,23 +1,44 @@
 #!/usr/bin/env python3
-"""
-realsense_bag_bridge.py
+"""Normalize a RealSense bag or Gazebo camera into one RGB-D topic set.
 
-Reads a RealSense .bag via pyrealsense2, aligns depth->color using rs.align,
-and publishes:
- - color image -> ROS topic (bgr8)
- - aligned depth -> ROS topic (16UC1 or 32FC1 passthrough)
- - color CameraInfo -> ROS topic
+In ``bag`` mode a RealSense ``.bag`` is read with pyrealsense2 and depth is
+aligned to color with ``rs.align``. In ``gazebo`` mode the simulated camera
+topics ``/realsense/realsense/color/image_raw`` and
+``/realsense/realsense/depth/image_raw`` are republished. Both modes publish:
 
-Params (namespace ~):
-  bag                : path to bag file (string)
-  color_topic        : topic name to publish color image (default '/camera/color/image_raw')
-  depth_topic        : topic name to publish aligned depth (default '/camera/aligned_depth_to_color/image_raw')
-  camera_info_topic   : topic name to publish CameraInfo (default '/camera/color/camera_info')
-  loop               : bool, repeat playback (default False)
+* color image (``bgr8``),
+* depth aligned to color (``16UC1`` for millimetre input, ``32FC1`` for
+  floating-point input),
+* color ``CameraInfo`` (from RealSense intrinsics in bag mode, or from a fixed
+  field of view in Gazebo mode),
+
+all in the ``camera_color_frame`` frame.
+
+Private parameters:
+    input_mode:
+        ``"bag"`` (default) or ``"gazebo"``.
+
+    bag_file:
+        Path of the bag to play; required in bag mode.
+
+    loop:
+        Repeat bag playback (default ``True``).
+
+    color_topic, depth_topic, camera_info_topic:
+        Output topic names (defaults ``/camera/color/image_raw``,
+        ``/camera/aligned_depth_to_color/image_raw`` and
+        ``/camera/color/camera_info``).
+
+    frame_skip:
+        Bag mode only: publish one frame set, then skip this many (default 0).
+
+    resize_scale:
+        Uniform output scale (default 1.0). Camera intrinsics are rescaled to
+        match the resized image.
 
 Usage:
-  rosrun <pkg> realsense_bag_bridge.py _bag:=/path/to/bag.bag
-  or via roslaunch using the launch you posted.
+    ``rosrun robodog_glass_door_detection realsense_bag_bridge.py
+    _bag_file:=/path/to/recording.bag``, or through ``door_detection.launch``.
 """
 import cv2
 import rospy
@@ -270,19 +291,24 @@ def main():
 
     Raises:
         RuntimeError:
-            If the RealSense pipeline cannot start or deliver frames and
-            playback recovery also fails.
+            If the RealSense pipeline cannot be started for the bag.
 
         cv_bridge.CvBridgeError:
-            If an OpenCV image cannot be converted to or from a ROS message.
+            If an OpenCV image cannot be converted to a ROS message.
 
         rospy.ROSException:
             If ROS communication or node initialization fails.
 
     Notes:
         Relevant private parameters include ``input_mode``, ``bag_file``,
-        ``loop``, output topic names, ``frame_skip``, and ``resize_scale``.
-        The RealSense pipeline is stopped in a ``finally`` block.
+        ``loop``, output topic names, ``frame_skip``, and ``resize_scale``;
+        see the module documentation. The function returns immediately when
+        bag mode has no ``bag_file``. A frame timeout ends playback when
+        ``loop`` is false and otherwise restarts the pipeline, retrying until
+        it succeeds. Frame skipping applies only to bag mode. In bag mode the
+        color frames are assumed to be RGB and swapped to BGR. Exceptions in
+        the main loop are logged and re-raised, and the RealSense pipeline is
+        stopped in a ``finally`` block.
     """
     rospy.init_node('realsense_bag_bridge', anonymous=False)
     rospy.loginfo("realsense_bag_bridge node started.")

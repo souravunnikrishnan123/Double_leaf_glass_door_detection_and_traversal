@@ -56,6 +56,9 @@ class ImageRecorder:
         run_dir:
             Folder this launch writes to.
 
+        bridge:
+            ``CvBridge`` used to convert messages to BGR images.
+
         counts:
             Number of images saved so far, per file name prefix.
     """

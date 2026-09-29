@@ -57,6 +57,9 @@ class DepthDoorDetector:
         merge_lines:
             Horizontal clustering and minimum merged-length configuration.
 
+        enable_visualization:
+            Whether the Sobel preview image is produced for diagnostics.
+
         line_filter:
             Orientation and depth validation helper.
 
@@ -84,7 +87,9 @@ class DepthDoorDetector:
 
         Notes:
             ROS must be initialized before construction so private parameters
-            resolve in the intended node namespace.
+            resolve in the intended node namespace. Pixel lengths are scaled
+            with the image, while per-pixel gradient thresholds are scaled
+            inversely; see :class:`resolution_scaling.ResolutionScaler`.
         """
         ns = "~depth_image_based_door_detector"
         
@@ -153,18 +158,24 @@ class DepthDoorDetector:
 
         Args:
             ctx:
-                Shared frame context containing aligned metric depth and
-                ``color_image_depth_based`` for diagnostic overlays.
+                Shared frame context containing aligned metric depth,
+                ``ransac_plane_distance``, and ``color_image_depth_based`` for
+                diagnostic overlays.
 
         Returns:
             Tuple ``(merged_lines, merged_depths, sobel_visualization)``.
             Merged lines use endpoint-pair coordinates at original resolution.
-            If Hough detects no line, the first two values are ``None``.
+            If Hough detects no line, the first two values are ``None``; if
+            lines are found but none survive filtering, they are empty lists.
+            ``sobel_visualization`` is ``None`` when visualization is disabled.
 
         Notes:
             The adaptive threshold is computed only from gradients whose depth
             lies inside the current plane-distance band. A second fixed
-            physical threshold removes weak internal frame texture.
+            physical threshold removes weak internal frame texture. Line depth
+            is sampled from strips on both sides of each segment. All vertical
+            candidates are drawn pink and depth-consistent ones blue; merged
+            lines are drawn green by :func:`cluster_and_merge_lines`.
         """
         # Ensure the color image used for depth overlays matches the depth resolution.
         # If aligned depth resolution differs from RGB, resize the color image to depth size

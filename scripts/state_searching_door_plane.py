@@ -25,13 +25,15 @@ class searching_door_plane_state(BaseState):
             Consecutive empty frames tolerated before full-image fallback.
 
         reference_door_distance_m:
-            Nominal door distance from configuration.
+            Nominal door distance from configuration. The plane detector
+            applies its own distance gate; this copy is currently unused.
 
         global_map_distance_accuracy_to_door_plane:
             Fractional uncertainty applied to the nominal map distance.
 
         distance_range_m:
-            Derived accepted distance error around the nominal door position.
+            Derived accepted distance error around the nominal door position;
+            currently unused by this state.
 
         _no_candidate_count:
             Consecutive frames with no plane candidate.
@@ -76,8 +78,12 @@ class searching_door_plane_state(BaseState):
 
         Notes:
             Frames containing an unconfirmed candidate reset the empty-frame
-            counter. Successful width estimates update ``ctx.door_geometry``
-            before line detection begins.
+            counter. On confirmation, ``ctx.ransac_plane_distance`` and
+            ``ctx.plane_result`` are updated, and when both widths are
+            estimated ``ctx.door_geometry`` receives the glass width reduced by
+            ``margin_for_glass_width_inaccuracy`` and the larger of the
+            estimated and current center-frame widths. On the fallback path
+            ``ctx.door_state_label`` is set to ``"No_door_plane_detected"``.
         """
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection

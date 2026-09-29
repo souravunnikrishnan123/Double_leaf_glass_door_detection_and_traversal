@@ -68,9 +68,18 @@ class Passability_checker:
     obstacle points survive, the requested range is treated as clear.
 
     Attributes:
+        scaler:
+            :class:`resolution_scaling.ResolutionScaler` for the active image
+            resolution.
+
+        reference_subsample:
+            Configured back-projection stride at the reference resolution.
+
         subsample:
-            Depth backprojection stride used to scale connected-component area
-            thresholds.
+            ``reference_subsample`` converted to the active resolution. It is
+            also the dilation kernel size that restores connectivity in the
+            sparse connected-component mask, so it must match the stride used
+            by the caller's back-projection.
 
         max_planes:
             Maximum number of RANSAC plane attempts during floor removal.
@@ -109,22 +118,33 @@ class Passability_checker:
             Depth separating near and far connected-component thresholds.
 
         min_area_near:
-            Minimum image-space area for near components.
+            Configured near-component area in reference-resolution pixels at
+            full sampling density.
 
         minimum_area_far:
-            Minimum image-space area for farther components.
+            Configured area threshold for all other components, in the same
+            units as ``min_area_near``.
+
+        min_area_near_px:
+            ``min_area_near`` divided by the square of
+            ``reference_subsample``, scaled by image area, and floored at 6.
+            This is the threshold actually applied.
+
+        minimum_area_far_px:
+            ``minimum_area_far`` converted the same way.
 
         min_z:
-            Configured lower depth bound reserved for connected-component
-            threshold scaling.
+            Configured lower depth bound; currently unused.
 
         max_z:
-            Configured upper depth bound reserved for connected-component
-            threshold scaling.
+            Configured upper depth bound; currently unused.
 
         minimum_depth_points_after_filtering:
-            Minimum surviving point count required to report a measured
-            obstacle rather than the far range.
+            A measured obstacle is reported only when more points than this
+            survive filtering; otherwise the far range is returned.
+
+        enable_visualization:
+            Whether the filter-stage point overlays are drawn.
 
         timer:
             Shared named-stage duration recorder.
@@ -135,8 +155,11 @@ class Passability_checker:
         Load passability-filter parameters from the ROS parameter server.
 
         All parameters live below the historical
-        ``~passabilility_check`` namespace. Defaults are chosen for the
-        configured camera resolution and point-cloud subsampling.
+        ``~passabilility_check`` namespace. Pixel-domain values are written
+        for the reference resolution and converted once here: the
+        back-projection stride with
+        :meth:`resolution_scaling.ResolutionScaler.stride`, and the
+        connected-component areas by the reference stride and image area.
         """
         ns = "~passabilility_check"
         # -----------------------------
@@ -269,9 +292,12 @@ class Passability_checker:
         """
         Remove the first sufficiently large horizontal RANSAC plane.
 
-        Plane fitting stops when a camera-Y-aligned normal is found. Inlier
-        points belonging to that plane are removed while UV correspondence is
-        preserved.
+        Up to ``max_planes`` fits are attempted. A fit with a camera-Y-aligned
+        normal is taken as the floor and its inliers are removed while UV
+        correspondence is preserved. A non-horizontal fit is removed from the
+        working cloud before the next attempt, so the same plane is not found
+        again. Fitting stops early when a fit has fewer than ``min_inliers``
+        inliers.
 
         Args:
             points:
@@ -445,9 +471,15 @@ class Passability_checker:
         """
         Reject small or depth-incoherent point patches in image space.
 
-        The sparse UV samples are dilated to restore connectivity lost through
-        subsampling. Each connected component is gated by area, median depth,
-        floor-relative height, and median absolute depth deviation.
+        The sparse UV samples are dilated with a ``subsample``-sized kernel to
+        restore connectivity lost through subsampling. Each connected component
+        is gated by area, median depth, floor-relative height, and median
+        absolute depth deviation. A component is kept when it has valid depth
+        and height samples, its median height is not more than 0.1 m below the
+        floor estimate, its depth deviation is within ``0.30 + 0.05 * area /
+        100`` m, and its area reaches ``min_area_near_px`` (for median depth
+        below ``near_z``) or ``minimum_area_far_px``. All components are
+        evaluated in one vectorized pass using :func:`grouped_median`.
 
         Args:
             points:
@@ -471,7 +503,8 @@ class Passability_checker:
         Notes:
             On an unexpected processing error, the method returns the original
             input arrays. When the generated mask has no foreground component,
-            it returns empty arrays.
+            it returns empty arrays. When every component is rejected, the
+            unfiltered input arrays are returned as well.
         """
         #print(f"number of points before CC {len(points)}")
         # --- Remove small patches in image space (connected components) ---
@@ -639,7 +672,10 @@ class Passability_checker:
 
         Notes:
             If no more than ``minimum_depth_points_after_filtering`` points
-            survive, the region is treated as clear up to ``z_max``.
+            survive, the region is treated as clear up to ``z_max``. The
+            per-stage point overlays are written into ``color_image`` in place
+            only when visualization is enabled; otherwise it is returned
+            unchanged.
         """
 
         H, W = depth_image_in_meters.shape

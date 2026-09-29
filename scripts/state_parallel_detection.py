@@ -14,9 +14,10 @@ class dual_branch_frame_detection_state(BaseState):
     """
     Run both detector branches and store their independent status results.
 
-    Despite the historical state name, both branches currently execute
-    sequentially in one callback. Separate door-status instances carry the
-    keyword used to select color- or depth-specific context fields.
+    Despite the historical module name (``state_parallel_detection``), both
+    branches execute sequentially in one callback. Separate door-status
+    instances carry the keyword used to select color- or depth-specific
+    context fields.
 
     Attributes:
         ransac_error:
@@ -42,15 +43,36 @@ class dual_branch_frame_detection_state(BaseState):
 
         door_geometry:
             Latest physical geometry mapping, refreshed per frame.
+
+        enable_windows:
+            Value of ``~enable_visualization``; gates the stacked debug views.
+
+        door_state_log_path:
+            File receiving both branch labels per frame when result logging is
+            enabled.
+
+        enable_result_log:
+            Value of ``~enable_result_log``.
+
+        _result_log_file:
+            Append-mode handle kept open for the node lifetime, or ``None``
+            when logging is disabled or the file could not be opened.
     """
 
     def __init__(self):
         """
         Construct reusable processing objects for both detector branches.
 
+        Raises:
+            KeyError:
+                If ``~result_log_path`` or ``~plane_detector/output/ransac_error``
+                is missing; the latter is required by the color detector.
+
         Notes:
             Instances persist across frames to avoid rebuilding configuration
-            and to keep branch-specific status keywords.
+            and to keep branch-specific status keywords. When
+            ``~enable_result_log`` is true the log file is opened once in
+            append mode and closed on ROS shutdown.
         """
         super().__init__("dual_branch_frame_detection_state")
         self.ransac_error = rospy.get_param(f"~plane_detector/output/ransac_error", 0.02)
@@ -80,11 +102,17 @@ class dual_branch_frame_detection_state(BaseState):
         """
         Append one diagnostic line to the result log.
 
+        Args:
+            line:
+                Text to write, including its trailing newline.
+
         Notes:
             The handle is kept open across frames. Opening and closing the file on
             every frame cost a pair of syscalls plus a directory lookup inside the
             image callback, which is measurable on flash storage. Each line is
-            flushed so the file stays readable while the pipeline runs.
+            flushed so the file stays readable while the pipeline runs. Nothing
+            is written when no handle is open, and write errors are logged
+            (throttled) rather than raised.
         """
         handle = self._result_log_file
         if handle is None:
@@ -118,9 +146,17 @@ class dual_branch_frame_detection_state(BaseState):
             have been written to ``ctx``.
 
         Notes:
-            Door geometry and plane distance are re-read each frame because the
-            plane-search state can update them at runtime. A branch without
-            valid ROIs receives the label ``"no_frame_detected"``.
+            Door geometry and plane distance are re-read from ``ctx`` each
+            frame because the plane-search state can update them at runtime.
+            A branch without a valid ROI pair receives the label
+            ``"no_frame_detected"`` and an open-side ROI of ``None``; its
+            ``roi_left_*``, ``roi_right_*`` and ``door_depth_m_*`` fields are
+            then left unchanged and may hold values from an earlier frame.
+
+            The stacked debug views ``ctx.viz_color_stack`` and
+            ``ctx.viz_depth_stack`` are rebuilt only when visualization is
+            enabled. When result logging is enabled both branch labels are
+            appended to the log.
         """
         # get the latest door geometry and distance from ROS params
         # these values are changed during runtime. hence need to load the door geometry and plane distance in this state as well to make sure the latest value is used for detection

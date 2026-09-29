@@ -28,7 +28,8 @@ def setup_realsense_pipeline(bag_file=None):
 
     Notes:
         The caller owns the running pipeline and must eventually call
-        ``pipeline.stop()``.
+        ``pipeline.stop()``. ``main.py`` imports this function but does not
+        call it; bag playback is handled by ``realsense_bag_bridge.py``.
     """
     # -------------------------------
     # Initialize RealSense Pipeline

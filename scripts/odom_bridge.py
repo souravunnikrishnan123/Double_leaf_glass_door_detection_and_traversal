@@ -24,6 +24,9 @@ class GazeboOdomBridge:
 
         odom_pub:
             Publisher for the synthesized ``/odom_bridge_output`` messages.
+
+        static_pose_timer:
+            Bag mode only: timer that republishes the fixed origin pose.
     """
 
     def __init__(self):

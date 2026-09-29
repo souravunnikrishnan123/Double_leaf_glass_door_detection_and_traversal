@@ -434,9 +434,11 @@ class HoughPLineDetector:
             Hough segments shaped ``(N, 1, 4)`` in original-image coordinates,
             or ``None`` when no segment is detected.
 
-        Raises:
-            ZeroDivisionError:
-                If lines are detected while ``scale`` is zero.
+        Notes:
+            The three Hough settings are multiplied by ``scale`` before the
+            call and the endpoints divided by it afterwards, so ``scale`` must
+            be positive; zero would not raise but would produce invalid
+            coordinates.
         """
         base_threshold = int(hough_cfg.get("threshold", 100))
         base_min_len = int(hough_cfg.get("min_line_length", 100))
@@ -504,13 +506,17 @@ def backproject_depth_to_points(
 
     Returns:
         Tuple ``(points, uv, valid_mask)`` where ``points`` is an ``N x 3``
-        array of camera-frame ``(X, Y, Z)``, ``uv`` is the corresponding
-        ``N x 2`` pixel array, and ``valid_mask`` is the full-resolution
-        boolean selection mask.
+        float32 array of camera-frame ``(X, Y, Z)``, ``uv`` is the
+        corresponding ``N x 2`` integer pixel array, and ``valid_mask`` is the
+        full-resolution boolean selection mask before subsampling. An ROI
+        lying entirely outside the image yields empty arrays and an all-false
+        mask.
 
     Notes:
         Camera coordinates follow the optical convention: X right, Y down,
-        and Z forward.
+        and Z forward. With an ROI, the depth test and polygon fill run only
+        on the polygon's bounding box; the pixel order, and therefore the
+        subsampling, is the same as for a full-image mask.
     """
     H, W = depth_image_in_meters.shape
 

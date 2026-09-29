@@ -103,7 +103,10 @@ class PassabilityCheckerNode:
 
         Notes:
             The ROS node itself is initialized by :func:`main`, before this
-            class is constructed.
+            class is constructed. The back-projection stride is converted to
+            the active resolution exactly as :class:`Passability_checker`
+            converts its own copy. When ``~profiling_enabled`` is true, stage
+            timings are flushed to disk every five seconds.
         """
         self.enable_visualization = rospy.get_param("~enable_visualization", False)
         self.color_topic = rospy.get_param("~color_topic", "/camera/color/image_raw")
@@ -766,6 +769,11 @@ class PassabilityCheckerNode:
         Returns:
             ``True`` when color, depth, intrinsics, door state, door depth, and
             the activation pose have all been received; otherwise ``False``.
+
+        Notes:
+            The door-plane normal from ``/glass_door_detection/plane_info`` is
+            not part of this check, although corridor definition in
+            :meth:`run` uses it. The mid-frame pixel is not checked either.
         """
         return (
             self.color_image is not None and
@@ -787,7 +795,8 @@ class PassabilityCheckerNode:
 
         Notes:
             Projecting world translation onto a fixed heading keeps the result
-            independent of later yaw corrections.
+            independent of later yaw corrections. Currently not called by
+            :meth:`run`, which uses :meth:`relative_robot_motion` instead.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -804,8 +813,9 @@ class PassabilityCheckerNode:
             was active when the corridor was defined.
 
         Notes:
-            The sign follows the left-handed lateral basis produced by
-            ``(-sin(yaw), cos(yaw))``.
+            The sign follows the lateral basis ``(-sin(yaw), cos(yaw))``,
+            which points to the robot's left. Currently not called by
+            :meth:`run`.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -826,7 +836,8 @@ class PassabilityCheckerNode:
         Notes:
             The rotational term uses the current distance to the corridor
             midpoint, so the estimate grows as heading error acts over a longer
-            viewing distance.
+            viewing distance. Currently not called by :meth:`run`, which
+            propagates the corridor point with :meth:`propagate_corridor_point`.
         """
 
         dx = self.current_pose[0] - self.start_pose_at_corridor_definition[0]
@@ -962,9 +973,11 @@ class PassabilityCheckerNode:
         """
         Search the full depth image for a clear robot-width corridor.
 
-        Depth pixels in the requested range are back-projected, filtered by the
-        normal/outlier/connected-component pipeline, transformed to the robot
-        frame, and passed to the sliding-window corridor search.
+        Depth pixels in the requested range are back-projected, points more
+        than ``robot_height_above_camera_level`` above the camera are dropped,
+        and the rest are filtered by the floor/normal/outlier/connected-
+        component pipeline, transformed to the robot frame, and passed to the
+        sliding-window corridor search.
 
         Args:
             z_min:
@@ -1172,8 +1185,26 @@ class PassabilityCheckerNode:
 
         Notes:
             This is a blocking node loop. Subscriber callbacks only cache
-            state; all expensive point-cloud work is performed here at the
-            configured five-hertz rate.
+            state; all expensive point-cloud work is performed here at a fixed
+            five-hertz rate.
+
+            ``open_left``/``open_right`` define a fixed corridor half a robot
+            width (plus safety margin) into the opening from the mid-frame
+            pixel. ``no_frame_detected`` and ``No_door_plane_detected`` define a
+            virtual corridor with :meth:`find_a_virtual_corridor`, as does a
+            traversal request; only the latter is acknowledged on
+            ``~virtual_corridor_definition_finished``. If no virtual corridor is
+            found, definition is retried on the next iteration. In every case
+            the corridor axis follows the door-plane normal received on
+            ``/glass_door_detection/plane_info``.
+
+            Corridor mode keeps points within the corridor half-width of the
+            propagated corridor axis and at or beyond the propagated corridor
+            midpoint; local mode keeps points in a robot-width strip straight
+            ahead of the robot, measured in its current frame. Both drop
+            points more than ``robot_height_above_camera_level`` above the
+            camera. A ``Robot_passability`` message is published every
+            iteration, with NaN for values that are not available.
         """
         while not rospy.is_shutdown():
             if not self.active: # node inactive, skip processing. node will be activated when door state is open_left or open_right and No_door_plane_detected", "no_frame_detected

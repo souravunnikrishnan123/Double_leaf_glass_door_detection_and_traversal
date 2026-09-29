@@ -16,7 +16,8 @@ class GlassFrameLineProcessor:
 
     Attributes:
         keyword:
-            Branch label used in duration names.
+            Branch label used in duration names. The constructor currently
+            overwrites it with ``None``; see :meth:`__init__`.
 
         depth_image_in_meters:
             Metric depth image for the frame currently being processed.
@@ -81,9 +82,11 @@ class GlassFrameLineProcessor:
         """
         Filter and pair lines that could border a glass pane.
 
-        Keeps lines that:
-        - Have no neighbor on one side (left or right), OR
-        - The neighbor is farther than `glass_width_cm` (in centimeters)
+        Lines are ordered by mean x. A line with neighbors on both sides is
+        kept when one gap is at least the expected glass width and the other is
+        at most the expected center-frame width. A line at either end of the
+        ordering is kept when its only neighbor is within the center-frame
+        width. The kept lines are then paired by :meth:`get_paired_lines`.
 
         Returns:
             List of paired candidates. Each item contains
@@ -91,8 +94,9 @@ class GlassFrameLineProcessor:
 
         Notes:
             Physical glass and center-frame widths are converted to expected
-            pixel gaps independently for each line depth. A middle candidate
-            must have one wide neighbor gap and one frame-width gap.
+            pixel gaps independently for each line depth; lines with a
+            non-positive depth are never kept. Pairing uses the mean of the
+            per-line center-frame gaps as a single threshold.
         """
         if not self.lines:
             return []
@@ -570,9 +574,10 @@ class GlassFrameLineProcessor:
             ``(None, None, None)`` depending on the rejection stage.
 
         Notes:
-            Candidate pairs are drawn red/cyan and accepted side ROIs are drawn
-            magenta/yellow on ``color_image``. Their depths go to ``banner``
-            rather than onto the image.
+            Candidate pairs are drawn red (left) and yellow (right), and
+            accepted side ROIs magenta (left) and yellow (right), on
+            ``color_image``. Their depths go to ``banner`` rather than onto
+            the image.
         """
 
         self.depth_image_in_meters = depth_image_in_meters

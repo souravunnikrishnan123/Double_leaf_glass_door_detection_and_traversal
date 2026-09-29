@@ -10,22 +10,37 @@ class idle_state(BaseState):
     """
     Wait for a start request and reset per-run diagnostic logs.
 
-    The state truncates the raw and smoothed door-state log files while it is
-    idle, then transitions to plane search after the start flag is received.
+    On entry, and only when result logging is enabled, the state truncates the
+    raw and smoothed door-state log files. It transitions to plane search once
+    the start flag is set.
 
     Attributes:
         name:
             Fixed state-machine key ``"idle_state"`` inherited from
             :class:`BaseState`.
+
+        enable_result_log:
+            Value of ``~enable_result_log``.
+
+        door_state_log_path:
+            Raw per-branch label log written by the dual-branch state.
+
+        smoothed_door_state_log_path:
+            Smoothed label log written by the fusion state.
     """
 
     def __init__(self):
         """
-        Initialize the idle state with its registered transition key.
+        Initialize the idle state and the paths of the logs it resets.
+
+        Raises:
+            KeyError:
+                If ``~result_log_path`` is not set; it is read even when
+                result logging is disabled.
 
         Notes:
-            Per-cycle data is reset by the surrounding state-machine workflow;
-            construction only assigns the state name.
+            Door-state outputs on the frame context are not reset here; the
+            next detection cycle overwrites them.
         """
         self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
         super().__init__("idle_state")
@@ -47,7 +62,9 @@ class idle_state(BaseState):
         Notes:
             Clearing belongs to entering the state. Doing it in ``do_action``
             rewrote both files on every idle frame, which is two file opens and
-            writes per frame for the whole time the node sits idle.
+            writes per frame for the whole time the node sits idle. Each file
+            is replaced by a one-line header. The other states keep their log
+            handles open in append mode, so their next lines follow the header.
         """
         if self.enable_result_log:
             # Clear old log output for this run

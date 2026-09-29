@@ -43,8 +43,8 @@ class FrameContext:
             Vertical principal point in pixels.
 
         depth_frame:
-            RealSense depth frame, or a compatible adapter used by the
-            visualization helpers.
+            RealSense-compatible depth adapter used by the visualization
+            helpers, or ``None`` when visualization is disabled.
 
         go_to_idle_from_finish_state:
             Reset signal consumed by the final state.
@@ -54,20 +54,25 @@ class FrameContext:
 
         plane_result:
             Confirmed plane distance and normal published to downstream nodes.
+            It is set by plane search and kept until the next confirmation.
 
         color_image_for_plane_detection:
-            Color-image copy used for RANSAC and plane overlays.
+            Color image receiving the plane overlays; a private copy only when
+            visualization is enabled.
 
         banner_for_plane_detection:
             Text shown in the banner strip of the plane overlay image.
 
         door_geometry:
-            Physical geometry of the door and its frame, refreshed during the
-            door detection process.
+            Physical geometry of the door and its frame. The node seeds it from
+            ``~door_geometry`` and plane search refines the glass and
+            center-frame widths.
 
         ransac_plane_distance:
             Distance of the confirmed plane, used to gate line detection and
-            passability checks.
+            as the fallback door depth. The node seeds it from
+            ``~plane_detector/output/ransac_plane_distance`` and plane search
+            updates it.
 
         roi_left_color_based:
             Left-side polygon produced by the color line branch.
@@ -85,13 +90,15 @@ class FrameContext:
             Color-branch label such as ``"closed"`` or ``"open_left"``.
 
         color_image_color_based:
-            Color-image copy receiving color-branch overlays.
+            Color image receiving color-branch overlays; a private copy only
+            when visualization is enabled.
 
         banner_color_based:
             Text shown in the banner strip of the color-branch images.
 
         edges:
-            Full-resolution Canny edge visualization.
+            Full-resolution Canny edge visualization, or ``None`` when
+            visualization is disabled.
 
         roi_left_depth_based:
             Left-side polygon produced by the depth-gradient branch.
@@ -109,23 +116,33 @@ class FrameContext:
             Depth-branch door-state label.
 
         color_image_depth_based:
-            Color-image copy receiving depth-branch overlays.
+            Color image receiving depth-branch overlays; a private copy only
+            when visualization is enabled.
 
         banner_depth_based:
             Text shown in the banner strip of the depth-branch image.
 
         sobel_vis_color:
             Color visualization of the depth Sobel response and thresholded
-            edges.
+            edges, or ``None`` when visualization is disabled.
 
         door_state_label:
-            Temporally smoothed result selected by branch fusion.
+            Navigation-facing door label published on every frame. Fusion sets
+            it from the smoothed label: an open label only together with
+            current-frame geometry, ``"no_frame_detected"`` only after the
+            configured number of consecutive frames, and ``"unknown"`` in
+            between. Plane search sets ``"No_door_plane_detected"``. It is not
+            cleared when the machine returns to idle.
 
         mid_frame_x_px_for_passability_check:
             Image x-coordinate of the central frame edge bordering the opening.
+            Fusion clears it every frame and sets it only when an open result
+            ends the cycle; it is ``None`` on the fallback path.
 
         door_depth:
-            Door or corridor reference depth selected for passability checking.
+            Door reference depth for passability checking. Fusion clears it
+            every frame and sets it when an open result ends the cycle; the
+            full-image fallback sets the nominal or RANSAC plane distance.
 
         viz_color_stack:
             Published color-branch stacked debug image.
@@ -134,7 +151,8 @@ class FrameContext:
             Published depth-branch stacked debug image.
 
         viz_plane_overlay:
-            Optional cached plane-detection visualization.
+            Reserved for a cached plane-detection visualization; currently
+            unused.
     """
 
     # Images are kept in one shared object so state transitions do not copy

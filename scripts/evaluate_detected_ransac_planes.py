@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Image- and metric-space quality measurements for RANSAC planes."""
+"""Image- and metric-space quality measurements for RANSAC planes.
+
+Not called by the current nodes; :class:`detect_glass_door_plane.PlaneDetector`
+computes its own plane metrics.
+"""
 
 import rospy
 import numpy as np

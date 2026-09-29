@@ -61,7 +61,7 @@ class StateMachine:
         Switch to a registered state by name.
 
         The current state's exit hook runs before the new state's entry hook.
-        State residence time is printed for runtime diagnostics.
+        State residence time is logged at debug level for runtime diagnostics.
 
         Args:
             name:

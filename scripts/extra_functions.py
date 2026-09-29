@@ -1,4 +1,8 @@
-"""Geometry and point-cloud helpers retained for detector experiments."""
+"""Geometry and point-cloud helpers retained for detector experiments.
+
+None of these helpers is called by the current detection, passability, or
+traversal nodes.
+"""
 
 import cv2
 import numpy as np
@@ -174,9 +178,11 @@ def find_planes(points,
   """
   Iteratively segment and classify planes in a point cloud.
 
-  Core inliers are removed after each RANSAC fit while some boundary points
-  remain available to later iterations. Front-facing planes are classified as
-  vertical and camera-Y-normal planes as horizontal.
+  After each RANSAC fit, inliers within 2 cm of the plane (the core) are
+  removed, while the remaining boundary inliers stay available to later
+  iterations. For a front-facing (vertical) plane all inliers are removed.
+  Front-facing planes are classified as vertical and camera-Y-normal planes as
+  horizontal; other planes are only recorded in ``all_planes``.
 
   Args:
       points:
@@ -205,11 +211,15 @@ def find_planes(points,
 
   Returns:
       Tuple containing vertical planes, horizontal planes, and all fitted
-      planes. Each entry contains a plane model, source indices, and inlier
-      points.
+      planes. Each entry contains a plane model, indices, and inlier points.
+      Vertical and ``all_planes`` entries hold indices into ``points``;
+      horizontal entries hold the core-inlier indices relative to the point
+      set remaining at that iteration.
 
   Notes:
-      Plane models use ``a*x + b*y + c*z + d = 0``.
+      Plane models use ``a*x + b*y + c*z + d = 0``. Fitting stops at the first
+      fit with fewer than ``min_inliers`` inliers, which is still appended to
+      ``all_planes``. Classified planes are reported with ``print``.
   """
 
   remaining_points = points.copy()
@@ -363,9 +373,12 @@ def check_passable_birdeye(self, points_above_floor,
         empty filtered regions return zero clearance, ``False``, and ``None``.
 
     Notes:
-        Cells are marked occupied from observed points. Columns with no
-        occupied cell are treated as clear, and the widest contiguous clear
-        run determines passability.
+        Only points with camera Y at least ``max_obstacle_height`` are kept;
+        since camera Y points down, these lie at or below that level. Cells are
+        marked occupied from observed points and closed with a 3 x 3 kernel.
+        Columns with no occupied cell are treated as clear, and the widest
+        contiguous clear run determines passability. The returned image is
+        flipped so the near side is at the bottom.
     """
 
     # 1) quick exits

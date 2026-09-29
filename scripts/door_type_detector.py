@@ -36,6 +36,9 @@ class DoorTypeDetector():
 
         min_points_per_vertical_slice:
             Minimum points required to mark one vertical slice occupied.
+
+        enable_visualization:
+            Whether :meth:`visualize_door_bins_and_widths` draws its overlay.
     """
 
     def __init__(self):
@@ -77,9 +80,16 @@ class DoorTypeDetector():
 
         Notes:
             Door extents use the 2nd and 98th percentiles to limit isolated
-            points. Final selection prefers a frame flanked by valid glass; if
-            unavailable, a single valid glass segment may be paired with an
-            adjacent frame.
+            points. Point counts and vertical occupancy for every bin are
+            computed in one vectorized pass; a bin is ``"frame"`` when it has at
+            least ``min_points_per_bin`` points and at least
+            ``min_vertical_support`` occupancy, otherwise ``"glass"``.
+
+            Final selection prefers the widest frame flanked by valid glass on
+            both sides, taking the narrower neighbor as the glass width. If
+            there is none and exactly one valid glass segment exists, it is
+            paired with its narrower adjacent frame. Widths that cannot be
+            determined are ``None``.
         """
 
         # Horizontal (width) coordinate
@@ -292,6 +302,8 @@ class DoorTypeDetector():
         Notes:
             A slice is occupied only when it contains at least
             ``min_points_per_vertical_slice`` inliers.
+            :meth:`estimate_glass_and_frame_widths` no longer calls this
+            helper; it computes the same ratio for all bins at once.
         """
 
 
@@ -417,7 +429,8 @@ class DoorTypeDetector():
                 listed left to right in their outline colors.
 
         Returns:
-            Annotated BGR image copy suitable for ROS publication.
+            Annotated BGR image copy suitable for ROS publication, or
+            ``color_image`` itself, unmodified, when visualization is disabled.
 
         Notes:
             Per-bin translucent colors show the raw classification. Thick

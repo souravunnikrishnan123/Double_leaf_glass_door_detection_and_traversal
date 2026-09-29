@@ -13,24 +13,29 @@ from collections import deque, defaultdict
 
 class TemporalSmoother:
     """
-    Smooth categorical door states with majority voting and hysteresis.
+    Smooth categorical door states with plurality voting and hysteresis.
 
-    A bounded window supplies the majority candidate. Initial output is held
-    until enough consistent samples exist, and an optional hysteresis rule
-    prevents weak candidates from replacing an established result.
+    A bounded window supplies the most frequent label as the candidate. No
+    output is produced until one label appears ``min_consistent`` times, and
+    an established label is kept until a different label both leads the window
+    and reaches that count.
 
     Attributes:
         window_size:
             Maximum number of recent labels retained.
 
         min_consistent:
-            Minimum majority count required for a candidate.
+            Minimum count the leading label needs, within the window, to
+            become the first stable label or to replace the current one.
 
         hysteresis:
-            Whether switching away from the stable label is guarded.
+            Whether switching away from the stable label is additionally
+            guarded by ``stable_hold``.
 
         stable_hold:
-            Minimum majority count used by the switch guard.
+            Minimum count the leading label needs before the guard lets it
+            replace the stable label. It only has an effect when it exceeds
+            ``min_consistent``.
 
         buffer:
             Bounded deque of recent labels.
@@ -40,7 +45,8 @@ class TemporalSmoother:
             warm-up.
 
         stable_count:
-            Confidence-like count maintained for the current stable label.
+            Confidence-like count maintained for the current stable label. It
+            is informational only and does not influence the returned label.
     """
 
     def __init__(self, window_size=10, min_consistent=3, hysteresis=True, stable_hold=2):
@@ -59,7 +65,9 @@ class TemporalSmoother:
                 Enable guarded switching between stable labels.
 
             stable_hold:
-                Minimum candidate count required before switching.
+                Minimum candidate count required before switching. Values not
+                greater than ``min_consistent`` add no extra guard, because a
+                candidate already needs ``min_consistent`` occurrences.
         """
         self.window_size = window_size
         self.min_consistent = min_consistent
@@ -88,9 +96,13 @@ class TemporalSmoother:
             ``min_consistent`` evidence.
 
         Notes:
-            Majority ties follow insertion order in the frequency mapping.
-            With hysteresis disabled, every sufficiently supported majority
-            replaces the current stable label immediately.
+            The candidate is the most frequent label in the window, not
+            necessarily an absolute majority. Ties go to the label that first
+            appears in the window, i.e. the oldest one. With hysteresis
+            disabled, every sufficiently supported candidate replaces the
+            current stable label immediately. With the settings used by
+            :class:`combine_door_state` (``min_consistent=3``,
+            ``stable_hold=2``) both modes behave the same.
         """
         # Keep raw categorical labels; averaging numeric encodings would invent
         # states that have no physical meaning.
@@ -147,7 +159,9 @@ class combine_door_state(BaseState):
     A fixed decision table chooses a label, source pipeline, and door depth.
     Matching open-side polygons are compared with intersection-over-union.
     The selected label is then temporally smoothed before navigation outputs
-    are written to the frame context.
+    are written to the frame context. An open result is published only
+    together with geometry from the current frame, and a ``no_frame_detected``
+    result only after it has persisted for a configurable number of frames.
 
     Attributes:
         height:
@@ -158,16 +172,51 @@ class combine_door_state(BaseState):
 
         smoother:
             :class:`TemporalSmoother` applied to fused labels.
+
+        smoothed_door_state_log_path:
+            File receiving one smoothed label per frame when result logging is
+            enabled.
+
+        enable_result_log:
+            Value of ``~enable_result_log``.
+
+        _result_log_file:
+            Append-mode handle kept open for the node lifetime, or ``None``
+            when logging is disabled or the file could not be opened.
+
+        number_of_times_no_frame_detected_as_smoothed_door_state:
+            Consecutive-frame counter for the smoothed
+            ``"no_frame_detected"`` label; reset whenever the smoothed label
+            changes to something else.
+
+        maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state:
+            Consecutive-frame threshold the counter above must reach before
+            ``"no_frame_detected"`` is treated as final and escalated to
+            ``"full_image_passability_check_state"``.
     """
 
     def __init__(self):
         """
-        Initialize ROI dimensions and the final-label temporal smoother.
+        Initialize ROI dimensions, the temporal smoother, and result logging.
 
         The image dimensions remain zero until the first pair of detector
         results is fused. The smoother requires three consistent labels within
         an eight-frame window and briefly holds the last stable result while
-        evidence changes.
+        evidence changes. A separate consecutive-frame counter additionally
+        holds a smoothed ``"no_frame_detected"`` label for
+        ``~maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state``
+        frames (default 10) before it is treated as final, since the door may
+        still be mid-opening.
+
+        Raises:
+            KeyError:
+                If ``~result_log_path`` is not set; it is read even when
+                result logging is disabled.
+
+        Notes:
+            When ``~enable_result_log`` is true the log file is opened once in
+            append mode and closed on ROS shutdown. A failure to open it is
+            logged and leaves logging disabled.
         """
         super().__init__("combine_door_state")
         self.height = 0
@@ -192,11 +241,17 @@ class combine_door_state(BaseState):
         """
         Append one diagnostic line to the result log.
 
+        Args:
+            line:
+                Text to write, including its trailing newline.
+
         Notes:
             The handle is kept open across frames. Opening and closing the file on
             every frame cost a pair of syscalls plus a directory lookup inside the
             image callback, which is measurable on flash storage. Each line is
-            flushed so the file stays readable while the pipeline runs.
+            flushed so the file stays readable while the pipeline runs. Nothing
+            is written when no handle is open, and write errors are logged
+            (throttled) rather than raised.
         """
         handle = self._result_log_file
         if handle is None:
@@ -265,9 +320,10 @@ class combine_door_state(BaseState):
         Apply the color/depth branch-fusion decision table.
 
         Depth detections are trusted when color is weak, while valid color
-        detections fill gaps when depth finds no frame. Direct conflicts fall
-        back to an unknown/full-image result. Matching open labels must also
-        agree spatially.
+        detections fill gaps when depth finds no frame or is unknown. Direct
+        conflicts fall back to an unknown/full-image result. Matching open
+        labels must also agree spatially; the color pipeline is then selected.
+        ``"no_frame_detected"`` is produced only when both branches report it.
 
         Args:
             color_pipline_result:
@@ -297,7 +353,10 @@ class combine_door_state(BaseState):
 
         Notes:
             The dictionary always contains ``final_door_status``, ``pipeline``,
-            ``ask_human``, ``door_depth``, and ``reason``.
+            ``ask_human``, ``door_depth``, and ``reason``. ``pipeline`` is
+            ``"color_based"``, ``"depth_based"``, ``"full_image_view"``, or
+            ``None`` for a label combination the table does not list; the last
+            case keeps the default ``"unknown"`` result.
         """
 
         # Start conservatively. Every trusted combination below must opt into a
@@ -456,17 +515,36 @@ class combine_door_state(BaseState):
                 Shared frame context containing both branch results and ROIs.
 
         Returns:
-            Next state name. Open labels go to ``"final_state"``; a stable
-            no-frame label goes to ``"full_image_passability_check_state"``;
-            other labels return to ``"dual_branch_frame_detection_state"``.
-
-        Raises:
-            OSError:
-                If the smoothed-state diagnostic file cannot be written.
+            Next state name. Open labels with agreeing geometry go to
+            ``"final_state"``; a smoothed no-frame label goes to
+            ``"full_image_passability_check_state"`` only after
+            ``maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state``
+            consecutive no-frame frames, staying in
+            ``"dual_branch_frame_detection_state"`` while still waiting;
+            other labels also return to ``"dual_branch_frame_detection_state"``.
 
         Notes:
+            ``ctx.door_depth`` and ``ctx.mid_frame_x_px_for_passability_check``
+            are cleared on every call and set only on the transition to
+            ``"final_state"``. That transition requires the current raw label to
+            equal the smoothed open label and to supply both an open-side ROI
+            and a door depth; the geometry therefore always comes from the
+            current frame.
+
+            ``ctx.door_state_label`` is set on every call: the open label or
+            ``"no_frame_detected"`` only on the transitions above,
+            ``"closed"`` for a smoothed closed label, and ``"unknown"``
+            otherwise, including warm-up, an open label without usable
+            geometry, and the no-frame waiting period.
+
+            The smoother and the no-frame counter are reset when the detection
+            cycle ends, so the next cycle starts without earlier votes. The
+            counter is also reset whenever the smoothed label is not
+            ``"no_frame_detected"``.
+
             For an open-left result the 95th ROI x-percentile marks the central
-            frame edge; open-right uses the 5th percentile.
+            frame edge; open-right uses the 5th percentile. Diagnostic log
+            write failures are logged, not raised.
         """
         self.height, self.width = ctx.color_image_color_based.shape[:2]
 

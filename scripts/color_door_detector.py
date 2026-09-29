@@ -35,13 +35,18 @@ class ColorDoorDetector:
             Gaussian kernel and sigma configuration.
 
         hough:
-            Probabilistic Hough configuration in original-image pixels.
+            Probabilistic Hough configuration in original-image pixels,
+            converted from the reference resolution by
+            :class:`resolution_scaling.ResolutionScaler`.
 
         angle_threshold:
             Maximum horizontal direction component accepted as vertical.
 
         min_num_of_valid_depths_for_depth_estimation:
             Minimum finite line samples required for a median depth.
+
+        enable_visualization:
+            Whether the full-resolution edge map is produced for diagnostics.
 
         preprocessor:
             Shared image preprocessing helper.
@@ -117,16 +122,20 @@ class ColorDoorDetector:
         Args:
             ctx:
                 Shared frame context containing ``color_image_color_based``,
-                aligned metric depth, and the current camera-frame artifacts.
+                aligned metric depth, and ``ransac_plane_distance``.
 
         Returns:
             Tuple ``(valid_lines, line_depths, edges)``. Lines use
             ``((x1, y1), (x2, y2))`` coordinates at original resolution.
             When Hough finds no lines, the first two values are ``None``.
+            ``edges`` is the full-resolution Canny image, or ``None`` when
+            visualization is disabled.
 
         Notes:
-            The method draws all vertical candidates in orange and accepted
-            depth-consistent lines in cyan on ``ctx.color_image_color_based``.
+            The accepted depth band is ``ransac_plane_distance`` times
+            ``1 +/- ransac_error``. The method draws all vertical candidates in
+            orange and accepted depth-consistent lines in cyan on
+            ``ctx.color_image_color_based``.
         """
         self.timer.start("get_rgb_based_lines_using_canny_and_hough_lines")
         # The plane detector is the range gate for this branch. Without it,

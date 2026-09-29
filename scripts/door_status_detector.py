@@ -27,14 +27,24 @@ class Door_Status_Detector:
             Branch suffix used for dynamic context attribute lookup.
 
         roi_width:
-            Configured ROI width retained for the status detector namespace.
+            Configured ROI width, converted to the active resolution. It is
+            retained for the status detector namespace; the side ROIs
+            themselves come from the frame-pairing stage.
 
         margin:
-            Horizontal pixel offset applied away from each frame edge.
+            Horizontal pixel offset applied away from each frame edge,
+            converted to the active resolution.
 
         threshold:
-            Minimum fraction of near-door points required to call a side
-            consistent with a closed pane.
+            Fraction of near-door points that a side must exceed to be
+            considered consistent with a closed pane.
+
+        roi_subsample:
+            Stride over the valid ROI pixels during backprojection. It is not
+            resolution-scaled because only a fraction of points is used.
+
+        enable_visualization:
+            Whether ROI outlines and point overlays are drawn.
 
         timer:
             Named duration recorder used for computation and visualization.
@@ -129,7 +139,8 @@ class Door_Status_Detector:
                 Vertical principal point in pixels.
 
             color_image:
-                Optional BGR image modified with polygon and point overlays.
+                Optional BGR image modified with polygon and point overlays
+                when visualization is enabled.
 
             roi_polygon:
                 Image-space polygon defining the side region.
@@ -146,9 +157,12 @@ class Door_Status_Detector:
             backprojection returns ``0.0``.
 
         Notes:
-            Backprojection begins at 90 percent of the door depth and uses a
-            stride of four. Candidate points are blue and matching points are
-            cyan in the diagnostic image.
+            Backprojection keeps depths between 90 percent and 20 times the
+            door depth and uses a stride of ``roi_subsample``. Near-door points
+            are then kept only where the estimated normal is not floor-like
+            (``abs(normal_y) < 0.7``); if normal estimation fails, no point is
+            removed. With visualization enabled, all sampled points are drawn
+            blue and matching points yellow in the diagnostic image.
         """
 
         self.timer.start(f"check_side_roi_against_door {self.keyword}")
@@ -228,9 +242,10 @@ class Door_Status_Detector:
         """
         Classify the door from left- and right-side depth consistency.
 
-        A side is consistent when enough points remain near the door plane.
-        Two consistent sides mean closed; one inconsistent side identifies the
-        opening direction.
+        A side is consistent when its near-door fraction exceeds
+        ``threshold``. Two consistent sides mean closed; one inconsistent side
+        identifies the opening direction, and two inconsistent sides give
+        ``"unknown"``.
 
         Args:
             ctx:

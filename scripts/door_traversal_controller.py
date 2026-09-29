@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
-"""
-door_traversal_controller.py
-
-Closed-loop door traversal controller for Unitree Go1.
+"""Closed-loop door traversal controller for the Unitree Go1.
 
 States:
-    - TRAVERSE_DOOR
-    - ABORT
-    - DONE
+    - IDLE: wait for the corridor passability result to settle.
+    - PRE_ALIGN_HEADING_TO_CORRIDOR: rotate toward the corridor center.
+    - PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR: rotate until the current heading
+      reaches the corridor axis within a fraction of the midpoint distance.
+    - PRE_ALIGN_POSITION_TO_CORRIDOR: drive forward on that heading until the
+      body is inside the corridor.
+    - ALIGN_TO_CORRIDOR: rotate onto the corridor heading.
+    - TRAVERSE_DOOR: drive through the corridor to its midpoint.
+    - MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT: continue far enough to clear the
+      door with the whole body.
+    - LOOK_FOR_A_VIRTUAL_CORRIDOR: wait for the passability node to define a
+      new corridor.
+    - ABORT: back off and stop.
+    - DONE: announce completion and stop.
 
 Responsibilities:
-    - Subscribe to odometry
-    - Consume door passability results
-    - Generate cmd_vel
+    - Subscribe to odometry and Gazebo model states
+    - Consume door passability results and select the passability check mode
+    - Command velocities through ``/gazebo/set_model_state``
     - Decide when door traversal is complete
-    - Abort safely if corridor becomes unsafe
+    - Abort safely, or request a new corridor, if the corridor becomes unsafe
 """
 
 
@@ -58,7 +66,8 @@ class DoorTraversalController:
 
     In the current Gazebo integration, velocity commands are converted from
     the robot frame to world-frame twists and sent through
-    ``/gazebo/set_model_state``.
+    ``/gazebo/set_model_state``. Without that service, for example in bag
+    mode, the state machine still runs but commands are discarded.
 
     Attributes:
         state:
@@ -80,7 +89,9 @@ class DoorTraversalController:
             Measured obstacle-free distance in front of the robot, in meters.
 
         corridor_center_x_robot_base:
-            Lateral corridor-center offset in the robot's initial-yaw frame.
+            Lateral offset of the corridor center from the robot, measured
+            along the corridor's lateral axis (received as
+            ``x_corridor_center_start_yaw_frame``).
 
         heading_error_to_corridor:
             Angular error between the robot and corridor headings, in radians.
@@ -92,27 +103,32 @@ class DoorTraversalController:
             Whether translation has begun in the current movement state.
 
         set_model_state:
-            ROS service proxy used to apply Gazebo model velocities.
+            ROS service proxy used to apply Gazebo model velocities, or
+            ``None`` when the service was not available at startup.
     """
 
     def __init__(self):
         """
         Initialize control parameters, state, and ROS interfaces.
 
-        Parameters are loaded from
-        ``~door_traversal_controller`` and the related heading-estimation and
-        hysteresis namespaces. The constructor then waits for Gazebo's
+        State parameters are loaded from ``~door_traversal_controller``.
+        Heading-estimation and passability-hysteresis parameters are read from
+        the separate private namespaces ``~heading_error_estimation`` and
+        ``~passability_hysteresis``. The constructor then waits for Gazebo's
         ``/gazebo/set_model_state`` service, creates publishers, and subscribes
-        to traversal triggers, passability results, odometry, and model poses.
+        to traversal triggers, virtual-corridor acknowledgements, passability
+        results, odometry, and model poses.
 
         Raises:
             rospy.ROSInterruptException:
-                If ROS shuts down while the constructor is waiting for a
-                required service.
+                If ROS shuts down while the constructor is waiting for the
+                service.
 
         Notes:
-            Constructing this object initializes the ROS node and may block
-            until the Gazebo model-state service becomes available.
+            Constructing this object initializes the ROS node. It waits at most
+            ``~door_traversal_controller/gazebo_service_timeout`` seconds
+            (default 5) for the model-state service; if the service does not
+            appear, a warning is logged and motion commands are discarded.
         """
         rospy.init_node("door_traversal_controller")
         # =========================================================
@@ -546,8 +562,9 @@ class DoorTraversalController:
                 If the Gazebo service call fails.
 
         Notes:
-            The command is skipped when no Gazebo pose has been received. The
-            world-frame conversion uses the latest odometry yaw.
+            The command is skipped, with a throttled warning, when no Gazebo
+            pose has been received or when no model-state service is
+            available. The world-frame conversion uses the latest odometry yaw.
         """
 
         if self.gazebo_pose is None:
@@ -633,7 +650,9 @@ class DoorTraversalController:
         Notes:
             The method updates ``heading_error_est``,
             ``heading_estimate_samples``, and ``heading_estimate_valid`` in
-            place. It does not return the estimate.
+            place. It does not return the estimate. It is currently not called
+            by :meth:`control_loop`, which uses the heading error published by
+            the passability node instead.
         """
         # Estimate heading error based on change in corridor center x
         # =================================================
@@ -696,7 +715,18 @@ class DoorTraversalController:
         Notes:
             This is a blocking loop intended to run for the lifetime of the
             node. It returns after the ``ABORT`` or ``DONE`` state completes,
-            or when ROS shuts down.
+            or when ROS shuts down. The rate sleep runs at the top of every
+            iteration so waiting branches cannot spin.
+
+            Each phase selects the check it needs on
+            ``~request_local_passability_check``: none (0) while only rotating,
+            local (2) while pre-positioning and after the midpoint, and
+            corridor (1) while traversing or after a new corridor is defined.
+            Traversal hands over to the post-midpoint phase within 0.3 m of the
+            corridor midpoint. If corridor passability is lost before any
+            midpoint was reached in this cycle the controller aborts;
+            afterwards it moves on to the post-midpoint phase instead, and a
+            loss of local passability there requests a new corridor.
         """
              
 

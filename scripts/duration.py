@@ -91,7 +91,10 @@ class get_duration_seconds():
 
         Notes:
             Moving averages use the samples retained in each five-element
-            deque. This method does not clear timing history.
+            deque. This method does not clear timing history. The detection and
+            passability nodes call it from a five-second timer when
+            ``~profiling_enabled`` is true, and the detection node once more
+            at shutdown.
         """
         # Preserve unknown lines in the file; developers often add their own notes.
         if os.path.exists(get_duration_seconds.file_path):

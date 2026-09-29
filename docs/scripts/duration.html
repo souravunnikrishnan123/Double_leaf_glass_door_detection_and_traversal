@@ -134,63 +134,70 @@
 </span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="sd">        Notes:</span>
 </span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="sd">            Starting an already-active label overwrites its earlier timestamp.</span>
 </span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>
-</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>
-</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="sd">        Args:</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a><span class="sd">            label:</span>
-</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a>
-</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="sd">        Returns:</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
-</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a>
-</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">        Raises:</span>
-</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">            ValueError:</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>    <span class="nd">@classmethod</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="sd">        labels are appended.</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>
-</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="sd">        Raises:</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a><span class="sd">            OSError:</span>
-</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
-</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">        Notes:</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">            deque. This method does not clear timing history.</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
-</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a>        
-</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
-</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>                    <span class="k">else</span><span class="p">:</span>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>        <span class="c1"># Labels let callers time pipeline stages without holding timer objects.</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a><span class="sd">        Args:</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">            label:</span>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">        Returns:</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a>
+</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">        Raises:</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">            ValueError:</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a>        <span class="c1"># Remove completed starts so a forgotten stop cannot pollute later samples.</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>    <span class="nd">@classmethod</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="sd">        labels are appended.</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="sd">        Raises:</span>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="sd">            OSError:</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">        Notes:</span>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="sd">            deque. This method does not clear timing history. The detection and</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">            passability nodes call it from a five-second timer when</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="sd">            ``~profiling_enabled`` is true, and the detection node once more</span>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="sd">            at shutdown.</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>        <span class="c1"># Preserve unknown lines in the file; developers often add their own notes.</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>        
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>                    <span class="c1"># Five recent samples smooth spikes but still expose a slowdown quickly.</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a>                    <span class="k">else</span><span class="p">:</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -251,63 +258,70 @@
 </span><span id="get_duration_seconds-53"><a href="#get_duration_seconds-53"><span class="linenos"> 53</span></a><span class="sd">        Notes:</span>
 </span><span id="get_duration_seconds-54"><a href="#get_duration_seconds-54"><span class="linenos"> 54</span></a><span class="sd">            Starting an already-active label overwrites its earlier timestamp.</span>
 </span><span id="get_duration_seconds-55"><a href="#get_duration_seconds-55"><span class="linenos"> 55</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds-56"><a href="#get_duration_seconds-56"><span class="linenos"> 56</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="get_duration_seconds-57"><a href="#get_duration_seconds-57"><span class="linenos"> 57</span></a>
-</span><span id="get_duration_seconds-58"><a href="#get_duration_seconds-58"><span class="linenos"> 58</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
-</span><span id="get_duration_seconds-59"><a href="#get_duration_seconds-59"><span class="linenos"> 59</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds-60"><a href="#get_duration_seconds-60"><span class="linenos"> 60</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
-</span><span id="get_duration_seconds-61"><a href="#get_duration_seconds-61"><span class="linenos"> 61</span></a>
-</span><span id="get_duration_seconds-62"><a href="#get_duration_seconds-62"><span class="linenos"> 62</span></a><span class="sd">        Args:</span>
-</span><span id="get_duration_seconds-63"><a href="#get_duration_seconds-63"><span class="linenos"> 63</span></a><span class="sd">            label:</span>
-</span><span id="get_duration_seconds-64"><a href="#get_duration_seconds-64"><span class="linenos"> 64</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
-</span><span id="get_duration_seconds-65"><a href="#get_duration_seconds-65"><span class="linenos"> 65</span></a>
-</span><span id="get_duration_seconds-66"><a href="#get_duration_seconds-66"><span class="linenos"> 66</span></a><span class="sd">        Returns:</span>
-</span><span id="get_duration_seconds-67"><a href="#get_duration_seconds-67"><span class="linenos"> 67</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
-</span><span id="get_duration_seconds-68"><a href="#get_duration_seconds-68"><span class="linenos"> 68</span></a>
-</span><span id="get_duration_seconds-69"><a href="#get_duration_seconds-69"><span class="linenos"> 69</span></a><span class="sd">        Raises:</span>
-</span><span id="get_duration_seconds-70"><a href="#get_duration_seconds-70"><span class="linenos"> 70</span></a><span class="sd">            ValueError:</span>
-</span><span id="get_duration_seconds-71"><a href="#get_duration_seconds-71"><span class="linenos"> 71</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
-</span><span id="get_duration_seconds-72"><a href="#get_duration_seconds-72"><span class="linenos"> 72</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds-73"><a href="#get_duration_seconds-73"><span class="linenos"> 73</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
-</span><span id="get_duration_seconds-74"><a href="#get_duration_seconds-74"><span class="linenos"> 74</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
-</span><span id="get_duration_seconds-75"><a href="#get_duration_seconds-75"><span class="linenos"> 75</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-</span><span id="get_duration_seconds-76"><a href="#get_duration_seconds-76"><span class="linenos"> 76</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
-</span><span id="get_duration_seconds-77"><a href="#get_duration_seconds-77"><span class="linenos"> 77</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-</span><span id="get_duration_seconds-78"><a href="#get_duration_seconds-78"><span class="linenos"> 78</span></a>
-</span><span id="get_duration_seconds-79"><a href="#get_duration_seconds-79"><span class="linenos"> 79</span></a>    <span class="nd">@classmethod</span>
-</span><span id="get_duration_seconds-80"><a href="#get_duration_seconds-80"><span class="linenos"> 80</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
-</span><span id="get_duration_seconds-81"><a href="#get_duration_seconds-81"><span class="linenos"> 81</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds-82"><a href="#get_duration_seconds-82"><span class="linenos"> 82</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
-</span><span id="get_duration_seconds-83"><a href="#get_duration_seconds-83"><span class="linenos"> 83</span></a>
-</span><span id="get_duration_seconds-84"><a href="#get_duration_seconds-84"><span class="linenos"> 84</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
-</span><span id="get_duration_seconds-85"><a href="#get_duration_seconds-85"><span class="linenos"> 85</span></a><span class="sd">        labels are appended.</span>
-</span><span id="get_duration_seconds-86"><a href="#get_duration_seconds-86"><span class="linenos"> 86</span></a>
-</span><span id="get_duration_seconds-87"><a href="#get_duration_seconds-87"><span class="linenos"> 87</span></a><span class="sd">        Raises:</span>
-</span><span id="get_duration_seconds-88"><a href="#get_duration_seconds-88"><span class="linenos"> 88</span></a><span class="sd">            OSError:</span>
-</span><span id="get_duration_seconds-89"><a href="#get_duration_seconds-89"><span class="linenos"> 89</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
-</span><span id="get_duration_seconds-90"><a href="#get_duration_seconds-90"><span class="linenos"> 90</span></a>
-</span><span id="get_duration_seconds-91"><a href="#get_duration_seconds-91"><span class="linenos"> 91</span></a><span class="sd">        Notes:</span>
-</span><span id="get_duration_seconds-92"><a href="#get_duration_seconds-92"><span class="linenos"> 92</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
-</span><span id="get_duration_seconds-93"><a href="#get_duration_seconds-93"><span class="linenos"> 93</span></a><span class="sd">            deque. This method does not clear timing history.</span>
-</span><span id="get_duration_seconds-94"><a href="#get_duration_seconds-94"><span class="linenos"> 94</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds-95"><a href="#get_duration_seconds-95"><span class="linenos"> 95</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
-</span><span id="get_duration_seconds-96"><a href="#get_duration_seconds-96"><span class="linenos"> 96</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="get_duration_seconds-97"><a href="#get_duration_seconds-97"><span class="linenos"> 97</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
-</span><span id="get_duration_seconds-98"><a href="#get_duration_seconds-98"><span class="linenos"> 98</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
-</span><span id="get_duration_seconds-99"><a href="#get_duration_seconds-99"><span class="linenos"> 99</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="get_duration_seconds-100"><a href="#get_duration_seconds-100"><span class="linenos">100</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="get_duration_seconds-101"><a href="#get_duration_seconds-101"><span class="linenos">101</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="get_duration_seconds-102"><a href="#get_duration_seconds-102"><span class="linenos">102</span></a>        
-</span><span id="get_duration_seconds-103"><a href="#get_duration_seconds-103"><span class="linenos">103</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="get_duration_seconds-104"><a href="#get_duration_seconds-104"><span class="linenos">104</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="get_duration_seconds-105"><a href="#get_duration_seconds-105"><span class="linenos">105</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
-</span><span id="get_duration_seconds-106"><a href="#get_duration_seconds-106"><span class="linenos">106</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
-</span><span id="get_duration_seconds-107"><a href="#get_duration_seconds-107"><span class="linenos">107</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
-</span><span id="get_duration_seconds-108"><a href="#get_duration_seconds-108"><span class="linenos">108</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="get_duration_seconds-109"><a href="#get_duration_seconds-109"><span class="linenos">109</span></a>                    <span class="k">else</span><span class="p">:</span>
-</span><span id="get_duration_seconds-110"><a href="#get_duration_seconds-110"><span class="linenos">110</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="get_duration_seconds-111"><a href="#get_duration_seconds-111"><span class="linenos">111</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="get_duration_seconds-112"><a href="#get_duration_seconds-112"><span class="linenos">112</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
+</span><span id="get_duration_seconds-56"><a href="#get_duration_seconds-56"><span class="linenos"> 56</span></a>        <span class="c1"># Labels let callers time pipeline stages without holding timer objects.</span>
+</span><span id="get_duration_seconds-57"><a href="#get_duration_seconds-57"><span class="linenos"> 57</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="get_duration_seconds-58"><a href="#get_duration_seconds-58"><span class="linenos"> 58</span></a>
+</span><span id="get_duration_seconds-59"><a href="#get_duration_seconds-59"><span class="linenos"> 59</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+</span><span id="get_duration_seconds-60"><a href="#get_duration_seconds-60"><span class="linenos"> 60</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds-61"><a href="#get_duration_seconds-61"><span class="linenos"> 61</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
+</span><span id="get_duration_seconds-62"><a href="#get_duration_seconds-62"><span class="linenos"> 62</span></a>
+</span><span id="get_duration_seconds-63"><a href="#get_duration_seconds-63"><span class="linenos"> 63</span></a><span class="sd">        Args:</span>
+</span><span id="get_duration_seconds-64"><a href="#get_duration_seconds-64"><span class="linenos"> 64</span></a><span class="sd">            label:</span>
+</span><span id="get_duration_seconds-65"><a href="#get_duration_seconds-65"><span class="linenos"> 65</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
+</span><span id="get_duration_seconds-66"><a href="#get_duration_seconds-66"><span class="linenos"> 66</span></a>
+</span><span id="get_duration_seconds-67"><a href="#get_duration_seconds-67"><span class="linenos"> 67</span></a><span class="sd">        Returns:</span>
+</span><span id="get_duration_seconds-68"><a href="#get_duration_seconds-68"><span class="linenos"> 68</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
+</span><span id="get_duration_seconds-69"><a href="#get_duration_seconds-69"><span class="linenos"> 69</span></a>
+</span><span id="get_duration_seconds-70"><a href="#get_duration_seconds-70"><span class="linenos"> 70</span></a><span class="sd">        Raises:</span>
+</span><span id="get_duration_seconds-71"><a href="#get_duration_seconds-71"><span class="linenos"> 71</span></a><span class="sd">            ValueError:</span>
+</span><span id="get_duration_seconds-72"><a href="#get_duration_seconds-72"><span class="linenos"> 72</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
+</span><span id="get_duration_seconds-73"><a href="#get_duration_seconds-73"><span class="linenos"> 73</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds-74"><a href="#get_duration_seconds-74"><span class="linenos"> 74</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
+</span><span id="get_duration_seconds-75"><a href="#get_duration_seconds-75"><span class="linenos"> 75</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+</span><span id="get_duration_seconds-76"><a href="#get_duration_seconds-76"><span class="linenos"> 76</span></a>        <span class="c1"># Remove completed starts so a forgotten stop cannot pollute later samples.</span>
+</span><span id="get_duration_seconds-77"><a href="#get_duration_seconds-77"><span class="linenos"> 77</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</span><span id="get_duration_seconds-78"><a href="#get_duration_seconds-78"><span class="linenos"> 78</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
+</span><span id="get_duration_seconds-79"><a href="#get_duration_seconds-79"><span class="linenos"> 79</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</span><span id="get_duration_seconds-80"><a href="#get_duration_seconds-80"><span class="linenos"> 80</span></a>
+</span><span id="get_duration_seconds-81"><a href="#get_duration_seconds-81"><span class="linenos"> 81</span></a>    <span class="nd">@classmethod</span>
+</span><span id="get_duration_seconds-82"><a href="#get_duration_seconds-82"><span class="linenos"> 82</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+</span><span id="get_duration_seconds-83"><a href="#get_duration_seconds-83"><span class="linenos"> 83</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds-84"><a href="#get_duration_seconds-84"><span class="linenos"> 84</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
+</span><span id="get_duration_seconds-85"><a href="#get_duration_seconds-85"><span class="linenos"> 85</span></a>
+</span><span id="get_duration_seconds-86"><a href="#get_duration_seconds-86"><span class="linenos"> 86</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
+</span><span id="get_duration_seconds-87"><a href="#get_duration_seconds-87"><span class="linenos"> 87</span></a><span class="sd">        labels are appended.</span>
+</span><span id="get_duration_seconds-88"><a href="#get_duration_seconds-88"><span class="linenos"> 88</span></a>
+</span><span id="get_duration_seconds-89"><a href="#get_duration_seconds-89"><span class="linenos"> 89</span></a><span class="sd">        Raises:</span>
+</span><span id="get_duration_seconds-90"><a href="#get_duration_seconds-90"><span class="linenos"> 90</span></a><span class="sd">            OSError:</span>
+</span><span id="get_duration_seconds-91"><a href="#get_duration_seconds-91"><span class="linenos"> 91</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
+</span><span id="get_duration_seconds-92"><a href="#get_duration_seconds-92"><span class="linenos"> 92</span></a>
+</span><span id="get_duration_seconds-93"><a href="#get_duration_seconds-93"><span class="linenos"> 93</span></a><span class="sd">        Notes:</span>
+</span><span id="get_duration_seconds-94"><a href="#get_duration_seconds-94"><span class="linenos"> 94</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
+</span><span id="get_duration_seconds-95"><a href="#get_duration_seconds-95"><span class="linenos"> 95</span></a><span class="sd">            deque. This method does not clear timing history. The detection and</span>
+</span><span id="get_duration_seconds-96"><a href="#get_duration_seconds-96"><span class="linenos"> 96</span></a><span class="sd">            passability nodes call it from a five-second timer when</span>
+</span><span id="get_duration_seconds-97"><a href="#get_duration_seconds-97"><span class="linenos"> 97</span></a><span class="sd">            ``~profiling_enabled`` is true, and the detection node once more</span>
+</span><span id="get_duration_seconds-98"><a href="#get_duration_seconds-98"><span class="linenos"> 98</span></a><span class="sd">            at shutdown.</span>
+</span><span id="get_duration_seconds-99"><a href="#get_duration_seconds-99"><span class="linenos"> 99</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds-100"><a href="#get_duration_seconds-100"><span class="linenos">100</span></a>        <span class="c1"># Preserve unknown lines in the file; developers often add their own notes.</span>
+</span><span id="get_duration_seconds-101"><a href="#get_duration_seconds-101"><span class="linenos">101</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
+</span><span id="get_duration_seconds-102"><a href="#get_duration_seconds-102"><span class="linenos">102</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="get_duration_seconds-103"><a href="#get_duration_seconds-103"><span class="linenos">103</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+</span><span id="get_duration_seconds-104"><a href="#get_duration_seconds-104"><span class="linenos">104</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
+</span><span id="get_duration_seconds-105"><a href="#get_duration_seconds-105"><span class="linenos">105</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="get_duration_seconds-106"><a href="#get_duration_seconds-106"><span class="linenos">106</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="get_duration_seconds-107"><a href="#get_duration_seconds-107"><span class="linenos">107</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="get_duration_seconds-108"><a href="#get_duration_seconds-108"><span class="linenos">108</span></a>        
+</span><span id="get_duration_seconds-109"><a href="#get_duration_seconds-109"><span class="linenos">109</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+</span><span id="get_duration_seconds-110"><a href="#get_duration_seconds-110"><span class="linenos">110</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="get_duration_seconds-111"><a href="#get_duration_seconds-111"><span class="linenos">111</span></a>                    <span class="c1"># Five recent samples smooth spikes but still expose a slowdown quickly.</span>
+</span><span id="get_duration_seconds-112"><a href="#get_duration_seconds-112"><span class="linenos">112</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</span><span id="get_duration_seconds-113"><a href="#get_duration_seconds-113"><span class="linenos">113</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
+</span><span id="get_duration_seconds-114"><a href="#get_duration_seconds-114"><span class="linenos">114</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+</span><span id="get_duration_seconds-115"><a href="#get_duration_seconds-115"><span class="linenos">115</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="get_duration_seconds-116"><a href="#get_duration_seconds-116"><span class="linenos">116</span></a>                    <span class="k">else</span><span class="p">:</span>
+</span><span id="get_duration_seconds-117"><a href="#get_duration_seconds-117"><span class="linenos">117</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="get_duration_seconds-118"><a href="#get_duration_seconds-118"><span class="linenos">118</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="get_duration_seconds-119"><a href="#get_duration_seconds-119"><span class="linenos">119</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -316,17 +330,14 @@
 <p>Timing storage is class-level so calls made by separate pipeline objects
 contribute to the same report. Each label retains its five latest samples.</p>
 
-<p>Attributes:
-    start_times:
-        Mapping from active labels to their wall-clock start timestamps.</p>
+<h6 id="attributes">Attributes:</h6>
 
-<pre><code>durations:
-    Mapping from labels to deques containing at most five durations.
-
-file_path:
-    Output path loaded from the ``~durations_file_path`` ROS
-    parameter.
-</code></pre>
+<ul>
+<li><strong>start_times:</strong>  Mapping from active labels to their wall-clock start timestamps.</li>
+<li><strong>durations:</strong>  Mapping from labels to deques containing at most five durations.</li>
+<li><strong>file_path:</strong>  Output path loaded from the <code>~durations_file_path</code> ROS
+parameter.</li>
+</ul>
 </div>
 
 
@@ -354,9 +365,12 @@ file_path:
 
             <div class="docstring"><p>Initialize timing output configuration.</p>
 
-<p>Notes:
-    Constructing any timer updates the class-wide <code><a href="#get_duration_seconds.file_path">file_path</a></code>. ROS
-    must already be initialized so the private parameter can be read.</p>
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>Constructing any timer updates the class-wide <code><a href="#get_duration_seconds.file_path">file_path</a></code>. ROS
+  must already be initialized so the private parameter can be read.</p>
+</blockquote>
 </div>
 
 
@@ -419,18 +433,24 @@ file_path:
 </span><span id="get_duration_seconds.start-53"><a href="#get_duration_seconds.start-53"><span class="linenos">53</span></a><span class="sd">        Notes:</span>
 </span><span id="get_duration_seconds.start-54"><a href="#get_duration_seconds.start-54"><span class="linenos">54</span></a><span class="sd">            Starting an already-active label overwrites its earlier timestamp.</span>
 </span><span id="get_duration_seconds.start-55"><a href="#get_duration_seconds.start-55"><span class="linenos">55</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds.start-56"><a href="#get_duration_seconds.start-56"><span class="linenos">56</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="get_duration_seconds.start-56"><a href="#get_duration_seconds.start-56"><span class="linenos">56</span></a>        <span class="c1"># Labels let callers time pipeline stages without holding timer objects.</span>
+</span><span id="get_duration_seconds.start-57"><a href="#get_duration_seconds.start-57"><span class="linenos">57</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Record the start time for a named operation.</p>
 
-<p>Args:
-    label:
-        Identifier used by the matching call to <code><a href="#get_duration_seconds.stop">stop()</a></code>.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Notes:
-    Starting an already-active label overwrites its earlier timestamp.</p>
+<ul>
+<li><strong>label:</strong>  Identifier used by the matching call to <code><a href="#get_duration_seconds.stop">stop()</a></code>.</li>
+</ul>
+
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>Starting an already-active label overwrites its earlier timestamp.</p>
+</blockquote>
 </div>
 
 
@@ -446,41 +466,49 @@ file_path:
 
     </div>
     <a class="headerlink" href="#get_duration_seconds.stop"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_duration_seconds.stop-58"><a href="#get_duration_seconds.stop-58"><span class="linenos">58</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
-</span><span id="get_duration_seconds.stop-59"><a href="#get_duration_seconds.stop-59"><span class="linenos">59</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds.stop-60"><a href="#get_duration_seconds.stop-60"><span class="linenos">60</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
-</span><span id="get_duration_seconds.stop-61"><a href="#get_duration_seconds.stop-61"><span class="linenos">61</span></a>
-</span><span id="get_duration_seconds.stop-62"><a href="#get_duration_seconds.stop-62"><span class="linenos">62</span></a><span class="sd">        Args:</span>
-</span><span id="get_duration_seconds.stop-63"><a href="#get_duration_seconds.stop-63"><span class="linenos">63</span></a><span class="sd">            label:</span>
-</span><span id="get_duration_seconds.stop-64"><a href="#get_duration_seconds.stop-64"><span class="linenos">64</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
-</span><span id="get_duration_seconds.stop-65"><a href="#get_duration_seconds.stop-65"><span class="linenos">65</span></a>
-</span><span id="get_duration_seconds.stop-66"><a href="#get_duration_seconds.stop-66"><span class="linenos">66</span></a><span class="sd">        Returns:</span>
-</span><span id="get_duration_seconds.stop-67"><a href="#get_duration_seconds.stop-67"><span class="linenos">67</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
-</span><span id="get_duration_seconds.stop-68"><a href="#get_duration_seconds.stop-68"><span class="linenos">68</span></a>
-</span><span id="get_duration_seconds.stop-69"><a href="#get_duration_seconds.stop-69"><span class="linenos">69</span></a><span class="sd">        Raises:</span>
-</span><span id="get_duration_seconds.stop-70"><a href="#get_duration_seconds.stop-70"><span class="linenos">70</span></a><span class="sd">            ValueError:</span>
-</span><span id="get_duration_seconds.stop-71"><a href="#get_duration_seconds.stop-71"><span class="linenos">71</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
-</span><span id="get_duration_seconds.stop-72"><a href="#get_duration_seconds.stop-72"><span class="linenos">72</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds.stop-73"><a href="#get_duration_seconds.stop-73"><span class="linenos">73</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
-</span><span id="get_duration_seconds.stop-74"><a href="#get_duration_seconds.stop-74"><span class="linenos">74</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
-</span><span id="get_duration_seconds.stop-75"><a href="#get_duration_seconds.stop-75"><span class="linenos">75</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-</span><span id="get_duration_seconds.stop-76"><a href="#get_duration_seconds.stop-76"><span class="linenos">76</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
-</span><span id="get_duration_seconds.stop-77"><a href="#get_duration_seconds.stop-77"><span class="linenos">77</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_duration_seconds.stop-59"><a href="#get_duration_seconds.stop-59"><span class="linenos">59</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">):</span>
+</span><span id="get_duration_seconds.stop-60"><a href="#get_duration_seconds.stop-60"><span class="linenos">60</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds.stop-61"><a href="#get_duration_seconds.stop-61"><span class="linenos">61</span></a><span class="sd">        Finish a named operation and store its elapsed time.</span>
+</span><span id="get_duration_seconds.stop-62"><a href="#get_duration_seconds.stop-62"><span class="linenos">62</span></a>
+</span><span id="get_duration_seconds.stop-63"><a href="#get_duration_seconds.stop-63"><span class="linenos">63</span></a><span class="sd">        Args:</span>
+</span><span id="get_duration_seconds.stop-64"><a href="#get_duration_seconds.stop-64"><span class="linenos">64</span></a><span class="sd">            label:</span>
+</span><span id="get_duration_seconds.stop-65"><a href="#get_duration_seconds.stop-65"><span class="linenos">65</span></a><span class="sd">                Identifier previously passed to :meth:`start`.</span>
+</span><span id="get_duration_seconds.stop-66"><a href="#get_duration_seconds.stop-66"><span class="linenos">66</span></a>
+</span><span id="get_duration_seconds.stop-67"><a href="#get_duration_seconds.stop-67"><span class="linenos">67</span></a><span class="sd">        Returns:</span>
+</span><span id="get_duration_seconds.stop-68"><a href="#get_duration_seconds.stop-68"><span class="linenos">68</span></a><span class="sd">            ``None``. The duration is appended to class-wide history.</span>
+</span><span id="get_duration_seconds.stop-69"><a href="#get_duration_seconds.stop-69"><span class="linenos">69</span></a>
+</span><span id="get_duration_seconds.stop-70"><a href="#get_duration_seconds.stop-70"><span class="linenos">70</span></a><span class="sd">        Raises:</span>
+</span><span id="get_duration_seconds.stop-71"><a href="#get_duration_seconds.stop-71"><span class="linenos">71</span></a><span class="sd">            ValueError:</span>
+</span><span id="get_duration_seconds.stop-72"><a href="#get_duration_seconds.stop-72"><span class="linenos">72</span></a><span class="sd">                If no start timestamp exists for ``label``.</span>
+</span><span id="get_duration_seconds.stop-73"><a href="#get_duration_seconds.stop-73"><span class="linenos">73</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds.stop-74"><a href="#get_duration_seconds.stop-74"><span class="linenos">74</span></a>        <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">:</span>
+</span><span id="get_duration_seconds.stop-75"><a href="#get_duration_seconds.stop-75"><span class="linenos">75</span></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No start time recorded for label &#39;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+</span><span id="get_duration_seconds.stop-76"><a href="#get_duration_seconds.stop-76"><span class="linenos">76</span></a>        <span class="c1"># Remove completed starts so a forgotten stop cannot pollute later samples.</span>
+</span><span id="get_duration_seconds.stop-77"><a href="#get_duration_seconds.stop-77"><span class="linenos">77</span></a>        <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+</span><span id="get_duration_seconds.stop-78"><a href="#get_duration_seconds.stop-78"><span class="linenos">78</span></a>        <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="p">[</span><span class="n">label</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span>
+</span><span id="get_duration_seconds.stop-79"><a href="#get_duration_seconds.stop-79"><span class="linenos">79</span></a>        <span class="k">del</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">start_times</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Finish a named operation and store its elapsed time.</p>
 
-<p>Args:
-    label:
-        Identifier previously passed to <code><a href="#get_duration_seconds.start">start()</a></code>.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    <code>None</code>. The duration is appended to class-wide history.</p>
+<ul>
+<li><strong>label:</strong>  Identifier previously passed to <code><a href="#get_duration_seconds.start">start()</a></code>.</li>
+</ul>
 
-<p>Raises:
-    ValueError:
-        If no start timestamp exists for <code>label</code>.</p>
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p><code>None</code>. The duration is appended to class-wide history.</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>ValueError:</strong>  If no start timestamp exists for <code>label</code>.</li>
+</ul>
 </div>
 
 
@@ -497,40 +525,45 @@ file_path:
 
     </div>
     <a class="headerlink" href="#get_duration_seconds.write_text_file"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_duration_seconds.write_text_file-79"><a href="#get_duration_seconds.write_text_file-79"><span class="linenos"> 79</span></a>    <span class="nd">@classmethod</span>
-</span><span id="get_duration_seconds.write_text_file-80"><a href="#get_duration_seconds.write_text_file-80"><span class="linenos"> 80</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
-</span><span id="get_duration_seconds.write_text_file-81"><a href="#get_duration_seconds.write_text_file-81"><span class="linenos"> 81</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds.write_text_file-82"><a href="#get_duration_seconds.write_text_file-82"><span class="linenos"> 82</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
-</span><span id="get_duration_seconds.write_text_file-83"><a href="#get_duration_seconds.write_text_file-83"><span class="linenos"> 83</span></a>
-</span><span id="get_duration_seconds.write_text_file-84"><a href="#get_duration_seconds.write_text_file-84"><span class="linenos"> 84</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
-</span><span id="get_duration_seconds.write_text_file-85"><a href="#get_duration_seconds.write_text_file-85"><span class="linenos"> 85</span></a><span class="sd">        labels are appended.</span>
-</span><span id="get_duration_seconds.write_text_file-86"><a href="#get_duration_seconds.write_text_file-86"><span class="linenos"> 86</span></a>
-</span><span id="get_duration_seconds.write_text_file-87"><a href="#get_duration_seconds.write_text_file-87"><span class="linenos"> 87</span></a><span class="sd">        Raises:</span>
-</span><span id="get_duration_seconds.write_text_file-88"><a href="#get_duration_seconds.write_text_file-88"><span class="linenos"> 88</span></a><span class="sd">            OSError:</span>
-</span><span id="get_duration_seconds.write_text_file-89"><a href="#get_duration_seconds.write_text_file-89"><span class="linenos"> 89</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
-</span><span id="get_duration_seconds.write_text_file-90"><a href="#get_duration_seconds.write_text_file-90"><span class="linenos"> 90</span></a>
-</span><span id="get_duration_seconds.write_text_file-91"><a href="#get_duration_seconds.write_text_file-91"><span class="linenos"> 91</span></a><span class="sd">        Notes:</span>
-</span><span id="get_duration_seconds.write_text_file-92"><a href="#get_duration_seconds.write_text_file-92"><span class="linenos"> 92</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
-</span><span id="get_duration_seconds.write_text_file-93"><a href="#get_duration_seconds.write_text_file-93"><span class="linenos"> 93</span></a><span class="sd">            deque. This method does not clear timing history.</span>
-</span><span id="get_duration_seconds.write_text_file-94"><a href="#get_duration_seconds.write_text_file-94"><span class="linenos"> 94</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="get_duration_seconds.write_text_file-95"><a href="#get_duration_seconds.write_text_file-95"><span class="linenos"> 95</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
-</span><span id="get_duration_seconds.write_text_file-96"><a href="#get_duration_seconds.write_text_file-96"><span class="linenos"> 96</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-97"><a href="#get_duration_seconds.write_text_file-97"><span class="linenos"> 97</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
-</span><span id="get_duration_seconds.write_text_file-98"><a href="#get_duration_seconds.write_text_file-98"><span class="linenos"> 98</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
-</span><span id="get_duration_seconds.write_text_file-99"><a href="#get_duration_seconds.write_text_file-99"><span class="linenos"> 99</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-100"><a href="#get_duration_seconds.write_text_file-100"><span class="linenos">100</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="get_duration_seconds.write_text_file-101"><a href="#get_duration_seconds.write_text_file-101"><span class="linenos">101</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="get_duration_seconds.write_text_file-102"><a href="#get_duration_seconds.write_text_file-102"><span class="linenos">102</span></a>        
-</span><span id="get_duration_seconds.write_text_file-103"><a href="#get_duration_seconds.write_text_file-103"><span class="linenos">103</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="get_duration_seconds.write_text_file-104"><a href="#get_duration_seconds.write_text_file-104"><span class="linenos">104</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-105"><a href="#get_duration_seconds.write_text_file-105"><span class="linenos">105</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
-</span><span id="get_duration_seconds.write_text_file-106"><a href="#get_duration_seconds.write_text_file-106"><span class="linenos">106</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-107"><a href="#get_duration_seconds.write_text_file-107"><span class="linenos">107</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
-</span><span id="get_duration_seconds.write_text_file-108"><a href="#get_duration_seconds.write_text_file-108"><span class="linenos">108</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="get_duration_seconds.write_text_file-109"><a href="#get_duration_seconds.write_text_file-109"><span class="linenos">109</span></a>                    <span class="k">else</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-110"><a href="#get_duration_seconds.write_text_file-110"><span class="linenos">110</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="get_duration_seconds.write_text_file-111"><a href="#get_duration_seconds.write_text_file-111"><span class="linenos">111</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-</span><span id="get_duration_seconds.write_text_file-112"><a href="#get_duration_seconds.write_text_file-112"><span class="linenos">112</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_duration_seconds.write_text_file-81"><a href="#get_duration_seconds.write_text_file-81"><span class="linenos"> 81</span></a>    <span class="nd">@classmethod</span>
+</span><span id="get_duration_seconds.write_text_file-82"><a href="#get_duration_seconds.write_text_file-82"><span class="linenos"> 82</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">write_text_file</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+</span><span id="get_duration_seconds.write_text_file-83"><a href="#get_duration_seconds.write_text_file-83"><span class="linenos"> 83</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds.write_text_file-84"><a href="#get_duration_seconds.write_text_file-84"><span class="linenos"> 84</span></a><span class="sd">        Write the latest moving average for every measured label.</span>
+</span><span id="get_duration_seconds.write_text_file-85"><a href="#get_duration_seconds.write_text_file-85"><span class="linenos"> 85</span></a>
+</span><span id="get_duration_seconds.write_text_file-86"><a href="#get_duration_seconds.write_text_file-86"><span class="linenos"> 86</span></a><span class="sd">        Existing labels in the output file are replaced in place and new</span>
+</span><span id="get_duration_seconds.write_text_file-87"><a href="#get_duration_seconds.write_text_file-87"><span class="linenos"> 87</span></a><span class="sd">        labels are appended.</span>
+</span><span id="get_duration_seconds.write_text_file-88"><a href="#get_duration_seconds.write_text_file-88"><span class="linenos"> 88</span></a>
+</span><span id="get_duration_seconds.write_text_file-89"><a href="#get_duration_seconds.write_text_file-89"><span class="linenos"> 89</span></a><span class="sd">        Raises:</span>
+</span><span id="get_duration_seconds.write_text_file-90"><a href="#get_duration_seconds.write_text_file-90"><span class="linenos"> 90</span></a><span class="sd">            OSError:</span>
+</span><span id="get_duration_seconds.write_text_file-91"><a href="#get_duration_seconds.write_text_file-91"><span class="linenos"> 91</span></a><span class="sd">                If the configured timing file cannot be read or written.</span>
+</span><span id="get_duration_seconds.write_text_file-92"><a href="#get_duration_seconds.write_text_file-92"><span class="linenos"> 92</span></a>
+</span><span id="get_duration_seconds.write_text_file-93"><a href="#get_duration_seconds.write_text_file-93"><span class="linenos"> 93</span></a><span class="sd">        Notes:</span>
+</span><span id="get_duration_seconds.write_text_file-94"><a href="#get_duration_seconds.write_text_file-94"><span class="linenos"> 94</span></a><span class="sd">            Moving averages use the samples retained in each five-element</span>
+</span><span id="get_duration_seconds.write_text_file-95"><a href="#get_duration_seconds.write_text_file-95"><span class="linenos"> 95</span></a><span class="sd">            deque. This method does not clear timing history. The detection and</span>
+</span><span id="get_duration_seconds.write_text_file-96"><a href="#get_duration_seconds.write_text_file-96"><span class="linenos"> 96</span></a><span class="sd">            passability nodes call it from a five-second timer when</span>
+</span><span id="get_duration_seconds.write_text_file-97"><a href="#get_duration_seconds.write_text_file-97"><span class="linenos"> 97</span></a><span class="sd">            ``~profiling_enabled`` is true, and the detection node once more</span>
+</span><span id="get_duration_seconds.write_text_file-98"><a href="#get_duration_seconds.write_text_file-98"><span class="linenos"> 98</span></a><span class="sd">            at shutdown.</span>
+</span><span id="get_duration_seconds.write_text_file-99"><a href="#get_duration_seconds.write_text_file-99"><span class="linenos"> 99</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="get_duration_seconds.write_text_file-100"><a href="#get_duration_seconds.write_text_file-100"><span class="linenos">100</span></a>        <span class="c1"># Preserve unknown lines in the file; developers often add their own notes.</span>
+</span><span id="get_duration_seconds.write_text_file-101"><a href="#get_duration_seconds.write_text_file-101"><span class="linenos">101</span></a>        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">):</span>
+</span><span id="get_duration_seconds.write_text_file-102"><a href="#get_duration_seconds.write_text_file-102"><span class="linenos">102</span></a>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span><span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-103"><a href="#get_duration_seconds.write_text_file-103"><span class="linenos">103</span></a>                <span class="n">existing_lines</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+</span><span id="get_duration_seconds.write_text_file-104"><a href="#get_duration_seconds.write_text_file-104"><span class="linenos">104</span></a>                <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">existing_lines</span><span class="p">]</span>
+</span><span id="get_duration_seconds.write_text_file-105"><a href="#get_duration_seconds.write_text_file-105"><span class="linenos">105</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-106"><a href="#get_duration_seconds.write_text_file-106"><span class="linenos">106</span></a>            <span class="n">existing_lines</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="get_duration_seconds.write_text_file-107"><a href="#get_duration_seconds.write_text_file-107"><span class="linenos">107</span></a>            <span class="n">existing_labels</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="get_duration_seconds.write_text_file-108"><a href="#get_duration_seconds.write_text_file-108"><span class="linenos">108</span></a>        
+</span><span id="get_duration_seconds.write_text_file-109"><a href="#get_duration_seconds.write_text_file-109"><span class="linenos">109</span></a>        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">durations</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+</span><span id="get_duration_seconds.write_text_file-110"><a href="#get_duration_seconds.write_text_file-110"><span class="linenos">110</span></a>                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-111"><a href="#get_duration_seconds.write_text_file-111"><span class="linenos">111</span></a>                    <span class="c1"># Five recent samples smooth spikes but still expose a slowdown quickly.</span>
+</span><span id="get_duration_seconds.write_text_file-112"><a href="#get_duration_seconds.write_text_file-112"><span class="linenos">112</span></a>                    <span class="n">moving_avg</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</span><span id="get_duration_seconds.write_text_file-113"><a href="#get_duration_seconds.write_text_file-113"><span class="linenos">113</span></a>                    <span class="k">if</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">existing_labels</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-114"><a href="#get_duration_seconds.write_text_file-114"><span class="linenos">114</span></a>                        <span class="n">index_of_existing_labels</span> <span class="o">=</span> <span class="n">existing_labels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+</span><span id="get_duration_seconds.write_text_file-115"><a href="#get_duration_seconds.write_text_file-115"><span class="linenos">115</span></a>                        <span class="n">existing_lines</span><span class="p">[</span><span class="n">index_of_existing_labels</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="get_duration_seconds.write_text_file-116"><a href="#get_duration_seconds.write_text_file-116"><span class="linenos">116</span></a>                    <span class="k">else</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-117"><a href="#get_duration_seconds.write_text_file-117"><span class="linenos">117</span></a>                        <span class="n">existing_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">moving_avg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="get_duration_seconds.write_text_file-118"><a href="#get_duration_seconds.write_text_file-118"><span class="linenos">118</span></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">get_duration_seconds</span><span class="o">.</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+</span><span id="get_duration_seconds.write_text_file-119"><a href="#get_duration_seconds.write_text_file-119"><span class="linenos">119</span></a>            <span class="n">f</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">existing_lines</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -539,13 +572,21 @@ file_path:
 <p>Existing labels in the output file are replaced in place and new
 labels are appended.</p>
 
-<p>Raises:
-    OSError:
-        If the configured timing file cannot be read or written.</p>
+<h6 id="raises">Raises:</h6>
 
-<p>Notes:
-    Moving averages use the samples retained in each five-element
-    deque. This method does not clear timing history.</p>
+<ul>
+<li><strong>OSError:</strong>  If the configured timing file cannot be read or written.</li>
+</ul>
+
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>Moving averages use the samples retained in each five-element
+  deque. This method does not clear timing history. The detection and
+  passability nodes call it from a five-second timer when
+  <code>~profiling_enabled</code> is true, and the detection node once more
+  at shutdown.</p>
+</blockquote>
 </div>
 
 

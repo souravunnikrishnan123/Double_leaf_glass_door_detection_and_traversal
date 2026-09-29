@@ -107,10 +107,11 @@
 </span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a><span class="sd">            ``&quot;idle_state&quot;`` when</span>
 </span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="sd">            ``ctx.go_to_idle_from_finish_state`` is true; otherwise ``None``.</span>
 </span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
-</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a>        <span class="c1"># The result remains latched until an external controller acknowledges it.</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a>
+</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
 </span></pre></div>
 
 
@@ -161,10 +162,11 @@
 </span><span id="final_state-41"><a href="#final_state-41"><span class="linenos">41</span></a><span class="sd">            ``&quot;idle_state&quot;`` when</span>
 </span><span id="final_state-42"><a href="#final_state-42"><span class="linenos">42</span></a><span class="sd">            ``ctx.go_to_idle_from_finish_state`` is true; otherwise ``None``.</span>
 </span><span id="final_state-43"><a href="#final_state-43"><span class="linenos">43</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="final_state-44"><a href="#final_state-44"><span class="linenos">44</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
-</span><span id="final_state-45"><a href="#final_state-45"><span class="linenos">45</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
-</span><span id="final_state-46"><a href="#final_state-46"><span class="linenos">46</span></a>
-</span><span id="final_state-47"><a href="#final_state-47"><span class="linenos">47</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
+</span><span id="final_state-44"><a href="#final_state-44"><span class="linenos">44</span></a>        <span class="c1"># The result remains latched until an external controller acknowledges it.</span>
+</span><span id="final_state-45"><a href="#final_state-45"><span class="linenos">45</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
+</span><span id="final_state-46"><a href="#final_state-46"><span class="linenos">46</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
+</span><span id="final_state-47"><a href="#final_state-47"><span class="linenos">47</span></a>
+</span><span id="final_state-48"><a href="#final_state-48"><span class="linenos">48</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
 </span></pre></div>
 
 
@@ -174,9 +176,11 @@
 publishing the completed result from <code>FrameContext</code> until the
 passability/traversal pipeline explicitly starts the next cycle.</p>
 
-<p>Attributes:
-    name:
-        Fixed state-machine key <code>"final_state"</code>.</p>
+<h6 id="attributes">Attributes:</h6>
+
+<ul>
+<li><strong>name:</strong>  Fixed state-machine key <code>"final_state"</code>.</li>
+</ul>
 </div>
 
 
@@ -204,9 +208,12 @@ passability/traversal pipeline explicitly starts the next cycle.</p>
 
             <div class="docstring"><p>Initialize the terminal state with its registered transition key.</p>
 
-<p>Notes:
-    The completed detection remains in the shared frame context; this
-    object does not copy or clear result fields.</p>
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>The completed detection remains in the shared frame context; this
+  object does not copy or clear result fields.</p>
+</blockquote>
 </div>
 
 
@@ -234,22 +241,28 @@ passability/traversal pipeline explicitly starts the next cycle.</p>
 </span><span id="final_state.do_action-41"><a href="#final_state.do_action-41"><span class="linenos">41</span></a><span class="sd">            ``&quot;idle_state&quot;`` when</span>
 </span><span id="final_state.do_action-42"><a href="#final_state.do_action-42"><span class="linenos">42</span></a><span class="sd">            ``ctx.go_to_idle_from_finish_state`` is true; otherwise ``None``.</span>
 </span><span id="final_state.do_action-43"><a href="#final_state.do_action-43"><span class="linenos">43</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="final_state.do_action-44"><a href="#final_state.do_action-44"><span class="linenos">44</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
-</span><span id="final_state.do_action-45"><a href="#final_state.do_action-45"><span class="linenos">45</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
-</span><span id="final_state.do_action-46"><a href="#final_state.do_action-46"><span class="linenos">46</span></a>
-</span><span id="final_state.do_action-47"><a href="#final_state.do_action-47"><span class="linenos">47</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
+</span><span id="final_state.do_action-44"><a href="#final_state.do_action-44"><span class="linenos">44</span></a>        <span class="c1"># The result remains latched until an external controller acknowledges it.</span>
+</span><span id="final_state.do_action-45"><a href="#final_state.do_action-45"><span class="linenos">45</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">go_to_idle_from_finish_state</span><span class="p">:</span>
+</span><span id="final_state.do_action-46"><a href="#final_state.do_action-46"><span class="linenos">46</span></a>            <span class="k">return</span> <span class="s2">&quot;idle_state&quot;</span>
+</span><span id="final_state.do_action-47"><a href="#final_state.do_action-47"><span class="linenos">47</span></a>
+</span><span id="final_state.do_action-48"><a href="#final_state.do_action-48"><span class="linenos">48</span></a>        <span class="k">return</span>  <span class="kc">None</span> <span class="c1">#stay in final state</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Return to idle after the downstream traversal cycle finishes.</p>
 
-<p>Args:
-    ctx:
-        Shared context containing the reset flag.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    <code>"idle_state"</code> when
-    <code>ctx.go_to_idle_from_finish_state</code> is true; otherwise <code>None</code>.</p>
+<ul>
+<li><strong>ctx:</strong>  Shared context containing the reset flag.</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p><code>"idle_state"</code> when
+  <code>ctx.go_to_idle_from_finish_state</code> is true; otherwise <code>None</code>.</p>
+</blockquote>
 </div>
 
 

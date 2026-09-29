@@ -137,64 +137,69 @@
 </span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="sd">            Registering another state with the same name replaces the previous</span>
 </span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="sd">            mapping.</span>
 </span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>
-</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">        Switch to a registered state by name.</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>
-</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a><span class="sd">        State residence time is printed for runtime diagnostics.</span>
-</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a>
-</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">        Args:</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="sd">            name:</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">                Key of the state to activate.</span>
-</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a>
-</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">        Raises:</span>
-</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">            KeyError:</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">                If ``name`` has not been registered.</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] ← Exiting state: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> after </span><span class="si">{</span><span class="n">elapsed_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>        
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>
-</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] → Entering state: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>        <span class="c1"># Names, rather than class references, keep transition decisions simple</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>        <span class="c1"># for states that only need to return a string.</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="sd">        Switch to a registered state by name.</span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">        State residence time is logged at debug level for runtime diagnostics.</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">        Args:</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="sd">            name:</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">                Key of the state to activate.</span>
+</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">        Raises:</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">            KeyError:</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="sd">                If ``name`` has not been registered.</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a>        <span class="c1"># Exit and entry hooks run only on a real transition, never once per frame.</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;← Exiting state: </span><span class="si">%s</span><span class="s2"> after </span><span class="si">%.2f</span><span class="s2"> seconds&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">elapsed_time</span><span class="p">)</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>        
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
 </span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a>
-</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="sd">        Args:</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">            ctx:</span>
-</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
-</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="sd">        Notes:</span>
-</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
-</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
-</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="sd">            invoking any state hook.</span>
-</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>            <span class="k">return</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>        <span class="c1"># keep latest context</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
-</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
-</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
-</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a>        <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;→ Entering state: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="sd">        Args:</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="sd">            ctx:</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="sd">        Notes:</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="sd">            invoking any state hook.</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>            <span class="k">return</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>        <span class="c1"># keep latest context</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>        <span class="c1"># Each update advances at most one state. The new state&#39;s work begins</span>
+</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>        <span class="c1"># with the next synchronized frame, which keeps frame ownership clear.</span>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -257,64 +262,69 @@
 </span><span id="StateMachine-53"><a href="#StateMachine-53"><span class="linenos"> 53</span></a><span class="sd">            Registering another state with the same name replaces the previous</span>
 </span><span id="StateMachine-54"><a href="#StateMachine-54"><span class="linenos"> 54</span></a><span class="sd">            mapping.</span>
 </span><span id="StateMachine-55"><a href="#StateMachine-55"><span class="linenos"> 55</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine-56"><a href="#StateMachine-56"><span class="linenos"> 56</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
-</span><span id="StateMachine-57"><a href="#StateMachine-57"><span class="linenos"> 57</span></a>
-</span><span id="StateMachine-58"><a href="#StateMachine-58"><span class="linenos"> 58</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="StateMachine-59"><a href="#StateMachine-59"><span class="linenos"> 59</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="StateMachine-60"><a href="#StateMachine-60"><span class="linenos"> 60</span></a><span class="sd">        Switch to a registered state by name.</span>
-</span><span id="StateMachine-61"><a href="#StateMachine-61"><span class="linenos"> 61</span></a>
-</span><span id="StateMachine-62"><a href="#StateMachine-62"><span class="linenos"> 62</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
-</span><span id="StateMachine-63"><a href="#StateMachine-63"><span class="linenos"> 63</span></a><span class="sd">        State residence time is printed for runtime diagnostics.</span>
-</span><span id="StateMachine-64"><a href="#StateMachine-64"><span class="linenos"> 64</span></a>
-</span><span id="StateMachine-65"><a href="#StateMachine-65"><span class="linenos"> 65</span></a><span class="sd">        Args:</span>
-</span><span id="StateMachine-66"><a href="#StateMachine-66"><span class="linenos"> 66</span></a><span class="sd">            name:</span>
-</span><span id="StateMachine-67"><a href="#StateMachine-67"><span class="linenos"> 67</span></a><span class="sd">                Key of the state to activate.</span>
-</span><span id="StateMachine-68"><a href="#StateMachine-68"><span class="linenos"> 68</span></a>
-</span><span id="StateMachine-69"><a href="#StateMachine-69"><span class="linenos"> 69</span></a><span class="sd">        Raises:</span>
-</span><span id="StateMachine-70"><a href="#StateMachine-70"><span class="linenos"> 70</span></a><span class="sd">            KeyError:</span>
-</span><span id="StateMachine-71"><a href="#StateMachine-71"><span class="linenos"> 71</span></a><span class="sd">                If ``name`` has not been registered.</span>
-</span><span id="StateMachine-72"><a href="#StateMachine-72"><span class="linenos"> 72</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine-73"><a href="#StateMachine-73"><span class="linenos"> 73</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="StateMachine-74"><a href="#StateMachine-74"><span class="linenos"> 74</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine-75"><a href="#StateMachine-75"><span class="linenos"> 75</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine-76"><a href="#StateMachine-76"><span class="linenos"> 76</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
-</span><span id="StateMachine-77"><a href="#StateMachine-77"><span class="linenos"> 77</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
-</span><span id="StateMachine-78"><a href="#StateMachine-78"><span class="linenos"> 78</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
-</span><span id="StateMachine-79"><a href="#StateMachine-79"><span class="linenos"> 79</span></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] ← Exiting state: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> after </span><span class="si">{</span><span class="n">elapsed_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
-</span><span id="StateMachine-80"><a href="#StateMachine-80"><span class="linenos"> 80</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-</span><span id="StateMachine-81"><a href="#StateMachine-81"><span class="linenos"> 81</span></a>        
-</span><span id="StateMachine-82"><a href="#StateMachine-82"><span class="linenos"> 82</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
-</span><span id="StateMachine-83"><a href="#StateMachine-83"><span class="linenos"> 83</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine-84"><a href="#StateMachine-84"><span class="linenos"> 84</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine-85"><a href="#StateMachine-85"><span class="linenos"> 85</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
-</span><span id="StateMachine-86"><a href="#StateMachine-86"><span class="linenos"> 86</span></a>
-</span><span id="StateMachine-87"><a href="#StateMachine-87"><span class="linenos"> 87</span></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] → Entering state: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="StateMachine-88"><a href="#StateMachine-88"><span class="linenos"> 88</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
+</span><span id="StateMachine-56"><a href="#StateMachine-56"><span class="linenos"> 56</span></a>        <span class="c1"># Names, rather than class references, keep transition decisions simple</span>
+</span><span id="StateMachine-57"><a href="#StateMachine-57"><span class="linenos"> 57</span></a>        <span class="c1"># for states that only need to return a string.</span>
+</span><span id="StateMachine-58"><a href="#StateMachine-58"><span class="linenos"> 58</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
+</span><span id="StateMachine-59"><a href="#StateMachine-59"><span class="linenos"> 59</span></a>
+</span><span id="StateMachine-60"><a href="#StateMachine-60"><span class="linenos"> 60</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="StateMachine-61"><a href="#StateMachine-61"><span class="linenos"> 61</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="StateMachine-62"><a href="#StateMachine-62"><span class="linenos"> 62</span></a><span class="sd">        Switch to a registered state by name.</span>
+</span><span id="StateMachine-63"><a href="#StateMachine-63"><span class="linenos"> 63</span></a>
+</span><span id="StateMachine-64"><a href="#StateMachine-64"><span class="linenos"> 64</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
+</span><span id="StateMachine-65"><a href="#StateMachine-65"><span class="linenos"> 65</span></a><span class="sd">        State residence time is logged at debug level for runtime diagnostics.</span>
+</span><span id="StateMachine-66"><a href="#StateMachine-66"><span class="linenos"> 66</span></a>
+</span><span id="StateMachine-67"><a href="#StateMachine-67"><span class="linenos"> 67</span></a><span class="sd">        Args:</span>
+</span><span id="StateMachine-68"><a href="#StateMachine-68"><span class="linenos"> 68</span></a><span class="sd">            name:</span>
+</span><span id="StateMachine-69"><a href="#StateMachine-69"><span class="linenos"> 69</span></a><span class="sd">                Key of the state to activate.</span>
+</span><span id="StateMachine-70"><a href="#StateMachine-70"><span class="linenos"> 70</span></a>
+</span><span id="StateMachine-71"><a href="#StateMachine-71"><span class="linenos"> 71</span></a><span class="sd">        Raises:</span>
+</span><span id="StateMachine-72"><a href="#StateMachine-72"><span class="linenos"> 72</span></a><span class="sd">            KeyError:</span>
+</span><span id="StateMachine-73"><a href="#StateMachine-73"><span class="linenos"> 73</span></a><span class="sd">                If ``name`` has not been registered.</span>
+</span><span id="StateMachine-74"><a href="#StateMachine-74"><span class="linenos"> 74</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="StateMachine-75"><a href="#StateMachine-75"><span class="linenos"> 75</span></a>        <span class="c1"># Exit and entry hooks run only on a real transition, never once per frame.</span>
+</span><span id="StateMachine-76"><a href="#StateMachine-76"><span class="linenos"> 76</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="StateMachine-77"><a href="#StateMachine-77"><span class="linenos"> 77</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine-78"><a href="#StateMachine-78"><span class="linenos"> 78</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine-79"><a href="#StateMachine-79"><span class="linenos"> 79</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
+</span><span id="StateMachine-80"><a href="#StateMachine-80"><span class="linenos"> 80</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
+</span><span id="StateMachine-81"><a href="#StateMachine-81"><span class="linenos"> 81</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
+</span><span id="StateMachine-82"><a href="#StateMachine-82"><span class="linenos"> 82</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;← Exiting state: </span><span class="si">%s</span><span class="s2"> after </span><span class="si">%.2f</span><span class="s2"> seconds&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">elapsed_time</span><span class="p">)</span>
+</span><span id="StateMachine-83"><a href="#StateMachine-83"><span class="linenos"> 83</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+</span><span id="StateMachine-84"><a href="#StateMachine-84"><span class="linenos"> 84</span></a>        
+</span><span id="StateMachine-85"><a href="#StateMachine-85"><span class="linenos"> 85</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
+</span><span id="StateMachine-86"><a href="#StateMachine-86"><span class="linenos"> 86</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine-87"><a href="#StateMachine-87"><span class="linenos"> 87</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine-88"><a href="#StateMachine-88"><span class="linenos"> 88</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
 </span><span id="StateMachine-89"><a href="#StateMachine-89"><span class="linenos"> 89</span></a>
-</span><span id="StateMachine-90"><a href="#StateMachine-90"><span class="linenos"> 90</span></a>
-</span><span id="StateMachine-91"><a href="#StateMachine-91"><span class="linenos"> 91</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="StateMachine-92"><a href="#StateMachine-92"><span class="linenos"> 92</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="StateMachine-93"><a href="#StateMachine-93"><span class="linenos"> 93</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
-</span><span id="StateMachine-94"><a href="#StateMachine-94"><span class="linenos"> 94</span></a>
-</span><span id="StateMachine-95"><a href="#StateMachine-95"><span class="linenos"> 95</span></a><span class="sd">        Args:</span>
-</span><span id="StateMachine-96"><a href="#StateMachine-96"><span class="linenos"> 96</span></a><span class="sd">            ctx:</span>
-</span><span id="StateMachine-97"><a href="#StateMachine-97"><span class="linenos"> 97</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
-</span><span id="StateMachine-98"><a href="#StateMachine-98"><span class="linenos"> 98</span></a>
-</span><span id="StateMachine-99"><a href="#StateMachine-99"><span class="linenos"> 99</span></a><span class="sd">        Notes:</span>
-</span><span id="StateMachine-100"><a href="#StateMachine-100"><span class="linenos">100</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
-</span><span id="StateMachine-101"><a href="#StateMachine-101"><span class="linenos">101</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
-</span><span id="StateMachine-102"><a href="#StateMachine-102"><span class="linenos">102</span></a><span class="sd">            invoking any state hook.</span>
-</span><span id="StateMachine-103"><a href="#StateMachine-103"><span class="linenos">103</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine-104"><a href="#StateMachine-104"><span class="linenos">104</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="StateMachine-105"><a href="#StateMachine-105"><span class="linenos">105</span></a>            <span class="k">return</span>
-</span><span id="StateMachine-106"><a href="#StateMachine-106"><span class="linenos">106</span></a>        <span class="c1"># keep latest context</span>
-</span><span id="StateMachine-107"><a href="#StateMachine-107"><span class="linenos">107</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
-</span><span id="StateMachine-108"><a href="#StateMachine-108"><span class="linenos">108</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine-109"><a href="#StateMachine-109"><span class="linenos">109</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine-110"><a href="#StateMachine-110"><span class="linenos">110</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
-</span><span id="StateMachine-111"><a href="#StateMachine-111"><span class="linenos">111</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
-</span><span id="StateMachine-112"><a href="#StateMachine-112"><span class="linenos">112</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
-</span><span id="StateMachine-113"><a href="#StateMachine-113"><span class="linenos">113</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
+</span><span id="StateMachine-90"><a href="#StateMachine-90"><span class="linenos"> 90</span></a>        <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;→ Entering state: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</span><span id="StateMachine-91"><a href="#StateMachine-91"><span class="linenos"> 91</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
+</span><span id="StateMachine-92"><a href="#StateMachine-92"><span class="linenos"> 92</span></a>
+</span><span id="StateMachine-93"><a href="#StateMachine-93"><span class="linenos"> 93</span></a>
+</span><span id="StateMachine-94"><a href="#StateMachine-94"><span class="linenos"> 94</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="StateMachine-95"><a href="#StateMachine-95"><span class="linenos"> 95</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="StateMachine-96"><a href="#StateMachine-96"><span class="linenos"> 96</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
+</span><span id="StateMachine-97"><a href="#StateMachine-97"><span class="linenos"> 97</span></a>
+</span><span id="StateMachine-98"><a href="#StateMachine-98"><span class="linenos"> 98</span></a><span class="sd">        Args:</span>
+</span><span id="StateMachine-99"><a href="#StateMachine-99"><span class="linenos"> 99</span></a><span class="sd">            ctx:</span>
+</span><span id="StateMachine-100"><a href="#StateMachine-100"><span class="linenos">100</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
+</span><span id="StateMachine-101"><a href="#StateMachine-101"><span class="linenos">101</span></a>
+</span><span id="StateMachine-102"><a href="#StateMachine-102"><span class="linenos">102</span></a><span class="sd">        Notes:</span>
+</span><span id="StateMachine-103"><a href="#StateMachine-103"><span class="linenos">103</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
+</span><span id="StateMachine-104"><a href="#StateMachine-104"><span class="linenos">104</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
+</span><span id="StateMachine-105"><a href="#StateMachine-105"><span class="linenos">105</span></a><span class="sd">            invoking any state hook.</span>
+</span><span id="StateMachine-106"><a href="#StateMachine-106"><span class="linenos">106</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="StateMachine-107"><a href="#StateMachine-107"><span class="linenos">107</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="StateMachine-108"><a href="#StateMachine-108"><span class="linenos">108</span></a>            <span class="k">return</span>
+</span><span id="StateMachine-109"><a href="#StateMachine-109"><span class="linenos">109</span></a>        <span class="c1"># keep latest context</span>
+</span><span id="StateMachine-110"><a href="#StateMachine-110"><span class="linenos">110</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
+</span><span id="StateMachine-111"><a href="#StateMachine-111"><span class="linenos">111</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine-112"><a href="#StateMachine-112"><span class="linenos">112</span></a>        <span class="c1"># Each update advances at most one state. The new state&#39;s work begins</span>
+</span><span id="StateMachine-113"><a href="#StateMachine-113"><span class="linenos">113</span></a>        <span class="c1"># with the next synchronized frame, which keeps frame ownership clear.</span>
+</span><span id="StateMachine-114"><a href="#StateMachine-114"><span class="linenos">114</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine-115"><a href="#StateMachine-115"><span class="linenos">115</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
+</span><span id="StateMachine-116"><a href="#StateMachine-116"><span class="linenos">116</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
+</span><span id="StateMachine-117"><a href="#StateMachine-117"><span class="linenos">117</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
+</span><span id="StateMachine-118"><a href="#StateMachine-118"><span class="linenos">118</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -323,19 +333,14 @@
 <p>A state's <code>do_action</code> method returns another registered state name to
 request a transition, or <code>None</code> to remain active for the next frame.</p>
 
-<p>Attributes:
-    states:
-        Mapping from state names to <code>Frame_data.BaseState</code> objects.</p>
+<h6 id="attributes">Attributes:</h6>
 
-<pre><code>current_state:
-    State currently receiving frame updates.
-
-ctx:
-    Most recent shared frame context.
-
-state_start_time:
-    Wall-clock timestamp recorded when the current state was entered.
-</code></pre>
+<ul>
+<li><strong>states:</strong>  Mapping from state names to <code>Frame_data.BaseState</code> objects.</li>
+<li><strong>current_state:</strong>  State currently receiving frame updates.</li>
+<li><strong>ctx:</strong>  Most recent shared frame context.</li>
+<li><strong>state_start_time:</strong>  Wall-clock timestamp recorded when the current state was entered.</li>
+</ul>
 </div>
 
 
@@ -367,10 +372,12 @@ state_start_time:
 
             <div class="docstring"><p>Initialize an empty state registry.</p>
 
-<p>Args:
-    ctx:
-        Optional initial frame context. It can be replaced on every
-        call to <code><a href="#StateMachine.update">update()</a></code>.</p>
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>ctx:</strong>  Optional initial frame context. It can be replaced on every
+call to <code><a href="#StateMachine.update">update()</a></code>.</li>
+</ul>
 </div>
 
 
@@ -442,19 +449,26 @@ state_start_time:
 </span><span id="StateMachine.add_state-53"><a href="#StateMachine.add_state-53"><span class="linenos">53</span></a><span class="sd">            Registering another state with the same name replaces the previous</span>
 </span><span id="StateMachine.add_state-54"><a href="#StateMachine.add_state-54"><span class="linenos">54</span></a><span class="sd">            mapping.</span>
 </span><span id="StateMachine.add_state-55"><a href="#StateMachine.add_state-55"><span class="linenos">55</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine.add_state-56"><a href="#StateMachine.add_state-56"><span class="linenos">56</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
+</span><span id="StateMachine.add_state-56"><a href="#StateMachine.add_state-56"><span class="linenos">56</span></a>        <span class="c1"># Names, rather than class references, keep transition decisions simple</span>
+</span><span id="StateMachine.add_state-57"><a href="#StateMachine.add_state-57"><span class="linenos">57</span></a>        <span class="c1"># for states that only need to return a string.</span>
+</span><span id="StateMachine.add_state-58"><a href="#StateMachine.add_state-58"><span class="linenos">58</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">state</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Register a state under its <code>state.name</code> value.</p>
 
-<p>Args:
-    state:
-        State object implementing the <code>BaseState</code> interface.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Notes:
-    Registering another state with the same name replaces the previous
-    mapping.</p>
+<ul>
+<li><strong>state:</strong>  State object implementing the <code>BaseState</code> interface.</li>
+</ul>
+
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>Registering another state with the same name replaces the previous
+  mapping.</p>
+</blockquote>
 </div>
 
 
@@ -470,52 +484,57 @@ state_start_time:
 
     </div>
     <a class="headerlink" href="#StateMachine.set_state"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StateMachine.set_state-58"><a href="#StateMachine.set_state-58"><span class="linenos">58</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="StateMachine.set_state-59"><a href="#StateMachine.set_state-59"><span class="linenos">59</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="StateMachine.set_state-60"><a href="#StateMachine.set_state-60"><span class="linenos">60</span></a><span class="sd">        Switch to a registered state by name.</span>
-</span><span id="StateMachine.set_state-61"><a href="#StateMachine.set_state-61"><span class="linenos">61</span></a>
-</span><span id="StateMachine.set_state-62"><a href="#StateMachine.set_state-62"><span class="linenos">62</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
-</span><span id="StateMachine.set_state-63"><a href="#StateMachine.set_state-63"><span class="linenos">63</span></a><span class="sd">        State residence time is printed for runtime diagnostics.</span>
-</span><span id="StateMachine.set_state-64"><a href="#StateMachine.set_state-64"><span class="linenos">64</span></a>
-</span><span id="StateMachine.set_state-65"><a href="#StateMachine.set_state-65"><span class="linenos">65</span></a><span class="sd">        Args:</span>
-</span><span id="StateMachine.set_state-66"><a href="#StateMachine.set_state-66"><span class="linenos">66</span></a><span class="sd">            name:</span>
-</span><span id="StateMachine.set_state-67"><a href="#StateMachine.set_state-67"><span class="linenos">67</span></a><span class="sd">                Key of the state to activate.</span>
-</span><span id="StateMachine.set_state-68"><a href="#StateMachine.set_state-68"><span class="linenos">68</span></a>
-</span><span id="StateMachine.set_state-69"><a href="#StateMachine.set_state-69"><span class="linenos">69</span></a><span class="sd">        Raises:</span>
-</span><span id="StateMachine.set_state-70"><a href="#StateMachine.set_state-70"><span class="linenos">70</span></a><span class="sd">            KeyError:</span>
-</span><span id="StateMachine.set_state-71"><a href="#StateMachine.set_state-71"><span class="linenos">71</span></a><span class="sd">                If ``name`` has not been registered.</span>
-</span><span id="StateMachine.set_state-72"><a href="#StateMachine.set_state-72"><span class="linenos">72</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine.set_state-73"><a href="#StateMachine.set_state-73"><span class="linenos">73</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="StateMachine.set_state-74"><a href="#StateMachine.set_state-74"><span class="linenos">74</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine.set_state-75"><a href="#StateMachine.set_state-75"><span class="linenos">75</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine.set_state-76"><a href="#StateMachine.set_state-76"><span class="linenos">76</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
-</span><span id="StateMachine.set_state-77"><a href="#StateMachine.set_state-77"><span class="linenos">77</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
-</span><span id="StateMachine.set_state-78"><a href="#StateMachine.set_state-78"><span class="linenos">78</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
-</span><span id="StateMachine.set_state-79"><a href="#StateMachine.set_state-79"><span class="linenos">79</span></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] ← Exiting state: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> after </span><span class="si">{</span><span class="n">elapsed_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
-</span><span id="StateMachine.set_state-80"><a href="#StateMachine.set_state-80"><span class="linenos">80</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-</span><span id="StateMachine.set_state-81"><a href="#StateMachine.set_state-81"><span class="linenos">81</span></a>        
-</span><span id="StateMachine.set_state-82"><a href="#StateMachine.set_state-82"><span class="linenos">82</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
-</span><span id="StateMachine.set_state-83"><a href="#StateMachine.set_state-83"><span class="linenos">83</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine.set_state-84"><a href="#StateMachine.set_state-84"><span class="linenos">84</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine.set_state-85"><a href="#StateMachine.set_state-85"><span class="linenos">85</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
-</span><span id="StateMachine.set_state-86"><a href="#StateMachine.set_state-86"><span class="linenos">86</span></a>
-</span><span id="StateMachine.set_state-87"><a href="#StateMachine.set_state-87"><span class="linenos">87</span></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[INFO] → Entering state: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="StateMachine.set_state-88"><a href="#StateMachine.set_state-88"><span class="linenos">88</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StateMachine.set_state-60"><a href="#StateMachine.set_state-60"><span class="linenos">60</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="StateMachine.set_state-61"><a href="#StateMachine.set_state-61"><span class="linenos">61</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="StateMachine.set_state-62"><a href="#StateMachine.set_state-62"><span class="linenos">62</span></a><span class="sd">        Switch to a registered state by name.</span>
+</span><span id="StateMachine.set_state-63"><a href="#StateMachine.set_state-63"><span class="linenos">63</span></a>
+</span><span id="StateMachine.set_state-64"><a href="#StateMachine.set_state-64"><span class="linenos">64</span></a><span class="sd">        The current state&#39;s exit hook runs before the new state&#39;s entry hook.</span>
+</span><span id="StateMachine.set_state-65"><a href="#StateMachine.set_state-65"><span class="linenos">65</span></a><span class="sd">        State residence time is logged at debug level for runtime diagnostics.</span>
+</span><span id="StateMachine.set_state-66"><a href="#StateMachine.set_state-66"><span class="linenos">66</span></a>
+</span><span id="StateMachine.set_state-67"><a href="#StateMachine.set_state-67"><span class="linenos">67</span></a><span class="sd">        Args:</span>
+</span><span id="StateMachine.set_state-68"><a href="#StateMachine.set_state-68"><span class="linenos">68</span></a><span class="sd">            name:</span>
+</span><span id="StateMachine.set_state-69"><a href="#StateMachine.set_state-69"><span class="linenos">69</span></a><span class="sd">                Key of the state to activate.</span>
+</span><span id="StateMachine.set_state-70"><a href="#StateMachine.set_state-70"><span class="linenos">70</span></a>
+</span><span id="StateMachine.set_state-71"><a href="#StateMachine.set_state-71"><span class="linenos">71</span></a><span class="sd">        Raises:</span>
+</span><span id="StateMachine.set_state-72"><a href="#StateMachine.set_state-72"><span class="linenos">72</span></a><span class="sd">            KeyError:</span>
+</span><span id="StateMachine.set_state-73"><a href="#StateMachine.set_state-73"><span class="linenos">73</span></a><span class="sd">                If ``name`` has not been registered.</span>
+</span><span id="StateMachine.set_state-74"><a href="#StateMachine.set_state-74"><span class="linenos">74</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="StateMachine.set_state-75"><a href="#StateMachine.set_state-75"><span class="linenos">75</span></a>        <span class="c1"># Exit and entry hooks run only on a real transition, never once per frame.</span>
+</span><span id="StateMachine.set_state-76"><a href="#StateMachine.set_state-76"><span class="linenos">76</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="StateMachine.set_state-77"><a href="#StateMachine.set_state-77"><span class="linenos">77</span></a>            <span class="n">start_exit_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine.set_state-78"><a href="#StateMachine.set_state-78"><span class="linenos">78</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">exit_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine.set_state-79"><a href="#StateMachine.set_state-79"><span class="linenos">79</span></a>            <span class="n">exit_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_exit_action</span>
+</span><span id="StateMachine.set_state-80"><a href="#StateMachine.set_state-80"><span class="linenos">80</span></a>            <span class="n">elapsed_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span>
+</span><span id="StateMachine.set_state-81"><a href="#StateMachine.set_state-81"><span class="linenos">81</span></a>            <span class="c1">#print(f&quot;[INFO]     Exit action took {exit_action_duration:.4f} seconds&quot;)</span>
+</span><span id="StateMachine.set_state-82"><a href="#StateMachine.set_state-82"><span class="linenos">82</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;← Exiting state: </span><span class="si">%s</span><span class="s2"> after </span><span class="si">%.2f</span><span class="s2"> seconds&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">elapsed_time</span><span class="p">)</span>
+</span><span id="StateMachine.set_state-83"><a href="#StateMachine.set_state-83"><span class="linenos">83</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+</span><span id="StateMachine.set_state-84"><a href="#StateMachine.set_state-84"><span class="linenos">84</span></a>        
+</span><span id="StateMachine.set_state-85"><a href="#StateMachine.set_state-85"><span class="linenos">85</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">state_start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="c1"># Record entry time</span>
+</span><span id="StateMachine.set_state-86"><a href="#StateMachine.set_state-86"><span class="linenos">86</span></a>        <span class="n">start_entry_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine.set_state-87"><a href="#StateMachine.set_state-87"><span class="linenos">87</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">entry_action</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine.set_state-88"><a href="#StateMachine.set_state-88"><span class="linenos">88</span></a>        <span class="n">entry_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_entry_action</span>
+</span><span id="StateMachine.set_state-89"><a href="#StateMachine.set_state-89"><span class="linenos">89</span></a>
+</span><span id="StateMachine.set_state-90"><a href="#StateMachine.set_state-90"><span class="linenos">90</span></a>        <span class="n">rospy</span><span class="o">.</span><span class="n">logdebug</span><span class="p">(</span><span class="s2">&quot;→ Entering state: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</span><span id="StateMachine.set_state-91"><a href="#StateMachine.set_state-91"><span class="linenos">91</span></a>        <span class="c1">#print(f&quot;[INFO]     entry_action took {entry_action_duration:.4f} s&quot;)</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Switch to a registered state by name.</p>
 
 <p>The current state's exit hook runs before the new state's entry hook.
-State residence time is printed for runtime diagnostics.</p>
+State residence time is logged at debug level for runtime diagnostics.</p>
 
-<p>Args:
-    name:
-        Key of the state to activate.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Raises:
-    KeyError:
-        If <code>name</code> has not been registered.</p>
+<ul>
+<li><strong>name:</strong>  Key of the state to activate.</li>
+</ul>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>KeyError:</strong>  If <code>name</code> has not been registered.</li>
+</ul>
 </div>
 
 
@@ -531,42 +550,49 @@ State residence time is printed for runtime diagnostics.</p>
 
     </div>
     <a class="headerlink" href="#StateMachine.update"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StateMachine.update-91"><a href="#StateMachine.update-91"><span class="linenos"> 91</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="StateMachine.update-92"><a href="#StateMachine.update-92"><span class="linenos"> 92</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="StateMachine.update-93"><a href="#StateMachine.update-93"><span class="linenos"> 93</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
-</span><span id="StateMachine.update-94"><a href="#StateMachine.update-94"><span class="linenos"> 94</span></a>
-</span><span id="StateMachine.update-95"><a href="#StateMachine.update-95"><span class="linenos"> 95</span></a><span class="sd">        Args:</span>
-</span><span id="StateMachine.update-96"><a href="#StateMachine.update-96"><span class="linenos"> 96</span></a><span class="sd">            ctx:</span>
-</span><span id="StateMachine.update-97"><a href="#StateMachine.update-97"><span class="linenos"> 97</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
-</span><span id="StateMachine.update-98"><a href="#StateMachine.update-98"><span class="linenos"> 98</span></a>
-</span><span id="StateMachine.update-99"><a href="#StateMachine.update-99"><span class="linenos"> 99</span></a><span class="sd">        Notes:</span>
-</span><span id="StateMachine.update-100"><a href="#StateMachine.update-100"><span class="linenos">100</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
-</span><span id="StateMachine.update-101"><a href="#StateMachine.update-101"><span class="linenos">101</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
-</span><span id="StateMachine.update-102"><a href="#StateMachine.update-102"><span class="linenos">102</span></a><span class="sd">            invoking any state hook.</span>
-</span><span id="StateMachine.update-103"><a href="#StateMachine.update-103"><span class="linenos">103</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StateMachine.update-104"><a href="#StateMachine.update-104"><span class="linenos">104</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
-</span><span id="StateMachine.update-105"><a href="#StateMachine.update-105"><span class="linenos">105</span></a>            <span class="k">return</span>
-</span><span id="StateMachine.update-106"><a href="#StateMachine.update-106"><span class="linenos">106</span></a>        <span class="c1"># keep latest context</span>
-</span><span id="StateMachine.update-107"><a href="#StateMachine.update-107"><span class="linenos">107</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
-</span><span id="StateMachine.update-108"><a href="#StateMachine.update-108"><span class="linenos">108</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-</span><span id="StateMachine.update-109"><a href="#StateMachine.update-109"><span class="linenos">109</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
-</span><span id="StateMachine.update-110"><a href="#StateMachine.update-110"><span class="linenos">110</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
-</span><span id="StateMachine.update-111"><a href="#StateMachine.update-111"><span class="linenos">111</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
-</span><span id="StateMachine.update-112"><a href="#StateMachine.update-112"><span class="linenos">112</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
-</span><span id="StateMachine.update-113"><a href="#StateMachine.update-113"><span class="linenos">113</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StateMachine.update-94"><a href="#StateMachine.update-94"><span class="linenos"> 94</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="StateMachine.update-95"><a href="#StateMachine.update-95"><span class="linenos"> 95</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="StateMachine.update-96"><a href="#StateMachine.update-96"><span class="linenos"> 96</span></a><span class="sd">        Run one state-machine step with the newest frame context.</span>
+</span><span id="StateMachine.update-97"><a href="#StateMachine.update-97"><span class="linenos"> 97</span></a>
+</span><span id="StateMachine.update-98"><a href="#StateMachine.update-98"><span class="linenos"> 98</span></a><span class="sd">        Args:</span>
+</span><span id="StateMachine.update-99"><a href="#StateMachine.update-99"><span class="linenos"> 99</span></a><span class="sd">            ctx:</span>
+</span><span id="StateMachine.update-100"><a href="#StateMachine.update-100"><span class="linenos">100</span></a><span class="sd">                Shared context for the current synchronized frame.</span>
+</span><span id="StateMachine.update-101"><a href="#StateMachine.update-101"><span class="linenos">101</span></a>
+</span><span id="StateMachine.update-102"><a href="#StateMachine.update-102"><span class="linenos">102</span></a><span class="sd">        Notes:</span>
+</span><span id="StateMachine.update-103"><a href="#StateMachine.update-103"><span class="linenos">103</span></a><span class="sd">            Unknown transition names are ignored, leaving the current state</span>
+</span><span id="StateMachine.update-104"><a href="#StateMachine.update-104"><span class="linenos">104</span></a><span class="sd">            active. If no state has been selected, the method returns without</span>
+</span><span id="StateMachine.update-105"><a href="#StateMachine.update-105"><span class="linenos">105</span></a><span class="sd">            invoking any state hook.</span>
+</span><span id="StateMachine.update-106"><a href="#StateMachine.update-106"><span class="linenos">106</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="StateMachine.update-107"><a href="#StateMachine.update-107"><span class="linenos">107</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="p">:</span>
+</span><span id="StateMachine.update-108"><a href="#StateMachine.update-108"><span class="linenos">108</span></a>            <span class="k">return</span>
+</span><span id="StateMachine.update-109"><a href="#StateMachine.update-109"><span class="linenos">109</span></a>        <span class="c1"># keep latest context</span>
+</span><span id="StateMachine.update-110"><a href="#StateMachine.update-110"><span class="linenos">110</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ctx</span> <span class="o">=</span> <span class="n">ctx</span>
+</span><span id="StateMachine.update-111"><a href="#StateMachine.update-111"><span class="linenos">111</span></a>        <span class="n">start_do_action</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+</span><span id="StateMachine.update-112"><a href="#StateMachine.update-112"><span class="linenos">112</span></a>        <span class="c1"># Each update advances at most one state. The new state&#39;s work begins</span>
+</span><span id="StateMachine.update-113"><a href="#StateMachine.update-113"><span class="linenos">113</span></a>        <span class="c1"># with the next synchronized frame, which keeps frame ownership clear.</span>
+</span><span id="StateMachine.update-114"><a href="#StateMachine.update-114"><span class="linenos">114</span></a>        <span class="n">next_state_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_state</span><span class="o">.</span><span class="n">do_action</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+</span><span id="StateMachine.update-115"><a href="#StateMachine.update-115"><span class="linenos">115</span></a>        <span class="n">do_action_duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_do_action</span>
+</span><span id="StateMachine.update-116"><a href="#StateMachine.update-116"><span class="linenos">116</span></a>        <span class="c1">#print(f&quot;[INFO]     do_action took {do_action_duration:.4f} seconds&quot;)</span>
+</span><span id="StateMachine.update-117"><a href="#StateMachine.update-117"><span class="linenos">117</span></a>        <span class="k">if</span> <span class="n">next_state_name</span> <span class="ow">and</span> <span class="n">next_state_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">:</span>
+</span><span id="StateMachine.update-118"><a href="#StateMachine.update-118"><span class="linenos">118</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_state</span><span class="p">(</span><span class="n">next_state_name</span><span class="p">)</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Run one state-machine step with the newest frame context.</p>
 
-<p>Args:
-    ctx:
-        Shared context for the current synchronized frame.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Notes:
-    Unknown transition names are ignored, leaving the current state
-    active. If no state has been selected, the method returns without
-    invoking any state hook.</p>
+<ul>
+<li><strong>ctx:</strong>  Shared context for the current synchronized frame.</li>
+</ul>
+
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p>Unknown transition names are ignored, leaving the current state
+  active. If no state has been selected, the method returns without
+  invoking any state hook.</p>
+</blockquote>
 </div>
 
 

@@ -40,9 +40,6 @@
                                 <a class="variable" href="#full_image_passability_check_state.reference_door_distance_m">reference_door_distance_m</a>
                         </li>
                         <li>
-                                <a class="variable" href="#full_image_passability_check_state.ransac_plane_distance">ransac_plane_distance</a>
-                        </li>
-                        <li>
                                 <a class="function" href="#full_image_passability_check_state.do_action">do_action</a>
                         </li>
                 </ul>
@@ -101,38 +98,48 @@
 </span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="sd">        Initialize fallback depth references from ROS parameters.</span>
 </span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>
 </span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a><span class="sd">        Notes:</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is required and</span>
-</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a><span class="sd">            has no local default in this constructor.</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
-</span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;~plane_detector/output/ransac_plane_distance&quot;</span><span class="p">)</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
-</span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a>
-</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="sd">        Args:</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="sd">            ctx:</span>
-</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="sd">                Shared context containing the fused failure label.</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>
-</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="sd">        Returns:</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>
-</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a><span class="sd">        Notes:</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
-</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a>        
-</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a>        
-</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is updated during the</span>
+</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a><span class="sd">            run, so it is taken from the frame context rather than read here. The</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a><span class="sd">            reference distance is static and is cached once.</span>
+</span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a>        
+</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
+</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
+</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a>
+</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="sd">        Args:</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="sd">            ctx:</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a><span class="sd">                Shared context containing the fused failure label.</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a>
+</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="sd">        Returns:</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
+</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a>
+</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a><span class="sd">        Notes:</span>
+</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
+</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a><span class="sd">            The label itself is set by the state that chose this fallback and</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a><span class="sd">            is left unchanged. ``ctx.mid_frame_x_px_for_passability_check`` is</span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a><span class="sd">            always cleared because no frame edge is available.</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a>        <span class="c1"># This path is deliberate, not an error: a fully open doorway may leave</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a>        <span class="c1"># too little planar surface for the glass detector to confirm.</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable in this state</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>        <span class="c1"># The plane distance is refreshed by the plane-search state and travels on</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a>        <span class="c1"># the context, so neither value needs a parameter-server round trip here.</span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos">63</span></a>        
+</span><span id="L-64"><a href="#L-64"><span class="linenos">64</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos">65</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
+</span><span id="L-66"><a href="#L-66"><span class="linenos">66</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos">67</span></a>        
+</span><span id="L-68"><a href="#L-68"><span class="linenos">68</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
+</span><span id="L-69"><a href="#L-69"><span class="linenos">69</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos">70</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="c1"># use the plane distance as the fallback door depth for passability check when no door frame is detected in the middle frame</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos">71</span></a>        <span class="c1">#ctx.plane_result is already set in the previous glass door plane detection state, so no need to set it here</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos">72</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
 </span></pre></div>
 
 
@@ -170,38 +177,48 @@
 </span><span id="full_image_passability_check_state-31"><a href="#full_image_passability_check_state-31"><span class="linenos">31</span></a><span class="sd">        Initialize fallback depth references from ROS parameters.</span>
 </span><span id="full_image_passability_check_state-32"><a href="#full_image_passability_check_state-32"><span class="linenos">32</span></a>
 </span><span id="full_image_passability_check_state-33"><a href="#full_image_passability_check_state-33"><span class="linenos">33</span></a><span class="sd">        Notes:</span>
-</span><span id="full_image_passability_check_state-34"><a href="#full_image_passability_check_state-34"><span class="linenos">34</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is required and</span>
-</span><span id="full_image_passability_check_state-35"><a href="#full_image_passability_check_state-35"><span class="linenos">35</span></a><span class="sd">            has no local default in this constructor.</span>
-</span><span id="full_image_passability_check_state-36"><a href="#full_image_passability_check_state-36"><span class="linenos">36</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state-37"><a href="#full_image_passability_check_state-37"><span class="linenos">37</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state-38"><a href="#full_image_passability_check_state-38"><span class="linenos">38</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state-39"><a href="#full_image_passability_check_state-39"><span class="linenos">39</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;~plane_detector/output/ransac_plane_distance&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state-40"><a href="#full_image_passability_check_state-40"><span class="linenos">40</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
-</span><span id="full_image_passability_check_state-41"><a href="#full_image_passability_check_state-41"><span class="linenos">41</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state-42"><a href="#full_image_passability_check_state-42"><span class="linenos">42</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
-</span><span id="full_image_passability_check_state-43"><a href="#full_image_passability_check_state-43"><span class="linenos">43</span></a>
-</span><span id="full_image_passability_check_state-44"><a href="#full_image_passability_check_state-44"><span class="linenos">44</span></a><span class="sd">        Args:</span>
-</span><span id="full_image_passability_check_state-45"><a href="#full_image_passability_check_state-45"><span class="linenos">45</span></a><span class="sd">            ctx:</span>
-</span><span id="full_image_passability_check_state-46"><a href="#full_image_passability_check_state-46"><span class="linenos">46</span></a><span class="sd">                Shared context containing the fused failure label.</span>
-</span><span id="full_image_passability_check_state-47"><a href="#full_image_passability_check_state-47"><span class="linenos">47</span></a>
-</span><span id="full_image_passability_check_state-48"><a href="#full_image_passability_check_state-48"><span class="linenos">48</span></a><span class="sd">        Returns:</span>
-</span><span id="full_image_passability_check_state-49"><a href="#full_image_passability_check_state-49"><span class="linenos">49</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
-</span><span id="full_image_passability_check_state-50"><a href="#full_image_passability_check_state-50"><span class="linenos">50</span></a>
-</span><span id="full_image_passability_check_state-51"><a href="#full_image_passability_check_state-51"><span class="linenos">51</span></a><span class="sd">        Notes:</span>
-</span><span id="full_image_passability_check_state-52"><a href="#full_image_passability_check_state-52"><span class="linenos">52</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
-</span><span id="full_image_passability_check_state-53"><a href="#full_image_passability_check_state-53"><span class="linenos">53</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
-</span><span id="full_image_passability_check_state-54"><a href="#full_image_passability_check_state-54"><span class="linenos">54</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state-55"><a href="#full_image_passability_check_state-55"><span class="linenos">55</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable</span>
-</span><span id="full_image_passability_check_state-56"><a href="#full_image_passability_check_state-56"><span class="linenos">56</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
-</span><span id="full_image_passability_check_state-57"><a href="#full_image_passability_check_state-57"><span class="linenos">57</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
-</span><span id="full_image_passability_check_state-58"><a href="#full_image_passability_check_state-58"><span class="linenos">58</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
-</span><span id="full_image_passability_check_state-59"><a href="#full_image_passability_check_state-59"><span class="linenos">59</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state-60"><a href="#full_image_passability_check_state-60"><span class="linenos">60</span></a>        
-</span><span id="full_image_passability_check_state-61"><a href="#full_image_passability_check_state-61"><span class="linenos">61</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
-</span><span id="full_image_passability_check_state-62"><a href="#full_image_passability_check_state-62"><span class="linenos">62</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state-63"><a href="#full_image_passability_check_state-63"><span class="linenos">63</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
-</span><span id="full_image_passability_check_state-64"><a href="#full_image_passability_check_state-64"><span class="linenos">64</span></a>        
-</span><span id="full_image_passability_check_state-65"><a href="#full_image_passability_check_state-65"><span class="linenos">65</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
+</span><span id="full_image_passability_check_state-34"><a href="#full_image_passability_check_state-34"><span class="linenos">34</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is updated during the</span>
+</span><span id="full_image_passability_check_state-35"><a href="#full_image_passability_check_state-35"><span class="linenos">35</span></a><span class="sd">            run, so it is taken from the frame context rather than read here. The</span>
+</span><span id="full_image_passability_check_state-36"><a href="#full_image_passability_check_state-36"><span class="linenos">36</span></a><span class="sd">            reference distance is static and is cached once.</span>
+</span><span id="full_image_passability_check_state-37"><a href="#full_image_passability_check_state-37"><span class="linenos">37</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state-38"><a href="#full_image_passability_check_state-38"><span class="linenos">38</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state-39"><a href="#full_image_passability_check_state-39"><span class="linenos">39</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state-40"><a href="#full_image_passability_check_state-40"><span class="linenos">40</span></a>        
+</span><span id="full_image_passability_check_state-41"><a href="#full_image_passability_check_state-41"><span class="linenos">41</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
+</span><span id="full_image_passability_check_state-42"><a href="#full_image_passability_check_state-42"><span class="linenos">42</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state-43"><a href="#full_image_passability_check_state-43"><span class="linenos">43</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
+</span><span id="full_image_passability_check_state-44"><a href="#full_image_passability_check_state-44"><span class="linenos">44</span></a>
+</span><span id="full_image_passability_check_state-45"><a href="#full_image_passability_check_state-45"><span class="linenos">45</span></a><span class="sd">        Args:</span>
+</span><span id="full_image_passability_check_state-46"><a href="#full_image_passability_check_state-46"><span class="linenos">46</span></a><span class="sd">            ctx:</span>
+</span><span id="full_image_passability_check_state-47"><a href="#full_image_passability_check_state-47"><span class="linenos">47</span></a><span class="sd">                Shared context containing the fused failure label.</span>
+</span><span id="full_image_passability_check_state-48"><a href="#full_image_passability_check_state-48"><span class="linenos">48</span></a>
+</span><span id="full_image_passability_check_state-49"><a href="#full_image_passability_check_state-49"><span class="linenos">49</span></a><span class="sd">        Returns:</span>
+</span><span id="full_image_passability_check_state-50"><a href="#full_image_passability_check_state-50"><span class="linenos">50</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
+</span><span id="full_image_passability_check_state-51"><a href="#full_image_passability_check_state-51"><span class="linenos">51</span></a>
+</span><span id="full_image_passability_check_state-52"><a href="#full_image_passability_check_state-52"><span class="linenos">52</span></a><span class="sd">        Notes:</span>
+</span><span id="full_image_passability_check_state-53"><a href="#full_image_passability_check_state-53"><span class="linenos">53</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
+</span><span id="full_image_passability_check_state-54"><a href="#full_image_passability_check_state-54"><span class="linenos">54</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
+</span><span id="full_image_passability_check_state-55"><a href="#full_image_passability_check_state-55"><span class="linenos">55</span></a><span class="sd">            The label itself is set by the state that chose this fallback and</span>
+</span><span id="full_image_passability_check_state-56"><a href="#full_image_passability_check_state-56"><span class="linenos">56</span></a><span class="sd">            is left unchanged. ``ctx.mid_frame_x_px_for_passability_check`` is</span>
+</span><span id="full_image_passability_check_state-57"><a href="#full_image_passability_check_state-57"><span class="linenos">57</span></a><span class="sd">            always cleared because no frame edge is available.</span>
+</span><span id="full_image_passability_check_state-58"><a href="#full_image_passability_check_state-58"><span class="linenos">58</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state-59"><a href="#full_image_passability_check_state-59"><span class="linenos">59</span></a>        <span class="c1"># This path is deliberate, not an error: a fully open doorway may leave</span>
+</span><span id="full_image_passability_check_state-60"><a href="#full_image_passability_check_state-60"><span class="linenos">60</span></a>        <span class="c1"># too little planar surface for the glass detector to confirm.</span>
+</span><span id="full_image_passability_check_state-61"><a href="#full_image_passability_check_state-61"><span class="linenos">61</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable in this state</span>
+</span><span id="full_image_passability_check_state-62"><a href="#full_image_passability_check_state-62"><span class="linenos">62</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
+</span><span id="full_image_passability_check_state-63"><a href="#full_image_passability_check_state-63"><span class="linenos">63</span></a>        <span class="c1"># The plane distance is refreshed by the plane-search state and travels on</span>
+</span><span id="full_image_passability_check_state-64"><a href="#full_image_passability_check_state-64"><span class="linenos">64</span></a>        <span class="c1"># the context, so neither value needs a parameter-server round trip here.</span>
+</span><span id="full_image_passability_check_state-65"><a href="#full_image_passability_check_state-65"><span class="linenos">65</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
+</span><span id="full_image_passability_check_state-66"><a href="#full_image_passability_check_state-66"><span class="linenos">66</span></a>        
+</span><span id="full_image_passability_check_state-67"><a href="#full_image_passability_check_state-67"><span class="linenos">67</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
+</span><span id="full_image_passability_check_state-68"><a href="#full_image_passability_check_state-68"><span class="linenos">68</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
+</span><span id="full_image_passability_check_state-69"><a href="#full_image_passability_check_state-69"><span class="linenos">69</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state-70"><a href="#full_image_passability_check_state-70"><span class="linenos">70</span></a>        
+</span><span id="full_image_passability_check_state-71"><a href="#full_image_passability_check_state-71"><span class="linenos">71</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
+</span><span id="full_image_passability_check_state-72"><a href="#full_image_passability_check_state-72"><span class="linenos">72</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state-73"><a href="#full_image_passability_check_state-73"><span class="linenos">73</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="c1"># use the plane distance as the fallback door depth for passability check when no door frame is detected in the middle frame</span>
+</span><span id="full_image_passability_check_state-74"><a href="#full_image_passability_check_state-74"><span class="linenos">74</span></a>        <span class="c1">#ctx.plane_result is already set in the previous glass door plane detection state, so no need to set it here</span>
+</span><span id="full_image_passability_check_state-75"><a href="#full_image_passability_check_state-75"><span class="linenos">75</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
 </span></pre></div>
 
 
@@ -211,14 +228,13 @@
 reference instead, allowing the downstream node to search the full view
 for a virtual corridor.</p>
 
-<p>Attributes:
-    reference_door_distance_m:
-        Configured nominal door distance used when no plane was found.</p>
+<h6 id="attributes">Attributes:</h6>
 
-<pre><code>ransac_plane_distance:
-    Latest confirmed plane distance used when the plane exists but no
-    center-frame pair was detected.
-</code></pre>
+<ul>
+<li><strong>reference_door_distance_m:</strong>  Configured nominal door distance used when no plane was found.</li>
+<li><strong>ransac_plane_distance:</strong>  Latest confirmed plane distance used when the plane exists but no
+center-frame pair was detected.</li>
+</ul>
 </div>
 
 
@@ -237,20 +253,24 @@ for a virtual corridor.</p>
 </span><span id="full_image_passability_check_state.__init__-31"><a href="#full_image_passability_check_state.__init__-31"><span class="linenos">31</span></a><span class="sd">        Initialize fallback depth references from ROS parameters.</span>
 </span><span id="full_image_passability_check_state.__init__-32"><a href="#full_image_passability_check_state.__init__-32"><span class="linenos">32</span></a>
 </span><span id="full_image_passability_check_state.__init__-33"><a href="#full_image_passability_check_state.__init__-33"><span class="linenos">33</span></a><span class="sd">        Notes:</span>
-</span><span id="full_image_passability_check_state.__init__-34"><a href="#full_image_passability_check_state.__init__-34"><span class="linenos">34</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is required and</span>
-</span><span id="full_image_passability_check_state.__init__-35"><a href="#full_image_passability_check_state.__init__-35"><span class="linenos">35</span></a><span class="sd">            has no local default in this constructor.</span>
-</span><span id="full_image_passability_check_state.__init__-36"><a href="#full_image_passability_check_state.__init__-36"><span class="linenos">36</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state.__init__-37"><a href="#full_image_passability_check_state.__init__-37"><span class="linenos">37</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state.__init__-38"><a href="#full_image_passability_check_state.__init__-38"><span class="linenos">38</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state.__init__-39"><a href="#full_image_passability_check_state.__init__-39"><span class="linenos">39</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;~plane_detector/output/ransac_plane_distance&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state.__init__-34"><a href="#full_image_passability_check_state.__init__-34"><span class="linenos">34</span></a><span class="sd">            ``~plane_detector/output/ransac_plane_distance`` is updated during the</span>
+</span><span id="full_image_passability_check_state.__init__-35"><a href="#full_image_passability_check_state.__init__-35"><span class="linenos">35</span></a><span class="sd">            run, so it is taken from the frame context rather than read here. The</span>
+</span><span id="full_image_passability_check_state.__init__-36"><a href="#full_image_passability_check_state.__init__-36"><span class="linenos">36</span></a><span class="sd">            reference distance is static and is cached once.</span>
+</span><span id="full_image_passability_check_state.__init__-37"><a href="#full_image_passability_check_state.__init__-37"><span class="linenos">37</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state.__init__-38"><a href="#full_image_passability_check_state.__init__-38"><span class="linenos">38</span></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;full_image_passability_check_state&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state.__init__-39"><a href="#full_image_passability_check_state.__init__-39"><span class="linenos">39</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span> <span class="o">=</span> <span class="n">rospy</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s2">&quot;~reference_door_distance_m&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">)</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Initialize fallback depth references from ROS parameters.</p>
 
-<p>Notes:
-    <code>~plane_detector/output/ransac_plane_distance</code> is required and
-    has no local default in this constructor.</p>
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p><code>~plane_detector/output/ransac_plane_distance</code> is updated during the
+  run, so it is taken from the frame context rather than read here. The
+  reference distance is static and is cached once.</p>
+</blockquote>
 </div>
 
 
@@ -266,17 +286,6 @@ for a virtual corridor.</p>
     
 
                             </div>
-                            <div id="full_image_passability_check_state.ransac_plane_distance" class="classattr">
-                                <div class="attr variable">
-            <span class="name">ransac_plane_distance</span>
-
-        
-    </div>
-    <a class="headerlink" href="#full_image_passability_check_state.ransac_plane_distance"></a>
-    
-    
-
-                            </div>
                             <div id="full_image_passability_check_state.do_action" class="classattr">
                                         <input id="full_image_passability_check_state.do_action-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
@@ -288,47 +297,67 @@ for a virtual corridor.</p>
 
     </div>
     <a class="headerlink" href="#full_image_passability_check_state.do_action"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="full_image_passability_check_state.do_action-40"><a href="#full_image_passability_check_state.do_action-40"><span class="linenos">40</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
-</span><span id="full_image_passability_check_state.do_action-41"><a href="#full_image_passability_check_state.do_action-41"><span class="linenos">41</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state.do_action-42"><a href="#full_image_passability_check_state.do_action-42"><span class="linenos">42</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
-</span><span id="full_image_passability_check_state.do_action-43"><a href="#full_image_passability_check_state.do_action-43"><span class="linenos">43</span></a>
-</span><span id="full_image_passability_check_state.do_action-44"><a href="#full_image_passability_check_state.do_action-44"><span class="linenos">44</span></a><span class="sd">        Args:</span>
-</span><span id="full_image_passability_check_state.do_action-45"><a href="#full_image_passability_check_state.do_action-45"><span class="linenos">45</span></a><span class="sd">            ctx:</span>
-</span><span id="full_image_passability_check_state.do_action-46"><a href="#full_image_passability_check_state.do_action-46"><span class="linenos">46</span></a><span class="sd">                Shared context containing the fused failure label.</span>
-</span><span id="full_image_passability_check_state.do_action-47"><a href="#full_image_passability_check_state.do_action-47"><span class="linenos">47</span></a>
-</span><span id="full_image_passability_check_state.do_action-48"><a href="#full_image_passability_check_state.do_action-48"><span class="linenos">48</span></a><span class="sd">        Returns:</span>
-</span><span id="full_image_passability_check_state.do_action-49"><a href="#full_image_passability_check_state.do_action-49"><span class="linenos">49</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
-</span><span id="full_image_passability_check_state.do_action-50"><a href="#full_image_passability_check_state.do_action-50"><span class="linenos">50</span></a>
-</span><span id="full_image_passability_check_state.do_action-51"><a href="#full_image_passability_check_state.do_action-51"><span class="linenos">51</span></a><span class="sd">        Notes:</span>
-</span><span id="full_image_passability_check_state.do_action-52"><a href="#full_image_passability_check_state.do_action-52"><span class="linenos">52</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
-</span><span id="full_image_passability_check_state.do_action-53"><a href="#full_image_passability_check_state.do_action-53"><span class="linenos">53</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
-</span><span id="full_image_passability_check_state.do_action-54"><a href="#full_image_passability_check_state.do_action-54"><span class="linenos">54</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="full_image_passability_check_state.do_action-55"><a href="#full_image_passability_check_state.do_action-55"><span class="linenos">55</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable</span>
-</span><span id="full_image_passability_check_state.do_action-56"><a href="#full_image_passability_check_state.do_action-56"><span class="linenos">56</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
-</span><span id="full_image_passability_check_state.do_action-57"><a href="#full_image_passability_check_state.do_action-57"><span class="linenos">57</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
-</span><span id="full_image_passability_check_state.do_action-58"><a href="#full_image_passability_check_state.do_action-58"><span class="linenos">58</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
-</span><span id="full_image_passability_check_state.do_action-59"><a href="#full_image_passability_check_state.do_action-59"><span class="linenos">59</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state.do_action-60"><a href="#full_image_passability_check_state.do_action-60"><span class="linenos">60</span></a>        
-</span><span id="full_image_passability_check_state.do_action-61"><a href="#full_image_passability_check_state.do_action-61"><span class="linenos">61</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
-</span><span id="full_image_passability_check_state.do_action-62"><a href="#full_image_passability_check_state.do_action-62"><span class="linenos">62</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
-</span><span id="full_image_passability_check_state.do_action-63"><a href="#full_image_passability_check_state.do_action-63"><span class="linenos">63</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
-</span><span id="full_image_passability_check_state.do_action-64"><a href="#full_image_passability_check_state.do_action-64"><span class="linenos">64</span></a>        
-</span><span id="full_image_passability_check_state.do_action-65"><a href="#full_image_passability_check_state.do_action-65"><span class="linenos">65</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="full_image_passability_check_state.do_action-41"><a href="#full_image_passability_check_state.do_action-41"><span class="linenos">41</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">do_action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">FrameContext</span><span class="p">):</span>
+</span><span id="full_image_passability_check_state.do_action-42"><a href="#full_image_passability_check_state.do_action-42"><span class="linenos">42</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state.do_action-43"><a href="#full_image_passability_check_state.do_action-43"><span class="linenos">43</span></a><span class="sd">        Choose a fallback depth reference and finish door detection.</span>
+</span><span id="full_image_passability_check_state.do_action-44"><a href="#full_image_passability_check_state.do_action-44"><span class="linenos">44</span></a>
+</span><span id="full_image_passability_check_state.do_action-45"><a href="#full_image_passability_check_state.do_action-45"><span class="linenos">45</span></a><span class="sd">        Args:</span>
+</span><span id="full_image_passability_check_state.do_action-46"><a href="#full_image_passability_check_state.do_action-46"><span class="linenos">46</span></a><span class="sd">            ctx:</span>
+</span><span id="full_image_passability_check_state.do_action-47"><a href="#full_image_passability_check_state.do_action-47"><span class="linenos">47</span></a><span class="sd">                Shared context containing the fused failure label.</span>
+</span><span id="full_image_passability_check_state.do_action-48"><a href="#full_image_passability_check_state.do_action-48"><span class="linenos">48</span></a>
+</span><span id="full_image_passability_check_state.do_action-49"><a href="#full_image_passability_check_state.do_action-49"><span class="linenos">49</span></a><span class="sd">        Returns:</span>
+</span><span id="full_image_passability_check_state.do_action-50"><a href="#full_image_passability_check_state.do_action-50"><span class="linenos">50</span></a><span class="sd">            Always returns ``&quot;final_state&quot;``.</span>
+</span><span id="full_image_passability_check_state.do_action-51"><a href="#full_image_passability_check_state.do_action-51"><span class="linenos">51</span></a>
+</span><span id="full_image_passability_check_state.do_action-52"><a href="#full_image_passability_check_state.do_action-52"><span class="linenos">52</span></a><span class="sd">        Notes:</span>
+</span><span id="full_image_passability_check_state.do_action-53"><a href="#full_image_passability_check_state.do_action-53"><span class="linenos">53</span></a><span class="sd">            ``No_door_plane_detected`` uses the configured nominal distance,</span>
+</span><span id="full_image_passability_check_state.do_action-54"><a href="#full_image_passability_check_state.do_action-54"><span class="linenos">54</span></a><span class="sd">            whereas ``no_frame_detected`` uses the most recent RANSAC distance.</span>
+</span><span id="full_image_passability_check_state.do_action-55"><a href="#full_image_passability_check_state.do_action-55"><span class="linenos">55</span></a><span class="sd">            The label itself is set by the state that chose this fallback and</span>
+</span><span id="full_image_passability_check_state.do_action-56"><a href="#full_image_passability_check_state.do_action-56"><span class="linenos">56</span></a><span class="sd">            is left unchanged. ``ctx.mid_frame_x_px_for_passability_check`` is</span>
+</span><span id="full_image_passability_check_state.do_action-57"><a href="#full_image_passability_check_state.do_action-57"><span class="linenos">57</span></a><span class="sd">            always cleared because no frame edge is available.</span>
+</span><span id="full_image_passability_check_state.do_action-58"><a href="#full_image_passability_check_state.do_action-58"><span class="linenos">58</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="full_image_passability_check_state.do_action-59"><a href="#full_image_passability_check_state.do_action-59"><span class="linenos">59</span></a>        <span class="c1"># This path is deliberate, not an error: a fully open doorway may leave</span>
+</span><span id="full_image_passability_check_state.do_action-60"><a href="#full_image_passability_check_state.do_action-60"><span class="linenos">60</span></a>        <span class="c1"># too little planar surface for the glass detector to confirm.</span>
+</span><span id="full_image_passability_check_state.do_action-61"><a href="#full_image_passability_check_state.do_action-61"><span class="linenos">61</span></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">mid_frame_x_px_for_passability_check</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Not applicable in this state</span>
+</span><span id="full_image_passability_check_state.do_action-62"><a href="#full_image_passability_check_state.do_action-62"><span class="linenos">62</span></a>        <span class="c1"># door state label should have been set in the previous state when determine to transition to this state</span>
+</span><span id="full_image_passability_check_state.do_action-63"><a href="#full_image_passability_check_state.do_action-63"><span class="linenos">63</span></a>        <span class="c1"># The plane distance is refreshed by the plane-search state and travels on</span>
+</span><span id="full_image_passability_check_state.do_action-64"><a href="#full_image_passability_check_state.do_action-64"><span class="linenos">64</span></a>        <span class="c1"># the context, so neither value needs a parameter-server round trip here.</span>
+</span><span id="full_image_passability_check_state.do_action-65"><a href="#full_image_passability_check_state.do_action-65"><span class="linenos">65</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">ransac_plane_distance</span>
+</span><span id="full_image_passability_check_state.do_action-66"><a href="#full_image_passability_check_state.do_action-66"><span class="linenos">66</span></a>        
+</span><span id="full_image_passability_check_state.do_action-67"><a href="#full_image_passability_check_state.do_action-67"><span class="linenos">67</span></a>        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;No_door_plane_detected&quot;</span><span class="p">:</span>
+</span><span id="full_image_passability_check_state.do_action-68"><a href="#full_image_passability_check_state.do_action-68"><span class="linenos">68</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference_door_distance_m</span>  <span class="c1"># set a default door depth for passability check when no door plane is detected</span>
+</span><span id="full_image_passability_check_state.do_action-69"><a href="#full_image_passability_check_state.do_action-69"><span class="linenos">69</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door plane detected in the previous state, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state.do_action-70"><a href="#full_image_passability_check_state.do_action-70"><span class="linenos">70</span></a>        
+</span><span id="full_image_passability_check_state.do_action-71"><a href="#full_image_passability_check_state.do_action-71"><span class="linenos">71</span></a>        <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">door_state_label</span> <span class="o">==</span> <span class="s2">&quot;no_frame_detected&quot;</span><span class="p">:</span>
+</span><span id="full_image_passability_check_state.do_action-72"><a href="#full_image_passability_check_state.do_action-72"><span class="linenos">72</span></a>            <span class="n">rospy</span><span class="o">.</span><span class="n">logwarn</span><span class="p">(</span><span class="s2">&quot;No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.&quot;</span><span class="p">)</span>
+</span><span id="full_image_passability_check_state.do_action-73"><a href="#full_image_passability_check_state.do_action-73"><span class="linenos">73</span></a>            <span class="n">ctx</span><span class="o">.</span><span class="n">door_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ransac_plane_distance</span> <span class="c1"># use the plane distance as the fallback door depth for passability check when no door frame is detected in the middle frame</span>
+</span><span id="full_image_passability_check_state.do_action-74"><a href="#full_image_passability_check_state.do_action-74"><span class="linenos">74</span></a>        <span class="c1">#ctx.plane_result is already set in the previous glass door plane detection state, so no need to set it here</span>
+</span><span id="full_image_passability_check_state.do_action-75"><a href="#full_image_passability_check_state.do_action-75"><span class="linenos">75</span></a>        <span class="k">return</span> <span class="s2">&quot;final_state&quot;</span>  <span class="c1"># Transition back to final state and wait until  get request to go to idle state again</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Choose a fallback depth reference and finish door detection.</p>
 
-<p>Args:
-    ctx:
-        Shared context containing the fused failure label.</p>
+<h6 id="arguments">Arguments:</h6>
 
-<p>Returns:
-    Always returns <code>"final_state"</code>.</p>
+<ul>
+<li><strong>ctx:</strong>  Shared context containing the fused failure label.</li>
+</ul>
 
-<p>Notes:
-    <code>No_door_plane_detected</code> uses the configured nominal distance,
-    whereas <code>no_frame_detected</code> uses the most recent RANSAC distance.</p>
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>Always returns <code>"final_state"</code>.</p>
+</blockquote>
+
+<h6 id="notes">Notes:</h6>
+
+<blockquote>
+  <p><code>No_door_plane_detected</code> uses the configured nominal distance,
+  whereas <code>no_frame_detected</code> uses the most recent RANSAC distance.
+  The label itself is set by the state that chose this fallback and
+  is left unchanged. <code>ctx.mid_frame_x_px_for_passability_check</code> is
+  always cleared because no frame edge is available.</p>
+</blockquote>
 </div>
 
 

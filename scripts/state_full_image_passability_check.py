@@ -57,7 +57,7 @@ class full_image_passability_check_state(BaseState):
         """
         # This path is deliberate, not an error: a fully open doorway may leave
         # too little planar surface for the glass detector to confirm.
-        ctx.mid_frame_x_px_for_passability_check = None  # Not applicable
+        ctx.mid_frame_x_px_for_passability_check = None  # Not applicable in this state
         # door state label should have been set in the previous state when determine to transition to this state
         # The plane distance is refreshed by the plane-search state and travels on
         # the context, so neither value needs a parameter-server round trip here.
@@ -69,6 +69,6 @@ class full_image_passability_check_state(BaseState):
         
         elif ctx.door_state_label == "no_frame_detected":
             rospy.logwarn("No door frame detected in the middle frame, and the smoothed door state is also no_frame_detected, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.")
-            ctx.door_depth = self.ransac_plane_distance
-        
+            ctx.door_depth = self.ransac_plane_distance # use the plane distance as the fallback door depth for passability check when no door frame is detected in the middle frame
+        #ctx.plane_result is already set in the previous glass door plane detection state, so no need to set it here
         return "final_state"  # Transition back to final state and wait until  get request to go to idle state again

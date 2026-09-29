@@ -53,8 +53,11 @@ class FrameContext:
             Start signal consumed by the idle state.
 
         plane_result:
-            Confirmed plane distance and normal published to downstream nodes.
-            It is set by plane search and kept until the next confirmation.
+            Plane distance and normal sent to downstream nodes in the door
+            detection result. Plane search sets it on confirmation, or to the
+            reference door distance with normal ``(0, 0, 1)`` when no plane is
+            found. Entering idle clears it, so it only describes the current
+            cycle.
 
         color_image_for_plane_detection:
             Color image receiving the plane overlays; a private copy only when
@@ -127,12 +130,13 @@ class FrameContext:
             edges, or ``None`` when visualization is disabled.
 
         door_state_label:
-            Navigation-facing door label published on every frame. Fusion sets
-            it from the smoothed label: an open label only together with
-            current-frame geometry, ``"no_frame_detected"`` only after the
+            Door label, sent in the door detection result when a cycle ends.
+            Fusion sets it from the smoothed label: an open label only together
+            with current-frame geometry, ``"no_frame_detected"`` only after the
             configured number of consecutive frames, and ``"unknown"`` in
             between. Plane search sets ``"No_door_plane_detected"``. Entering
-            idle resets it to ``None``, which is published as ``"unknown"``.
+            idle resets it to ``None``, which the reset result sends as
+            ``"unknown"``.
 
         mid_frame_x_px_for_passability_check:
             Image x-coordinate of the central frame edge bordering the opening.

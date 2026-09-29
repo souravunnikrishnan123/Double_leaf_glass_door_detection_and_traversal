@@ -20,14 +20,14 @@ if _scripts_path not in sys.path:
 from check_if_passable import Passability_checker
 from duration import get_duration_seconds
 import rospy
-from std_msgs.msg import String, Float32, Int32, Bool, UInt8
+from std_msgs.msg import Bool, UInt8
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import numpy as np  
 from geometry_msgs.msg import Twist
-from robodog_glass_door_detection.msg import Robot_passability
+from robodog_glass_door_detection.msg import Robot_passability, DoorDetectionResult
 from processing_classes import backproject_depth_to_points
 from resolution_scaling import ResolutionScaler
 import cv2
@@ -86,10 +86,11 @@ class PassabilityCheckerNode:
         """
         Initialize corridor state, parameters, and ROS interfaces.
 
-        The constructor creates the always-on control subscribers and result
-        publishers. High-bandwidth image topics and odometry remain
-        unsubscribed until a suitable door state activates the node. Finally,
-        the camera extrinsics are read from TF.
+        The constructor creates the always-on control subscribers, including
+        the latched ``/glass_door_detection/door_detection_result``, and the
+        result publishers. High-bandwidth image topics and odometry remain
+        unsubscribed until a suitable detection result activates the node.
+        Finally, the camera extrinsics are read from TF.
 
         Raises:
             tf2_ros.LookupException:
@@ -197,10 +198,12 @@ class PassabilityCheckerNode:
         self.slide_step_x_direction = rospy.get_param(f"{ns}/virtual_corridor_search/slide_step_x_direction", 0.1)  # meters
         
         # ---- Always-on subscriber ---- or the trigger to activate
-        self.door_state_sub = rospy.Subscriber(
-            "/glass_door_detection/door_state",
-            String,
-            self._activate_node_cb,
+        # The whole detection result arrives in one latched message, so activation
+        # and its door geometry can never be received out of order.
+        self.door_detection_result_sub = rospy.Subscriber(
+            "/glass_door_detection/door_detection_result",
+            DoorDetectionResult,
+            self._door_detection_result_cb,
             queue_size=1
         )
 
@@ -224,30 +227,8 @@ class PassabilityCheckerNode:
                                                               )
 
 
-        # Keep small control topics alive so the activation handshake cannot miss
-        # them. High-bandwidth image subscriptions are created only while active.
-        # other always on subscribers to get door depth and mid frame x px. these are low bandwidth topics, hence okay to keep them always on unlike color and depth images
-        rospy.Subscriber(
-                "/glass_door_detection/door_depth",
-                Float32,
-                self._door_depth_cb,
-                queue_size=1
-            )
-        
-        rospy.Subscriber(
-                "/glass_door_detection/mid_frame_x_px_for_passability_check",
-                Int32,
-                self._mid_frame_x_px_cb,
-                queue_size=1
-            )
-
-        rospy.Subscriber(
-                "/glass_door_detection/plane_info",
-                Twist,
-                self._plane_info_cb,
-                queue_size=1
-            )
-
+        # Small control topics stay subscribed so the activation handshake cannot
+        # miss them. High-bandwidth image subscriptions are created only while active.
 
 
 
@@ -413,33 +394,54 @@ class PassabilityCheckerNode:
         return R_rc, t_rc
 
 
-    def _activate_node_cb(self, msg):
+    def _door_detection_result_cb(self, msg):
         """
-        Activate passability processing for an eligible door state.
+        Store a finished door-detection result and activate processing.
 
         Args:
             msg:
-                ROS ``String`` containing the detected door state.
+                ``DoorDetectionResult`` sent once per detection cycle.
 
         Notes:
             ``open_left``, ``open_right``, ``No_door_plane_detected``, and
-            ``no_frame_detected`` start a new cycle. The first accepted state is
-            retained as the basis for corridor definition.
+            ``no_frame_detected`` start a new cycle; the reset sent when the
+            detector returns to idle (``"unknown"``) and results received while
+            already active are ignored. A non-positive or NaN depth and a
+            non-positive pixel are stored as ``None``. The plane distance and
+            normal are always present in a result; for
+            ``No_door_plane_detected`` the detector sends the reference door
+            distance and normal ``(0, 0, 1)``. All values are stored before the
+            node is marked active, so :meth:`run` never sees a partial result.
         """
         # The two failure labels are accepted because a fully open doorway may
         # provide no pane or center frame even though free space is visible.
+        if msg.door_state not in ["open_left", "open_right", "No_door_plane_detected", "no_frame_detected"]:
+            return
+        if self.active:
+            return
+
+        self.door_depth_from_frame_detection_node = (
+            float(msg.door_depth) if np.isfinite(msg.door_depth) and msg.door_depth > 0.0 else None
+        )
+        self.mid_frame_x_px_from_frame_detection_node = msg.mid_frame_x_px if msg.mid_frame_x_px > 0 else None
+        self.plane_info_distance_m = float(msg.plane_distance)
+        self.plane_info_norm_camera_frame = np.array(
+                [msg.plane_normal.x, msg.plane_normal.y, msg.plane_normal.z], dtype=np.float64
+            )
         
-        if msg.data in ["open_left", "open_right", "No_door_plane_detected", "no_frame_detected"]: # one time activation on these states
-            if not self.active:
-                rospy.loginfo("PassabilityChecker: activated and door status is %s", msg.data)
-                self.active = True
-                #to create subscriptions
-                self.activate_camera()
-                self.get_odom()
-                # store the door open status only once at activation
-                self.door_status_from_frame_detection_node = msg.data 
-                self.define_new_corridor_req_from_frame_detection = True  # to define new corridor on next run
-                
+        self.door_status_from_frame_detection_node = msg.door_state
+        rospy.loginfo(
+            "PassabilityChecker: activated. door status %s, door depth %s, mid frame x %s, plane normal %s",
+            msg.door_state, self.door_depth_from_frame_detection_node,
+            self.mid_frame_x_px_from_frame_detection_node, self.plane_info_norm_camera_frame,
+        )
+
+        #to create subscriptions
+        self.activate_camera()
+        self.get_odom()
+        self.define_new_corridor_req_from_frame_detection = True  # to define new corridor on next run
+        self.active = True
+
             
 
     def _deactivate_node_cb(self, msg):
@@ -632,50 +634,6 @@ class PassabilityCheckerNode:
             self.fx, self.fy = K[0], K[4]
             self.cx, self.cy = K[2], K[5]
             rospy.loginfo("Camera intrinsics received and stored.")
-    
-    def _mid_frame_x_px_cb(self, msg):
-        """
-        Store the first valid door-frame midpoint pixel of an active cycle.
-
-        Args:
-            msg:
-                ROS ``Int32`` containing the horizontal image coordinate.
-
-        Notes:
-            Non-positive values and samples received while inactive are
-            ignored.
-        """
-        if msg.data <= 0: # invalid pixel
-            return
-        # only update if not set. which means take only first valid pixel after activation
-        # checking self.active will make sure we get door depth and mid frame only when door state is open, No_door_plane_detected", "no_frame_detected
-        # Latch the value that belongs to activation; later detector frames may
-        # refer to a different instantaneous ROI while the robot is moving.
-        if self.mid_frame_x_px_from_frame_detection_node is None and self.active:
-            self.mid_frame_x_px_from_frame_detection_node = msg.data
-
-    def _plane_info_cb(self, msg):
-        """
-        Store the first valid detected door-plane measurement.
-
-        Args:
-            msg:
-                ROS ``Twist`` used as a compact container. ``linear.x`` is
-                plane distance in meters, while ``angular.(x, y, z)`` contains
-                the camera-frame normal.
-
-        Notes:
-            A non-positive distance is invalid. Only the first valid sample in
-            an active cycle is retained.
-        """
-        # plane info is published as Twist for simplicity, where:
-        # linear.x = distance_m, angular.x = plane_norm_x, angular.y = plane_norm_y, angular.z = plane_norm_z
-        if msg.linear.x <= 0.0: # invalid distance
-            return
-        if self.plane_info_distance_m is None and self.active:
-            self.plane_info_distance_m = msg.linear.x
-            self.plane_info_norm_camera_frame = np.array([msg.angular.x, msg.angular.y, msg.angular.z])
-            rospy.loginfo(f"Received plane info from frame detection node: distance {self.plane_info_distance_m:.2f} m, normal vector {self.plane_info_norm_camera_frame}")
 
     def _request_local_passability_check_cb(self, msg):
         """
@@ -707,27 +665,6 @@ class PassabilityCheckerNode:
                 rospy.loginfo("PassabilityChecker: New corridor definition requested by traversal node")
                 self.define_new_corridor_req_from_traversal = True  # to define new corridor on next run
                 self.corridor_middle_point_depth_from_traversal = msg.linear.y  # to define new corridor based on this depth
-
-
-    
-    def _door_depth_cb(self, msg):
-        """
-        Store the first valid detected door depth of an active cycle.
-
-        Args:
-            msg:
-                ROS ``Float32`` containing depth in meters.
-
-        Notes:
-            Non-positive samples and later samples from the same cycle are
-            ignored.
-        """
-        if msg.data <= 0.0: # invalid depth
-            return
-        # only update if not set. which means take only first valid depth after activation
-        # checking self.active will make sure we get door depth and mid frame only when door state is open, No_door_plane_detected", "no_frame_detected
-        if self.door_depth_from_frame_detection_node is None and self.active:
-            self.door_depth_from_frame_detection_node = msg.data
 
     def _odom_callback(self, msg):
         """
@@ -771,9 +708,12 @@ class PassabilityCheckerNode:
             the activation pose have all been received; otherwise ``False``.
 
         Notes:
-            The door-plane normal from ``/glass_door_detection/plane_info`` is
-            not part of this check, although corridor definition in
-            :meth:`run` uses it. The mid-frame pixel is not checked either.
+            The door state, door depth, mid-frame pixel and plane normal all
+            come from one detection result and are stored together before the
+            node is activated, so only their validity matters here. The door
+            depth and plane normal are always present in a detector result; the
+            mid-frame pixel is not checked, because only the open states carry
+            it.
         """
         return (
             self.color_image is not None and
@@ -1195,8 +1135,9 @@ class PassabilityCheckerNode:
             traversal request; only the latter is acknowledged on
             ``~virtual_corridor_definition_finished``. If no virtual corridor is
             found, definition is retried on the next iteration. In every case
-            the corridor axis follows the door-plane normal received on
-            ``/glass_door_detection/plane_info``.
+            the corridor axis follows the door-plane normal from the detection
+            result, which is the camera axis ``(0, 0, 1)`` when no plane was
+            detected.
 
             Corridor mode keeps points within the corridor half-width of the
             propagated corridor axis and at or beyond the propagated corridor

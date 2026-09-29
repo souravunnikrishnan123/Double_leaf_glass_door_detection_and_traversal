@@ -25,8 +25,9 @@ class searching_door_plane_state(BaseState):
             Consecutive empty frames tolerated before full-image fallback.
 
         reference_door_distance_m:
-            Nominal door distance from configuration. The plane detector
-            applies its own distance gate; this copy is currently unused.
+            Nominal door distance from configuration. Used as the plane
+            distance of the default plane reported when no door plane is
+            found; the plane detector applies its own distance gate.
 
         global_map_distance_accuracy_to_door_plane:
             Fractional uncertainty applied to the nominal map distance.
@@ -83,7 +84,10 @@ class searching_door_plane_state(BaseState):
             estimated ``ctx.door_geometry`` receives the glass width reduced by
             ``margin_for_glass_width_inaccuracy`` and the larger of the
             estimated and current center-frame widths. On the fallback path
-            ``ctx.door_state_label`` is set to ``"No_door_plane_detected"``.
+            ``ctx.door_state_label`` is set to ``"No_door_plane_detected"`` and
+            ``ctx.plane_result`` to a default plane facing the camera: the
+            reference door distance with normal ``(0, 0, 1)``.
+            ``ctx.ransac_plane_distance`` is left unchanged on that path.
         """
         #check if there is a glass door plane in front of the camera
         # if yes, then proceed with line detection and frame detection
@@ -170,8 +174,10 @@ class searching_door_plane_state(BaseState):
                     # A wide-open doorway may offer no pane to fit, so route to
                     # direct clearance checking instead of waiting forever.
                     ctx.door_state_label = "No_door_plane_detected"  # No door plane detected
+                    ctx.plane_result = {"distance_m": self.reference_door_distance_m , "plane_norm_vector": [0.0, 0.0, 1.0]} # set the plane result to a default value when no door plane is detected
+                    rospy.logwarn("No door plane detected for several frames, so we have to directly check the passability with full image and depth without relying on mid frame door detection. This is the least desirable case because it means the door detection algorithm fails to detect any reliable door signal in the middle frame. The passability check result in this case will be less reliable and more noisy, so please be cautious when using the passability check result in this case.")
                     return "full_image_passability_check_state"
-                #stay in this state
+                #stay in this state until the max_no_candidate_frames is reached, then transition to full_image_passability_check_state
                 return None
 
 

@@ -8,8 +8,6 @@ detection, status fusion, and publication of navigation-facing results.
 
 import rospy
 import numpy as np
-from std_msgs.msg import String, Float32, Int32
-from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from pyinstrument import Profiler
@@ -39,6 +37,7 @@ from state_full_image_passability_check import full_image_passability_check_stat
 from setup_realsense_pipeline import setup_realsense_pipeline
 from visualization_utils import  show_stacked_visualization, setup_visualization_mode, DiagnosticBanner, add_banner
 from std_msgs.msg import Bool
+from robodog_glass_door_detection.msg import DoorDetectionResult
 import threading
 
 
@@ -83,17 +82,10 @@ class DoorDetectionNode:
         sm:
             Registered frame-driven detection state machine.
 
-        door_state_pub:
-            Publisher for the final smoothed door-state label.
-
-        mid_frame_x_px_for_passability_check_pub:
-            Publisher for the opening's central-frame x-coordinate.
-
-        door_depth_pub:
-            Publisher for the selected door reference depth.
-
-        plane_info_pub:
-            Publisher encoding plane distance and normal in a ``Twist``.
+        door_detection_result_pub:
+            Latched publisher for :class:`DoorDetectionResult`. It carries a
+            finished cycle's result once, and a reset once the machine
+            returns to idle.
 
         color_branch_color_image_pub:
             Publisher for the color-branch debug image.
@@ -201,12 +193,12 @@ class DoorDetectionNode:
         self.sm.set_state("idle_state")
 
         # state Publishers
-        self.door_state_pub = rospy.Publisher("~door_state", String, queue_size=10)
-        self.mid_frame_x_px_for_passability_check_pub = rospy.Publisher("~mid_frame_x_px_for_passability_check", Int32, queue_size=10)
-        self.door_depth_pub = rospy.Publisher("~door_depth", Float32, queue_size=10)
-
-
-        self.plane_info_pub = rospy.Publisher("~plane_info", Twist, queue_size=10)
+        # One message per cycle carries every value the passability node needs.
+        # Separate topics can arrive in any order, and latching lets a node that
+        # (re)connects late still receive the current result.
+        self.door_detection_result_pub = rospy.Publisher(
+            "~door_detection_result", DoorDetectionResult, queue_size=1, latch=True
+        )
         # visualization publishers
         self.color_branch_color_image_pub = rospy.Publisher("~viz/color_branch_color_image", Image, queue_size=1)
         self.depth_branch_color_image_pub = rospy.Publisher("~viz/depth_branch_color_image", Image, queue_size=1)
@@ -381,6 +373,44 @@ class DoorDetectionNode:
         pub.publish(msg)
         if has_diagnostics:
             annotated_pub.publish(msg)
+
+    def _publish_detection_result(self, ctx, stamp):
+        """
+        Publish the frame context's door result as one latched message.
+
+        Args:
+            ctx:
+                Shared frame context holding the cycle's outputs.
+
+            stamp:
+                Timestamp of the camera frame that produced them.
+
+        Notes:
+            Called on the transition into the final state, and on the return
+            to idle, where the cleared context yields the reset message.
+            Missing values use the message's sentinels: ``"unknown"`` for the
+            label, NaN for the depth and plane distance, ``-1`` for the pixel,
+            and a zero plane normal. Only the reset lacks a plane: a finished
+            cycle always has one, either confirmed or, for
+            ``No_door_plane_detected``, the reference distance with normal
+            ``(0, 0, 1)``.
+        """
+        msg = DoorDetectionResult()
+        msg.header.stamp = stamp
+        msg.door_state = ctx.door_state_label if ctx.door_state_label is not None else "unknown"
+        msg.door_depth = float(ctx.door_depth) if ctx.door_depth is not None else float("nan")
+        mfx = ctx.mid_frame_x_px_for_passability_check
+        msg.mid_frame_x_px = int(mfx) if mfx is not None else -1
+        if ctx.plane_result is not None:
+            msg.plane_distance = float(ctx.plane_result["distance_m"])
+            normal = ctx.plane_result["plane_norm_vector"]
+            msg.plane_normal.x = float(normal[0])
+            msg.plane_normal.y = float(normal[1])
+            msg.plane_normal.z = float(normal[2])
+        else:
+            msg.plane_distance = float("nan")
+        self.door_detection_result_pub.publish(msg)
+        rospy.loginfo("Published door detection result: %s", msg.door_state)
 
     def _seed_runtime_door_geometry(self, ctx):
         """
@@ -594,12 +624,10 @@ class DoorDetectionNode:
             The start request is cleared when the step leaves idle and the
             idle request when the step moves from the final state to idle.
 
-            The door label is published on every frame, as ``"unknown"`` when
-            it is ``None``; the mid-frame pixel and door depth only when they
-            are not ``None``. Plane information is always published, with a
-            zero-distance sentinel and normal ``(0, 0, 1)`` when no plane has
-            been confirmed. Visualization errors are logged at debug level and
-            never stop the navigation outputs.
+            The door result is published once, on ``~door_detection_result``,
+            when the step enters the final state, and a reset once when it
+            returns to idle. Visualization errors are logged at debug level
+            and never stop the navigation outputs.
         """
         # Start sampling on this thread, which is where the work happens and the
         # only thread the session may later be stopped from.
@@ -669,6 +697,13 @@ class DoorDetectionNode:
             self.start_door_frame_detection = False
         if state_before == "final_state" and state_after == "idle_state":
             self.go_to_idle_from_finish_state = False
+        # The result is sent once when a cycle finishes, and the reset once when
+        # the machine goes back to idle; the idle entry hook has already cleared
+        # the context, so the same builder produces the reset.
+        if state_after == "final_state" and state_before != "final_state":
+            self._publish_detection_result(self.sm.ctx, color_msg.header.stamp)
+        if state_before == "final_state" and state_after == "idle_state":
+            self._publish_detection_result(self.sm.ctx, color_msg.header.stamp)
         # Timing averages are flushed by a timer, not here: the writer rewrites the
         # whole output file and must not run at frame rate.
         # Stop sampling once enough frames are captured so the report stays bounded.
@@ -681,50 +716,6 @@ class DoorDetectionNode:
        
 
         
-
-        # Publish current door state (guard None)
-        door_state = self.sm.ctx.door_state_label
-        if door_state is None:
-            door_state = "unknown"
-        self.door_state_pub.publish(String(data=str(door_state)))
-
-        # Publish mid_frame_x for passability (must be an int)
-        mfx = self.sm.ctx.mid_frame_x_px_for_passability_check
-        if mfx is not None:
-            try:
-                self.mid_frame_x_px_for_passability_check_pub.publish(Int32(data=int(mfx)))
-            except (ValueError, TypeError) as e:
-                rospy.logwarn_throttle(5.0, f"mid_frame_x publish skipped (non-integer): {e}")
-
-        # Publish door depth (must be a float)
-        dd = self.sm.ctx.door_depth
-        if dd is not None:
-            try:
-                self.door_depth_pub.publish(Float32(data=float(dd)))
-            except (ValueError, TypeError) as e:
-                rospy.logwarn_throttle(5.0, f"door_depth publish skipped (non-float): {e}")
-        
-        # Twist is used as a compact existing carrier: linear.x is distance and
-        # angular.xyz stores the unit plane normal. It is not a velocity command.
-        pd = self.sm.ctx.plane_result
-        if pd is not None:
-            plane_distance = float(pd["distance_m"])
-            plane_norm = pd["plane_norm_vector"]
-            msg = Twist()
-            msg.linear.x = plane_distance
-            msg.angular.x = plane_norm[0]
-            msg.angular.y = plane_norm[1]
-            msg.angular.z = plane_norm[2]
-        else:
-            # Publish a well-formed sentinel rather than leaving subscribers with
-            # a stale plane from the previous detection cycle.
-            msg = Twist()
-            msg.linear.x = 0.0  # send 0 distance if no plane detected, to avoid issues with downstream consumers expecting a distance value. The normal vector will be set to a default value which can be ignored by downstream consumers since the distance is 0, which can be used by downstream consumers to identify that no plane was detected.
-            msg.angular.x = 0.0
-            msg.angular.y = 0.0
-            msg.angular.z = 1.0  # send a default normal vector pointing straight out if no plane detected, to avoid issues with downstream consumers expecting a normal vector. The distance will be None which can be used by downstream consumers to identify that no plane was detected.
-
-        self.plane_info_pub.publish(msg)
 
         # Visualization failures must never stop the navigation-facing outputs above.
         # Publish visualizations

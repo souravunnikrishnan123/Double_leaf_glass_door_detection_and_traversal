@@ -62,11 +62,12 @@ class idle_state(BaseState):
                 If either log file cannot be created or written.
 
         Notes:
-            ``ctx.door_state_label``, ``ctx.door_depth`` and
-            ``ctx.mid_frame_x_px_for_passability_check`` are set to ``None``,
-            so the node publishes ``"unknown"`` and stops publishing the depth
-            and pixel. The state machine runs this hook inside its update step,
-            before the node publishes, so the reset applies to the same frame.
+            ``ctx.door_state_label``, ``ctx.door_depth``,
+            ``ctx.mid_frame_x_px_for_passability_check`` and
+            ``ctx.plane_result`` are set to ``None``. The state machine runs
+            this hook inside its update step, before the node publishes, so the
+            reset result the node sends on returning to idle is built from the
+            cleared context.
 
             Clearing belongs to entering the state. Doing it in ``do_action``
             rewrote both files on every idle frame, which is two file opens and
@@ -86,6 +87,7 @@ class idle_state(BaseState):
             ctx.door_state_label = None  # Reset the door state label for the new detection cycle
             ctx.door_depth = None  # Reset the door depth image for the new detection cycle
             ctx.mid_frame_x_px_for_passability_check = None  # Reset the mid-frame x pixel for passability check for the new detection cycle
+            ctx.plane_result = None  # A cycle without a confirmed plane must not report the previous door's plane
 
     def do_action(self, ctx: FrameContext):
         """

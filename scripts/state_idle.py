@@ -8,11 +8,12 @@ import os
 
 class idle_state(BaseState):
     """
-    Wait for a start request and reset per-run diagnostic logs.
+    Wait for a start request and reset per-cycle outputs and diagnostic logs.
 
-    On entry, and only when result logging is enabled, the state truncates the
-    raw and smoothed door-state log files. It transitions to plane search once
-    the start flag is set.
+    On entry the state clears the published door outputs of the previous
+    cycle and, only when result logging is enabled, truncates the raw and
+    smoothed door-state log files. It transitions to plane search once the
+    start flag is set.
 
     Attributes:
         name:
@@ -39,8 +40,8 @@ class idle_state(BaseState):
                 result logging is disabled.
 
         Notes:
-            Door-state outputs on the frame context are not reset here; the
-            next detection cycle overwrites them.
+            Door-state outputs on the frame context are reset by
+            :meth:`entry_action`, not here.
         """
         self.enable_result_log = rospy.get_param("~enable_result_log", False)  # Whether to log results to file
         super().__init__("idle_state")
@@ -49,17 +50,24 @@ class idle_state(BaseState):
 
     def entry_action(self, ctx: FrameContext):
         """
-        Truncate the per-run diagnostic logs once, on entering idle.
+        Clear the previous cycle's outputs and diagnostic logs on entering idle.
 
         Args:
             ctx:
-                Shared frame context; unused here.
+                Shared frame context, or ``None`` when idle is entered at node
+                startup before the first frame has arrived.
 
         Raises:
             OSError:
                 If either log file cannot be created or written.
 
         Notes:
+            ``ctx.door_state_label``, ``ctx.door_depth`` and
+            ``ctx.mid_frame_x_px_for_passability_check`` are set to ``None``,
+            so the node publishes ``"unknown"`` and stops publishing the depth
+            and pixel. The state machine runs this hook inside its update step,
+            before the node publishes, so the reset applies to the same frame.
+
             Clearing belongs to entering the state. Doing it in ``do_action``
             rewrote both files on every idle frame, which is two file opens and
             writes per frame for the whole time the node sits idle. Each file
@@ -72,6 +80,12 @@ class idle_state(BaseState):
                 f.write(f"Logging door state by detection algorithm\n")
             with open(self.smoothed_door_state_log_path, "w") as f:
                 f.write(f"Logging smoothed_door_state after temporal smoothing\n")
+
+        # The node enters idle once at startup, before the first frame has created a context.
+        if ctx is not None:
+            ctx.door_state_label = None  # Reset the door state label for the new detection cycle
+            ctx.door_depth = None  # Reset the door depth image for the new detection cycle
+            ctx.mid_frame_x_px_for_passability_check = None  # Reset the mid-frame x pixel for passability check for the new detection cycle
 
     def do_action(self, ctx: FrameContext):
         """

@@ -131,18 +131,20 @@ class FrameContext:
             it from the smoothed label: an open label only together with
             current-frame geometry, ``"no_frame_detected"`` only after the
             configured number of consecutive frames, and ``"unknown"`` in
-            between. Plane search sets ``"No_door_plane_detected"``. It is not
-            cleared when the machine returns to idle.
+            between. Plane search sets ``"No_door_plane_detected"``. Entering
+            idle resets it to ``None``, which is published as ``"unknown"``.
 
         mid_frame_x_px_for_passability_check:
             Image x-coordinate of the central frame edge bordering the opening.
             Fusion clears it every frame and sets it only when an open result
-            ends the cycle; it is ``None`` on the fallback path.
+            ends the cycle; it is ``None`` on the fallback path and is reset
+            when the machine enters idle.
 
         door_depth:
             Door reference depth for passability checking. Fusion clears it
             every frame and sets it when an open result ends the cycle; the
             full-image fallback sets the nominal or RANSAC plane distance.
+            Entering idle resets it to ``None``.
 
         viz_color_stack:
             Published color-branch stacked debug image.

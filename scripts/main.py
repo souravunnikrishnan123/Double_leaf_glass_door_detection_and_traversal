@@ -67,10 +67,12 @@ class DoorDetectionNode:
             Cached vertical principal point.
 
         go_to_idle_from_finish_state:
-            Reset request forwarded into the frame context.
+            Reset request forwarded into the frame context. Cleared once the
+            machine has moved from the final state to idle.
 
         start_door_frame_detection:
-            Start request forwarded into the frame context.
+            Start request forwarded into the frame context. Cleared once the
+            machine has left idle, so each request starts one detection cycle.
 
         bridge:
             ``CvBridge`` used for ROS/OpenCV image conversion.
@@ -496,8 +498,12 @@ class DoorDetectionNode:
         Args:
             msg:
                 Boolean reset message from the passability node.
+
+        Notes:
+            A true request is kept until the final state has acted on it, then
+            cleared by :meth:`_process_frame`.
         """
-        if msg.data:
+        if msg.data == True:
             self.go_to_idle_from_finish_state = True
             rospy.loginfo("Door detection retriggered to go to idle state.")
         else:
@@ -515,9 +521,13 @@ class DoorDetectionNode:
 
         Notes:
             The callback only updates the shared control flag. Processing
-            remains in the synchronized image callback.
+            remains in the synchronized image callback. A true request is kept
+            until the idle state has acted on it, then cleared by
+            :meth:`_process_frame`, so each request starts exactly one
+            detection cycle. A request that arrives mid-cycle starts the next
+            cycle once the current one has returned to idle.
         """
-        if msg.data:
+        if msg.data == True:
             self.start_door_frame_detection = True
             rospy.loginfo("door frame detection triggered.")
         else:
@@ -580,6 +590,9 @@ class DoorDetectionNode:
             available. Per-branch color copies and the depth-frame adapter are
             created only when visualization is enabled; otherwise the branches
             share the incoming frame and ``ctx.depth_frame`` is ``None``.
+
+            The start request is cleared when the step leaves idle and the
+            idle request when the step moves from the final state to idle.
 
             The door label is published on every frame, as ``"unknown"`` when
             it is ``None``; the mid-frame pixel and door depth only when they
@@ -646,7 +659,16 @@ class DoorDetectionNode:
 
         
         # One synchronized frame drives exactly one state-machine step.
+        state_before = self.sm.current_state.name
         self.sm.update(self.sm.ctx)
+        state_after = self.sm.current_state.name
+        # Each request arrives as a single True message, so it is consumed on the
+        # transition it caused. Otherwise it would stay set and act again in the
+        # next detection cycle.
+        if state_before == "idle_state" and state_after != "idle_state":
+            self.start_door_frame_detection = False
+        if state_before == "final_state" and state_after == "idle_state":
+            self.go_to_idle_from_finish_state = False
         # Timing averages are flushed by a timer, not here: the writer rewrites the
         # whole output file and must not run at frame rate.
         # Stop sampling once enough frames are captured so the report stays bounded.

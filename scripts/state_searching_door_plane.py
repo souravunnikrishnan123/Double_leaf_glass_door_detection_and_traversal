@@ -133,7 +133,7 @@ class searching_door_plane_state(BaseState):
                 # The context is the channel downstream states read. The matching
                 # ROS parameters are not written back: nothing reads them after
                 # startup, and each write is a blocking call to the master plus a
-                # parameter-update broadcast.
+                # parameter-update broadcast. so we update the context values only, which are read by the downstream states.
                 ctx.door_geometry["glass_width_cm"] = glass_width_cm_safe_value
                 ctx.door_geometry["center_frame_width_cm"] = center_frame_width_cm_safe_value
                 rospy.loginfo(f"Estimated glass width: {glass_width_cm_safe_value:.1f} cm, estimated center frame width: {estimated_center_frame_width_cm:.1f} cm")
@@ -145,17 +145,9 @@ class searching_door_plane_state(BaseState):
 
             distance = float(result["plane_metrics"]["distance_m"])
             rospy.loginfo(f"Detected door plane at distance: {distance:.2f} m")
-            ctx.ransac_plane_distance = distance
-            # Carried on the context only; see the note on door geometry above.
+            ctx.ransac_plane_distance = distance #update the context values only, which are read by the downstream states.
             ctx.plane_result = {"distance_m": distance, "plane_norm_vector": result["plane_metrics"]["plane_norm_vector"]}
             rospy.loginfo(f"plane detected at a distance of : {distance:.2f} m and its normal vector is {result['plane_metrics']['plane_norm_vector']}")
-            """
-            if abs(distance - self.reference_door_distance_m) < self.distance_range_m:
-                #return "dual_branch_frame_detection_state"
-                return None
-            else:
-                return "movement_state"
-            """
             return "dual_branch_frame_detection_state"
         else:
             # Distinguish between "unconfirmed yet" vs "no candidates at all"

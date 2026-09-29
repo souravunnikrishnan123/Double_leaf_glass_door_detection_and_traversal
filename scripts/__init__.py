@@ -46,6 +46,7 @@ __all__ = [
     "post_processing_of_detected_vertical_lines",
     "processing_classes",
     "realsense_bag_bridge",
+    "resolution_scaling",
     "ros_frame_adapter",
     "setup_realsense_pipeline",
     "state_combine_door",

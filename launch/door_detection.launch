@@ -1,8 +1,9 @@
 <launch>
-  <!-- This launch file wires the complete chain: RGB-D normalization, door
-       detection, corridor clearance, and finally the traversal controller. -->
-  <!-- Remap these as needed to your camera topics -->
-  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_opening_night_from_IAS_lab_side.bag"/>
+  <!-- This launch file wires the complete chain: RGB-D normalization, odometry
+       bridging, door detection, corridor clearance, and finally the traversal
+       controller, plus optional saving of the debug images. -->
+  <!-- RealSense recording played by the bridge when input_mode is 'bag' -->
+  <arg name="bag_file" default="/app/realsense_camera_feed/brown_door_with_plywood/gazebo.bag"/>
 
   <!-- Debug toggle: run with debug:=true to enable VS Code attach -->
   <arg name="debug" default="false"/>
@@ -12,8 +13,12 @@
   <arg name="debug_port_passability" default="5679"/>
   <arg name="debug_port_traversal" default="5680"/>
   <arg name="debug_port_odom_bridge" default="5681"/>
+  <!-- Bag mode only: after each published frame set, skip this many -->
   <arg name="frame_skip" default="2"/>
+  <!-- Output image scale. Pixel-domain parameters below stay written for 1.0;
+       each node converts them to the published resolution. -->
   <arg name="resize_scale" default="1.0"/>
+  <!-- Bag mode only: repeat playback when the bag ends -->
   <arg name="loop" default="true"/>
   <arg name="enable_visualization_global" default="true" />
   <arg name="durations_file_path_global" default="/app/catkin_ws/src/robodog_glass_door_detection/scripts/durations" />
@@ -24,7 +29,9 @@
   <arg name="result_log_path_global" default="/app/catkin_ws/src/robodog_glass_door_detection/scripts" />
   <arg name="profiler_output_path" default="/app/catkin_ws/src/robodog_glass_door_detection/scripts/door_detection_profile_python.html" />
   <!-- Visualization image saving: every launch writes to a new run folder,
-       <results_root>/<bag file name without .bag>/run<N>/<topic name>NNNN.png -->
+       <results_root>/<folder>/run<N>/<file name prefix>NNNN.png, with the prefixes
+       listed on the image_recorder node below. <folder> is the bag file name without
+       .bag in bag mode, and gazebo_results_folder in gazebo mode. -->
   <arg name="save_images" default="true" />
   <!-- Save only frames with lines, ROIs or text drawn on them (the <topic>/annotated twins).
        The normal topics still carry every frame for rqt_image_view. -->
@@ -32,10 +39,14 @@
   <arg name="saved_topic_suffix" value="$(eval '/annotated' if str(arg('save_only_annotated')).lower() == 'true' else '')" />
   <arg name="results_root" default="/app/catkin_ws/src/results" />
   <arg name="bag_name" default="$(eval arg('bag_file').split('/')[-1].rsplit('.', 1)[0])" />
-  <arg name="results_dir" default="$(eval arg('results_root') + '/' + arg('bag_name'))" />
-  <!-- Auto-detect the correct topics based on input mode -->
-  <!-- The bridge appends _final to these source names. Every downstream node
-        subscribes to that normalized output, independent of bag/Gazebo mode. -->
+  <!-- Gazebo has no bag file to name the folder after, so give it here -->
+  <arg name="gazebo_results_folder" default="gazebo_simulation" />
+  <arg name="results_dir" default="$(eval arg('results_root') + '/' + (arg('bag_name') if arg('input_mode') == 'bag' else arg('gazebo_results_folder')))" />
+  <!-- Topic base names chosen by input mode -->
+  <!-- _final is appended to these names to form the bridge's output topics.
+       Every downstream node subscribes to that normalized output, independent
+       of bag/Gazebo mode. In gazebo mode the bridge reads the simulator's
+       /realsense/realsense/... image topics directly. -->
   <arg name="color_topic"
       default="$(eval '/camera/color/image_raw' if arg('input_mode') == 'bag' else '/realsense/realsense/color/image_raw')" />
 
@@ -61,14 +72,16 @@
 
   <!--<include file="$(find robodog_glass_door_detection)/launch/go1_localization.launch"/>-->
 
-  <!-- Start the realsense bag bridge (reads bag via librealsense + publishes aligned depth) -->
+  <!-- Start the RGB-D bridge: in bag mode it reads the bag via librealsense and
+       publishes depth aligned to color; in gazebo mode it republishes the
+       simulated camera. Both modes publish on the _final topics. -->
   <node pkg="robodog_glass_door_detection" type="realsense_bag_bridge.py" name="realsense_bag_bridge" output="screen" launch-prefix="$(eval str(arg('debug')).lower() == 'true' and 'python3 -m debugpy --listen 0.0.0.0:' + str(arg('debug_port_realsense_bag_bridge')) + ' --wait-for-client' or '')">
     <param name="bag_file" value="$(arg bag_file)" />
     <param name="frame_skip" value="$(arg frame_skip)" />
     <param name="resize_scale" value="$(arg resize_scale)" />
     <param name="loop" value="$(arg loop)" />
     <param name="input_mode" value="$(arg input_mode)" />  <!-- 'bag' or 'gazebo' -->
-    <!-- Make sure the bridge publishes the topics named below (see code) -->
+    <!-- Output topics; the bridge publishes exactly these names -->
     <param name="color_topic" value="$(eval arg('color_topic') + '_final')"/>
     <param name="depth_topic" value="$(eval arg('depth_topic') + '_final')"/>
     <param name="camera_info_topic" value="$(eval arg('camera_info_topic') + '_final')"/>
@@ -79,7 +92,8 @@
   </node>
 
 
-    <!-- Start the realsense bag bridge (reads bag via librealsense + publishes aligned depth) -->
+  <!-- Start the odometry bridge: republishes the Gazebo model pose as
+       /odom_bridge_output for the passability and traversal nodes -->
   <node pkg="robodog_glass_door_detection" type="odom_bridge.py" name="odom_bridge" output="screen" launch-prefix="$(eval str(arg('debug')).lower() == 'true' and 'python3 -m debugpy --listen 0.0.0.0:' + str(arg('debug_port_odom_bridge')) + ' --wait-for-client' or '')">
     <!-- In bag mode there is no Gazebo, so the bridge publishes a fixed pose at the origin instead -->
     <param name="input_mode" value="$(arg input_mode)" />
@@ -108,7 +122,7 @@
     <param name="result_log_path" value="$(eval arg('result_log_path_global'))"/>
     <rosparam>
       plane_detector:  
-        max_no_candidate_frames: 5
+        max_no_candidate_frames: 5  # consecutive frames without any plane candidate before the full-image fallback
         global_map_distance_accuracy_to_door_plane : 0.4
         margin_for_glass_width_inaccuracy : 0.2
         backproject:
@@ -140,8 +154,8 @@
           confirm_k: 6
           drop_k: 2
         output:
-          ransac_plane_distance : 2.0
-          ransac_error : 0.1
+          ransac_plane_distance : 2.0  # meters. initial value only; plane search refines it at runtime
+          ransac_error : 0.1  # fractional depth band around the plane distance used to accept frame lines
     </rosparam>
     <rosparam>
       door_type_detector:
@@ -206,6 +220,7 @@
         margin: 10
         threshold: 0.01
         roi_subsample: 4
+      maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state: 20
     </rosparam>
   </node>
   <node pkg="robodog_glass_door_detection" type="passability_check_main.py" name="check_if_passable" output="screen" launch-prefix="$(eval str(arg('debug')).lower() == 'true' and 'python3 -m debugpy --listen 0.0.0.0:' + str(arg('debug_port_passability')) + ' --wait-for-client' or '')">
@@ -297,7 +312,7 @@
           kp_lateral_movement: -1.2
         align_state:
           lateral_error_tolerance: 0.1 # half of the width of robot in meters 
-          heading_error_tolerance: 0.02 # meters ( tigher than pre-align)
+          heading_error_tolerance: 0.02 # rad ( tigher than pre-align)
           omega_max: 0.5
           kp_heading_align_state : 1.2
         traverse_state:
@@ -308,8 +323,6 @@
           kp_corridor_center: -1.5
           kp_heading : -0.8
           kd_corridor_center: 0.8
-
-
         move_after_crossing_corridor_midpoint_state:
           kp_heading_adjustment : -1.2
           velocity: 0.02  # m/s

@@ -111,10 +111,9 @@ class DoorTraversalController:
         """
         Initialize control parameters, state, and ROS interfaces.
 
-        State parameters are loaded from ``~door_traversal_controller``.
-        Heading-estimation and passability-hysteresis parameters are read from
-        the separate private namespaces ``~heading_error_estimation`` and
-        ``~passability_hysteresis``. The constructor then waits for Gazebo's
+        All parameters, including the ``heading_error_estimation`` and
+        ``passability_hysteresis`` groups, are loaded from
+        ``~door_traversal_controller``. The constructor then waits for Gazebo's
         ``/gazebo/set_model_state`` service, creates publishers, and subscribes
         to traversal triggers, virtual-corridor acknowledgements, passability
         results, odometry, and model poses.
@@ -211,10 +210,10 @@ class DoorTraversalController:
         #heading error calculation
         # Low-pass filter for heading estimate
         he = "heading_error_estimation"
-        self.heading_filter_alpha = rospy.get_param(f"~{he}/heading_filter_alpha", 0.3)
-        self.heading_error_tolerance = rospy.get_param(f"~{he}/heading_error_tolerance", 0.03)
-        self.min_forward_motion_for_heading = rospy.get_param(f"~{he}/min_forward_motion_for_heading", 0.02)  # meters
-        self.required_heading_samples = rospy.get_param(f"~{he}/required_heading_samples", 2)
+        self.heading_filter_alpha = rospy.get_param(f"{ns}/{he}/heading_filter_alpha", 0.3)
+        self.heading_error_tolerance = rospy.get_param(f"{ns}/{he}/heading_error_tolerance", 0.03)
+        self.min_forward_motion_for_heading = rospy.get_param(f"{ns}/{he}/min_forward_motion_for_heading", 0.02)  # meters
+        self.required_heading_samples = rospy.get_param(f"{ns}/{he}/required_heading_samples", 2)
         self.heading_estimate_samples = 0
         self.heading_estimate_valid = False
         self.prev_pose_for_heading = None
@@ -224,10 +223,10 @@ class DoorTraversalController:
         # Passability hysteresis (to avoid glitch-induced stops)
         ph = "passability_hysteresis"
         self.passability_true_hysteresis = rospy.get_param(
-            f"~{ph}/consecutive_passable_to_true", 5
+            f"{ns}/{ph}/consecutive_passable_to_true", 5
         )
         self.passability_false_hysteresis = rospy.get_param(
-            f"~{ph}/consecutive_unpassable_to_false", 4
+            f"{ns}/{ph}/consecutive_unpassable_to_false", 4
         )
         # Hysteresis counters
         self.safe_seq_corridor = 0
@@ -1013,8 +1012,6 @@ class DoorTraversalController:
                     self.start_pose_at_corridor_mid_point = self.current_pose
                     self.start_yaw_at_corridor_mid_point = self.current_yaw
                     continue
-                    #self.state = DONE
-                    #self.done_pub.publish(Bool(data=True))
 
                 now = rospy.Time.now().to_sec()
                 #guard

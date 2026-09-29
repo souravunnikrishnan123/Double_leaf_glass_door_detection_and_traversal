@@ -216,7 +216,6 @@
     </rosparam>
     <rosparam>
       door_status_detector:
-        roi_width: 240
         margin: 10
         threshold: 0.01
         roi_subsample: 4

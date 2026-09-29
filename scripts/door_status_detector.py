@@ -26,11 +26,6 @@ class Door_Status_Detector:
         keyword:
             Branch suffix used for dynamic context attribute lookup.
 
-        roi_width:
-            Configured ROI width, converted to the active resolution. It is
-            retained for the status detector namespace; the side ROIs
-            themselves come from the frame-pairing stage.
-
         margin:
             Horizontal pixel offset applied away from each frame edge,
             converted to the active resolution.
@@ -68,7 +63,6 @@ class Door_Status_Detector:
         # Core ROI params
         # Pixel-domain values are calibrated for the reference resolution.
         scaler = ResolutionScaler()
-        self.roi_width = scaler.length(rospy.get_param(f"{ns}/roi_width", 240))
         self.margin = scaler.length(rospy.get_param(f"{ns}/margin", 10))
         self.threshold = rospy.get_param(f"{ns}/threshold", 0.05)
         # Deliberately NOT converted by the scaler. check_side_roi_against_door
@@ -267,8 +261,8 @@ class Door_Status_Detector:
             overflows.
         """
 
-        #reuse roi_polygon_left and roi_polygon_right from door_frame_detection.py but with a margin offset. becuase we dont want to
-        #include the vertical door frame line pixels in the ROI for depth checking to know the status of door( especially when the detected RGB houghline are not at the frame end but slightly inward)
+ 
+        #we dont want to include the vertical door frame line pixels in the ROI for depth checking to know the status of door( especially when the detected RGB houghline are not at the frame end but slightly inward)
         roi_left_offset = self.offset_roi_polygon(getattr(ctx, f"roi_left_{self.keyword}"), side="left")
         roi_right_offset = self.offset_roi_polygon(getattr(ctx, f"roi_right_{self.keyword}"), side="right")
 

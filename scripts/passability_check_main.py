@@ -181,6 +181,16 @@ class PassabilityCheckerNode:
         color_image:
             Latest BGR color frame, or ``None`` before one is received.
 
+        color_frame:
+            ``(color_image, stamp)`` of the latest color message, replaced in a
+            single assignment so an image is never paired with the stamp of a
+            different frame. ``None`` before one is received.
+
+        passability_view_stamp:
+            Capture stamp of the color frame the current passability view was
+            drawn on; published as the view's header stamp so image recording
+            can pair the view with other cameras taken at the same instant.
+
         depth_image:
             Latest aligned depth image in meters.
 
@@ -350,6 +360,8 @@ class PassabilityCheckerNode:
 
         # Latest sensor data
         self.color_image = None
+        self.color_frame = None
+        self.passability_view_stamp = rospy.Time()
         self.depth_image = None
         self.latest_info = None
         self.fx = self.fy = self.cx = self.cy = None
@@ -746,6 +758,7 @@ class PassabilityCheckerNode:
 
         # Clear latest data, so that on the next activation we wait for fresh data
         self.color_image = None
+        self.color_frame = None
         self.depth_image = None
         self.latest_info = None
 
@@ -787,7 +800,7 @@ class PassabilityCheckerNode:
     # -----------------------------
     def _color_cb(self, color_msg):
         """
-        Convert and cache the latest ROS color image.
+        Convert and cache the latest ROS color image and its capture stamp.
 
         Args:
             color_msg:
@@ -798,7 +811,9 @@ class PassabilityCheckerNode:
             cv_bridge.CvBridgeError:
                 If the message cannot be converted as ``bgr8``.
         """
-        self.color_image = self.bridge.imgmsg_to_cv2(color_msg, "bgr8")
+        color_image = self.bridge.imgmsg_to_cv2(color_msg, "bgr8")
+        self.color_frame = (color_image, color_msg.header.stamp)
+        self.color_image = color_image
 
     def _depth_cb(self, depth_msg):
         """
@@ -1457,6 +1472,8 @@ class PassabilityCheckerNode:
         """
         rospy.loginfo("Finding virtual corridor for passability check.")
 
+        # The returned view is drawn on this frame, so its stamp is the view's stamp.
+        color_image, self.passability_view_stamp = self.color_frame
 
         # run passability check for full width of image to find a virtual corridor
 
@@ -1472,7 +1489,7 @@ class PassabilityCheckerNode:
             rospy.logwarn("No valid depth points after back-projection. Cannot define virtual corridor. but it is also possible that there is no points at all because entire region in front is free because of small depth range. consider virtual corridor is directly in front of robot.")
             x_virtual_corridor_center_corridor_frame = 0.0
             # Nothing is drawn on this path, so the view is the bare camera frame.
-            return x_virtual_corridor_center_corridor_frame, self.color_image, False
+            return x_virtual_corridor_center_corridor_frame, color_image, False
         else:
             corridor_mask_camera_frame = (
                 valid_points_3d_for_virtual_corridor_definition_camera_frame[:, 1] > -self.robot_height_above_camera_level
@@ -1484,7 +1501,7 @@ class PassabilityCheckerNode:
 
             _, image, final_points_3d_for_virtual_corridor_definition_camera_frame = self.passability_checker.run(
                 self.depth_image,
-                self.color_image,
+                color_image,
                 corridor_pts_for_virtual_corridor_definition_camera_frame,
                 corridor_uv_for_virtual_corridor_definition_camera_frame,
                 z_max
@@ -1939,6 +1956,9 @@ class PassabilityCheckerNode:
             is in range, the clearance is ``z_max`` and the view is the bare
             color frame.
         """
+        # The returned view is drawn on this frame, so its stamp is the view's stamp.
+        color_image, self.passability_view_stamp = self.color_frame
+
         # Backproject once, then crop in robot/corridor coordinates. An
         # image rectangle would be wrong when the doorway is angled.
         valid_points_3d_camera_frame, uv, _ = backproject_depth_to_points(
@@ -1951,7 +1971,7 @@ class PassabilityCheckerNode:
         if len(valid_points_3d_camera_frame) == 0:
             rospy.logwarn("No valid depth points for passability check.")
             front_clearance = z_max
-            passability_view = self.color_image
+            passability_view = color_image
 
         else:
             corridor_pts_camera_frame, corridor_uv_camera_frame = self._select_points_inside_checked_region(
@@ -1961,7 +1981,7 @@ class PassabilityCheckerNode:
             # not using final points here as the corridor is already defined
             front_clearance, passability_view, _ = self.passability_checker.run(
                 self.depth_image,
-                self.color_image,
+                color_image,
                 corridor_pts_camera_frame,
                 corridor_uv_camera_frame,
                 z_max
@@ -2110,8 +2130,14 @@ class PassabilityCheckerNode:
             drawn:
                 Whether anything was drawn on ``view``. Only then is it also
                 published on ``~passability_view/annotated``.
+
+        Notes:
+            The header stamp is the capture stamp of the color frame ``view``
+            was drawn on, so image recording can save other cameras (the
+            Gazebo bird's-eye view) from the same instant.
         """
         msg = self.bridge.cv2_to_imgmsg(view, encoding="bgr8")
+        msg.header.stamp = self.passability_view_stamp
         self.passability_view_pub.publish(msg)
         if drawn:
             self.passability_view_annotated_pub.publish(msg)

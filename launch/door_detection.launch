@@ -37,6 +37,12 @@
        The normal topics still carry every frame for rqt_image_view. -->
   <arg name="save_only_annotated" default="true" />
   <arg name="saved_topic_suffix" value="$(eval '/annotated' if str(arg('save_only_annotated')).lower() == 'true' else '')" />
+  <!-- Gazebo only: next to every saved passability_viewNNNN.png, also save the overhead
+       camera frame from the same instant (closest header stamp) as birdseyeNNNN.png.
+       The camera is the university_world birdseye model spawned by unitree_gazebo normal.launch. -->
+  <arg name="save_birdseye" default="true" />
+  <arg name="birdseye_topic" default="/birdseye/image_raw" />
+  <arg name="record_birdseye" value="$(eval arg('input_mode') == 'gazebo' and str(arg('save_birdseye')).lower() == 'true')" />
   <arg name="results_root" default="/app/catkin_ws/src/results" />
   <arg name="bag_name" default="$(eval arg('bag_file').split('/')[-1].rsplit('.', 1)[0])" />
   <!-- Gazebo has no bag file to name the folder after, so give it here -->
@@ -342,5 +348,8 @@
     <param name="topics/color_branch" value="/glass_door_detection/viz/color_branch$(arg saved_topic_suffix)" />
     <param name="topics/depth_branch" value="/glass_door_detection/viz/depth_branch$(arg saved_topic_suffix)" />
     <param name="topics/plane_overlay" value="/glass_door_detection/viz/plane_overlay$(arg saved_topic_suffix)" />
+    <!-- file name prefix : topic saved only next to the "with" prefix, with the same NNNN -->
+    <param if="$(arg record_birdseye)" name="paired/birdseye/topic" value="$(arg birdseye_topic)" />
+    <param if="$(arg record_birdseye)" name="paired/birdseye/with" value="passability_view" />
   </node>
 </launch>

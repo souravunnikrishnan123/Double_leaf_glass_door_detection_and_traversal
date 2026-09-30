@@ -99,9 +99,6 @@ class DoorTraversalController:
         start_movement:
             Whether an external trigger has enabled the control loop.
 
-        movement_is_started:
-            Whether translation has begun in the current movement state.
-
         set_model_state:
             ROS service proxy used to apply Gazebo model velocities, or
             ``None`` when the service was not available at startup.
@@ -249,6 +246,8 @@ class DoorTraversalController:
 
         # Passability 
         self.corridor_passable = False
+        self.temporal_smoothing_finished_for_corridor_passable = False
+        self.temporal_smoothing_finished_for_local_passable = False
         self.local_passable = False
         self.front_clearance = None
         self.x_corridor_center_cam = None
@@ -308,7 +307,6 @@ class DoorTraversalController:
 
 
         self.start_movement = False
-        self.movement_is_started = False
 
         rospy.Subscriber(
             "/check_if_passable/trigger_traversal_node", Bool, self.trigger_traversal_node_callback
@@ -421,6 +419,7 @@ class DoorTraversalController:
         # previously true result from one mode satisfy the other mode.
         if msg.type_of_passability_check == 1.0: # corridor passability check
             self.local_passable = False  # reset local passability. because we are doing corridor passability check now
+            self.temporal_smoothing_finished_for_local_passable = False
             self.safe_seq_local = 0
             self.unsafe_seq_local = 0
             
@@ -439,17 +438,21 @@ class DoorTraversalController:
                 self.safe_seq_corridor += 1
                 self.unsafe_seq_corridor = 0
                 if self.safe_seq_corridor >= self.passability_true_hysteresis:
+                    self.temporal_smoothing_finished_for_corridor_passable = True
                     self.corridor_passable = True
                         
             else:
                 self.unsafe_seq_corridor += 1
                 self.safe_seq_corridor = 0
                 if self.unsafe_seq_corridor >= self.passability_false_hysteresis:
+                    self.temporal_smoothing_finished_for_corridor_passable = True
                     self.corridor_passable = False
+                    
             
              
         elif msg.type_of_passability_check == 2.0: # local passability check
             self.corridor_passable = False  # reset corridor passability. because we are doing local passability check now
+            self.temporal_smoothing_finished_for_corridor_passable = False
             self.safe_seq_corridor = 0
             self.unsafe_seq_corridor = 0
             if self.front_clearance is not None:
@@ -465,11 +468,14 @@ class DoorTraversalController:
                 self.safe_seq_local += 1
                 self.unsafe_seq_local = 0
                 if self.safe_seq_local >= self.passability_true_hysteresis:
+                    self.temporal_smoothing_finished_for_local_passable = True
                     self.local_passable = True
+                    
             else:
                 self.unsafe_seq_local += 1
                 self.safe_seq_local = 0
                 if self.unsafe_seq_local >= self.passability_false_hysteresis:
+                    self.temporal_smoothing_finished_for_local_passable = True
                     self.local_passable = False
 
 
@@ -521,6 +527,31 @@ class DoorTraversalController:
             :meth:`publish_cmd_vel` logs a warning and returns.
         """
         self.publish_cmd_vel(0.0, 0.0, 0.0)
+
+    def request_passability_check(self, check_type):
+        """
+        Select the passability check and discard every earlier verdict.
+
+        Args:
+            check_type:
+                ``0`` disables checking, ``1`` requests the corridor check,
+                and ``2`` requests the local check.
+
+        Notes:
+            A verdict from an earlier request describes a different pose,
+            region or corridor, so each request starts a fresh
+            temporal-smoothing window. The reset happens before publishing so
+            no reply to this request can arrive before it.
+        """
+        self.corridor_passable = False
+        self.local_passable = False
+        self.temporal_smoothing_finished_for_corridor_passable = False
+        self.temporal_smoothing_finished_for_local_passable = False
+        self.safe_seq_corridor = 0
+        self.unsafe_seq_corridor = 0
+        self.safe_seq_local = 0
+        self.unsafe_seq_local = 0
+        self.request_local_passability_check_pub.publish(UInt8(data=check_type))
 
     def wrap_angle(self, angle):
         """
@@ -755,14 +786,19 @@ class DoorTraversalController:
                 self.start_pose = self.current_pose
                 self.start_yaw = self.current_yaw
                 if not self.corridor_passable:
-                    rospy.loginfo("IDLE: waiting for temporal smoothing to finish")
-                    #stay where you are
-                    self.stop_robot()
-                    continue
+                    if not self.temporal_smoothing_finished_for_corridor_passable:
+                        rospy.loginfo("IDLE: waiting for temporal smoothing to finish")
+                        #stay where you are
+                        self.stop_robot()
+                        continue
+                    else:
+                        rospy.loginfo("IDLE: corridor is not passable, requesting new corridor definition")
+                        self.stop_robot()
+                        continue
                 else:#now we are sure the corridor is passable by temporal smoothing
                     rospy.loginfo("IDLE complete → PRE-ALIGN_HEADING_TO_CORRIDOR")
                     self.state = PRE_ALIGN_HEADING_TO_CORRIDOR
-                    self.request_local_passability_check_pub.publish(UInt8(data=0)) # disable both until we reach pre-align position state
+                    self.request_passability_check(0) # disable both until we reach pre-align position state
                     self.stop_robot()
                     continue
             # =================================================
@@ -791,6 +827,7 @@ class DoorTraversalController:
                     rospy.loginfo("PRE_ALIGN_HEADING complete → PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR")
                     self.stop_robot()
                     self.state = PRE_ALIGN_READJUST_HEADING_TO_CORRIDOR
+                    self.request_passability_check(0)
                     continue
 
 
@@ -826,10 +863,9 @@ class DoorTraversalController:
                     rospy.loginfo("PRE_ALIGN_READJUST_HEADING complete → PRE-ALIGN_POSITION_TO_CORRIDOR")
                     self.stop_robot()
                     self.state = PRE_ALIGN_POSITION_TO_CORRIDOR
-                    self.movement_is_started = False
                     # set reference heading for position pre-alignment
                     self.pre_align_position_heading_ref = self.current_yaw
-                    self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                    self.request_passability_check(2) # request local passability check
                     continue
                 
 
@@ -855,25 +891,24 @@ class DoorTraversalController:
                 # This phase translates, so it uses the short-range robot-centric
                 # safety check rather than the door corridor check.
                 if not self.local_passable: 
-                    if not self.movement_is_started: 
+                    if not self.temporal_smoothing_finished_for_local_passable:
                         rospy.loginfo("PRE-ALIGN_POSITION_TO_CORRIDOR: waiting for temporal smoothing to finish")
                         #stay where you are
                         self.stop_robot()
                         continue
+
                     else:
-                        # if passability lost here means, movement were already started and then passabililty lost( that is self.local_passable is False not due to temporal smoothing)
+                        # if passability lost here means, passabililty is actually lost( that is self.local_passable is False not due to temporal smoothing)
                         # temporal smoothing already done and also hysteresis done in passability callback
                         # so if the passability is lost here, means it is not safe to move forward( it is not due to glitch )
                         # but since we are at pre-align position state, we dont have to abort immediately. robot can still go to align state and then check passability again.
-                        rospy.logwarn("Passability lost → going to ALIGN_TO_CORRIDOR")
+                        rospy.logwarn("Passability lost during the movement → going to ALIGN_TO_CORRIDOR")
                         self.stop_robot()
                         self.pre_align_position_heading_ref = 0.0
                         self.state = ALIGN_TO_CORRIDOR
-                        self.movement_is_started = False
+                        self.request_passability_check(0)
                         continue
                         
-
-                self.movement_is_started = True
 
                 lateral_error_in_robot_base = self.corridor_center_x_robot_base
                 rospy.loginfo(f"PRE-ALIGN_POSITION_TO_CORRIDOR: lateral_error={lateral_error_in_robot_base:.3f} m")
@@ -883,8 +918,7 @@ class DoorTraversalController:
                     self.stop_robot()
                     self.state = ALIGN_TO_CORRIDOR
                     self.pre_align_position_heading_ref = 0.0
-                    self.movement_is_started = False
-                    self.request_local_passability_check_pub.publish(UInt8(data=0)) # disable both until we reach traverse state
+                    self.request_passability_check(0) # disable both until we reach traverse state
                     continue
 
                 # Heading hold (NOT lateral correction)
@@ -924,12 +958,9 @@ class DoorTraversalController:
                     if abs(lateral_error_in_robot_base) <= self.lateral_error_tolerance_align_state:  # half of the width of robot in meters
                         rospy.loginfo("ALIGN complete → TRAVERSE_DOOR")
                         self.stop_robot()
-
-                        # Reset traversal reference
-                        self.movement_is_started = False
                         self.state = TRAVERSE_DOOR
                         #exit action of ALIGN state
-                        self.request_local_passability_check_pub.publish(UInt8(data=1)) # check corridor passability
+                        self.request_passability_check(1) # check corridor passability
                         continue
                     else:
                         rospy.loginfo("ALIGN_TO_CORRIDOR: lateral error too high → PRE_ALIGN_HEADING_TO_CORRIDOR")
@@ -937,8 +968,7 @@ class DoorTraversalController:
                         self.state = PRE_ALIGN_HEADING_TO_CORRIDOR
                         #restart from pre-align heading state
                         self.pre_align_position_heading_ref = 0.0
-                        self.movement_is_started = False
-                        self.request_local_passability_check_pub.publish(UInt8(data=0)) # disable both 
+                        self.request_passability_check(0) # disable both 
                         continue
 
                 # Rotate to reduce lateral error
@@ -956,29 +986,27 @@ class DoorTraversalController:
                 rospy.loginfo(" TRAVERSE_DOOR state")
                 
                 if not self.corridor_passable:
-                    if not self.movement_is_started: 
+                    if not self.temporal_smoothing_finished_for_corridor_passable:
                         rospy.loginfo("TRAVERSE_DOOR: waiting for temporal smoothing to finish")
                         #stay where you are
                         self.stop_robot()
                         continue
                     else:
-                        # if passability lost here means, traversal were already started and then passabililty lost( that is self.corridor_passable is False not due to temporal smoothing)
+                        # if passability lost here means, then passabililty is actually lost( that is self.corridor_passable is False not due to temporal smoothing)
                         # temporal smoothing already done and also hysteresis done in passability callback
                         # so if the passability is lost here, we abort immediately( it is not due to glitch )
                         if self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle is False:
                             rospy.logwarn("Passability lost → ABORT")
                             self.stop_robot()
                             self.state = ABORT
-                            self.movement_is_started = False
                             continue
                         else:
                             # because instead of failing we can check other virtual corridor definition.because we already crossed door plane with glass so going any direction should be fine.  so we dont abort here. instead we will try to find another virtual corridor.
                             # mid corridor point is reached and go to MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT. so for that we are ading self.distance_to_corridor_mid_point to the distance_to_move_beyond_corridor_mid_point. so that we can go to  MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state. and then in that state we will request for new corridor definition.
                             rospy.logwarn("Passability lost but virtual corridor definition already requested hence donot abort, go to MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT state and request new corridor definition")
                             self.stop_robot()
-                            self.movement_is_started = False
                             self.distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
-                            self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                            self.request_passability_check(2) # request local passability check
                             self.state = MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
                             # set reference  for move after crossing corridor midpoint state.
                             # here virtual corridor is not passable now. but we consider it as mid point is reached so that we can go the next state
@@ -987,10 +1015,7 @@ class DoorTraversalController:
                             self.start_pose_at_corridor_mid_point = self.current_pose
                             self.start_yaw_at_corridor_mid_point = self.current_yaw
                             continue
-
-
-                self.movement_is_started = True
-                
+           
                 # -----------------------------
                 # Completion check
                 # -----------------------------
@@ -1001,9 +1026,8 @@ class DoorTraversalController:
                     #at this point we also ensured that corridor in front has a clearance requested from passability node
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()
-                    self.movement_is_started = False
                     self.distance_to_move_beyond_corridor_mid_point = self.distance_to_corridor_mid_point + self.minimum_clearance_beyond_corridor_mid_point + self.robot_length #because if the door open outward, we need to move sufficiently forward to be beyond the door swing area. also since the camera is on the head, we need to make sure the body ( behind) is beyond the door frame
-                    self.request_local_passability_check_pub.publish(UInt8(data=2)) # request local passability check
+                    self.request_passability_check(2) # request local passability check
                     self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = True
                     self.state = MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT
                     
@@ -1078,19 +1102,20 @@ class DoorTraversalController:
                 distance_travelled_beyond_corridor_mid_point = self.get_forward_displacement(self.start_pose_at_corridor_mid_point, self.start_yaw_at_corridor_mid_point)
                 
                 if not self.local_passable:
-                    if not self.movement_is_started: 
+                    if not self.temporal_smoothing_finished_for_local_passable:
                         rospy.loginfo("MOVE_AFTER_CROSSING_CORRIDOR_MIDPOINT: waiting for temporal smoothing to finish")
                         #stay where you are
                         self.stop_robot()
                         continue
+
                     else:
-                        # if passability lost here means, traversal were already started and then passabililty lost( that is self.local_passable is False not due to temporal smoothing)
+                        # if passability lost here means, passabililty is actually lost lost( that is self.local_passable is False not due to temporal smoothing)
                         # temporal smoothing already done and also hysteresis done in passability callback
                         # so if the passability is lost here, we abort immediately( it is not due to glitch )
                         rospy.logwarn("local Passability lost → LOOK_FOR_A_VIRTUAL_CORRIDOR")
                         self.stop_robot()
                         self.state = LOOK_FOR_A_VIRTUAL_CORRIDOR
-                        self.request_local_passability_check_pub.publish(UInt8(data=0)) # disable both until new corridor is defined
+                        self.request_passability_check(0) # disable both until new corridor is defined
 
                         # request new corridor definition. its not like whenever we cross the door we will ask for new corridor. instead, whenever we cross the door and then find that local passability is lost, only then we will ask for new corridor definition.
                         msg = Twist()
@@ -1105,11 +1130,9 @@ class DoorTraversalController:
                         # Hand corridor selection back to perception; steering
                         # blindly around the new obstacle would be unsafe.
                         self.request_new_corridor_definition_pub.publish(msg) # request new corridor definition
-                        self.movement_is_started = False
                         continue
                         
 
-                self.movement_is_started = True
 
                 # -----------------------------
                 # Completion check
@@ -1120,7 +1143,6 @@ class DoorTraversalController:
                 if distance_travelled_beyond_corridor_mid_point >= self.distance_to_move_beyond_corridor_mid_point:
                     rospy.loginfo("move after Door frame crossed state --> DONE")
                     self.stop_robot()
-                    self.movement_is_started = False
                     self.state = DONE
                     continue
                
@@ -1152,7 +1174,7 @@ class DoorTraversalController:
                     continue
                 else: # new corridor is defined
                     rospy.loginfo("LOOK_FOR_A_VIRTUAL_CORRIDOR complete → IDLE")
-                    self.request_local_passability_check_pub.publish(UInt8(data=1)) # check corridor passability for the new corridor
+                    self.request_passability_check(1) # check corridor passability for the new corridor
                     self.state = IDLE
                     self.stop_robot()
                     continue

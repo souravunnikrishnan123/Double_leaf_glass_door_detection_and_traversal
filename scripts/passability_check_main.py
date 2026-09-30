@@ -20,7 +20,7 @@ if _scripts_path not in sys.path:
 from check_if_passable import Passability_checker
 from duration import get_duration_seconds
 import rospy
-from std_msgs.msg import Bool, UInt8
+from std_msgs.msg import Bool, String, UInt8
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import Image, CameraInfo
@@ -375,6 +375,8 @@ class PassabilityCheckerNode:
         # Traversal-controller handshake
         self.trigger_traversal_node = False
         self.requested_type_of_passability_check_from_traversal_node = PassabilityCheckType.CORRIDOR # 1 for corridor. because corridor is the default
+        # Latest state name from the traversal node, for the annotated view's banner
+        self.traversal_state = None
 
     def _subscribe_to_control_topics(self):
         """
@@ -412,6 +414,14 @@ class PassabilityCheckerNode:
             "/door_traversal/request_new_corridor_definition",
             Twist,
             self._request_new_corridor_definition_cb,
+            queue_size=1
+        )
+
+        # Latched by the traversal node; only shown on the annotated view.
+        rospy.Subscriber(
+            "/door_traversal/state",
+            String,
+            self._traversal_state_cb,
             queue_size=1
         )
 
@@ -705,6 +715,16 @@ class PassabilityCheckerNode:
                 rospy.loginfo("PassabilityChecker: New corridor definition requested by traversal node")
                 self.define_new_corridor_req_from_traversal = True  # to define new corridor on next run
                 self.corridor_middle_point_depth_from_traversal = msg.linear.y  # to define new corridor based on this depth
+
+    def _traversal_state_cb(self, msg):
+        """
+        Cache the traversal node's current state for the annotated view.
+
+        Args:
+            msg:
+                ROS ``String`` holding the traversal state name.
+        """
+        self.traversal_state = msg.data
 
     # -----------------------------
     # Conditional subscriptions
@@ -2134,13 +2154,62 @@ class PassabilityCheckerNode:
         Notes:
             The header stamp is the capture stamp of the color frame ``view``
             was drawn on, so image recording can save other cameras (the
-            Gazebo bird's-eye view) from the same instant.
+            Gazebo bird's-eye view) from the same instant. Only the annotated
+            copy carries the traversal-state banner.
         """
         msg = self.bridge.cv2_to_imgmsg(view, encoding="bgr8")
         msg.header.stamp = self.passability_view_stamp
         self.passability_view_pub.publish(msg)
         if drawn:
-            self.passability_view_annotated_pub.publish(msg)
+            annotated_msg = self.bridge.cv2_to_imgmsg(self._add_traversal_state_banner(view), encoding="bgr8")
+            annotated_msg.header.stamp = self.passability_view_stamp
+            self.passability_view_annotated_pub.publish(annotated_msg)
+
+    def _add_traversal_state_banner(self, view):
+        """
+        Return ``view`` with a banner above it naming the current traversal state.
+
+        Args:
+            view:
+                BGR passability visualization. It is not modified.
+
+        Returns:
+            A new BGR image, as wide as ``view`` and taller by the banner.
+
+        Notes:
+            The banner is stacked above the image rather than drawn over it,
+            so it never hides corridor lines or obstacle points. It reads
+            ``UNKNOWN`` until the traversal node has published a state. ABORT
+            is shown on red, DONE on green and LOOK_FOR_A_VIRTUAL_CORRIDOR on
+            orange, so the outcome stands out in a recorded video.
+        """
+        state = self.traversal_state or "UNKNOWN"
+        text = f"TRAVERSAL: {state}"
+        background_bgr = {
+            "ABORT": (0, 0, 190),
+            "DONE": (0, 140, 0),
+            "LOOK_FOR_A_VIRTUAL_CORRIDOR": (0, 120, 230),
+        }.get(state, (45, 45, 45))
+
+        width = view.shape[1]
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        thickness = max(1, round(width / 640))
+        pad = max(4, width // 100)
+        # The banner height depends only on the image width, so every saved
+        # frame has the same size and the frames can be stitched into a video.
+        # Long state names get a smaller font inside it, centered vertically.
+        nominal_scale = width / 800
+        (_, nominal_h), nominal_baseline = cv2.getTextSize(text, font, nominal_scale, thickness)
+        banner_h = nominal_h + nominal_baseline + 2 * pad
+        (text_w, _), _ = cv2.getTextSize(text, font, 1.0, thickness)
+        scale = min(nominal_scale, (width - 2 * pad) / text_w)
+        (_, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+
+        banner = np.full((banner_h, width, 3), background_bgr, dtype=np.uint8)
+        text_y = (banner_h + text_h - baseline) // 2
+        cv2.putText(banner, text, (pad, text_y), font, scale,
+                    (255, 255, 255), thickness, cv2.LINE_AA)
+        return np.vstack((banner, view))
 
     def _publish_corridor_visualization(self, passability_view, corridor_boundary_lines):
         """

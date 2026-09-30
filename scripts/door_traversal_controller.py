@@ -71,7 +71,9 @@ class DoorTraversalController:
 
     Attributes:
         state:
-            Name of the active finite-state-machine state.
+            Name of the active finite-state-machine state. Every assignment is
+            published, latched, on ``~state`` (``std_msgs/String``); the
+            passability node shows it in a banner on its annotated view.
 
         current_pose:
             Latest planar odometry position as ``(x, y)`` in meters.
@@ -234,6 +236,9 @@ class DoorTraversalController:
         # =========================================================
         # Internal state
         # =========================================================
+        # Created before the first state assignment, which publishes on it.
+        # Latched so a subscriber that starts later still gets the current state.
+        self.state_pub = rospy.Publisher("~state", String, queue_size=1, latch=True)
         self.state = IDLE
         self.start_pose = None
         self.start_yaw = None
@@ -332,7 +337,19 @@ class DoorTraversalController:
 
 
         rospy.loginfo("DoorTraversalController initialized")
-        
+
+    @property
+    def state(self):
+        """Name of the active finite-state-machine state."""
+        return self._state
+
+    @state.setter
+    def state(self, new_state):
+        # Publishing on assignment reports each transition the moment it is
+        # made, from whichever branch makes it, rather than a loop period later.
+        self._state = new_state
+        self.state_pub.publish(String(data=new_state))
+
 
     # =========================================================
     # Callbacks

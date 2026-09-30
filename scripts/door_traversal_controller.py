@@ -1129,6 +1129,10 @@ class DoorTraversalController:
 
                         # Hand corridor selection back to perception; steering
                         # blindly around the new obstacle would be unsafe.
+                        # The acknowledgement of an earlier request stays True,
+                        # so clear it before asking; only an acknowledgement of
+                        # this request may end LOOK_FOR_A_VIRTUAL_CORRIDOR.
+                        self.virtual_corridor_definition_finished = False
                         self.request_new_corridor_definition_pub.publish(msg) # request new corridor definition
                         continue
                         

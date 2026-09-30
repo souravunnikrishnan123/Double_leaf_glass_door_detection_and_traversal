@@ -1,0 +1,96 @@
+<?xml version="1.0" ?>
+<!--
+  Overhead ("bird's-eye") camera for Gazebo Classic + ROS 1.
+
+  Publishes  /birdseye/image_raw            (sensor_msgs/Image)
+             /birdseye/image_raw/compressed (sensor_msgs/CompressedImage)
+             /birdseye/camera_info
+
+  The point of this model is that the bird's-eye view becomes a ROS TOPIC with
+  header stamps on the same simulation clock as the robot's own camera. Both
+  can then go into one bag and be merged with no guessing about offsets, and
+  the result is correct however badly the real-time factor wanders.
+
+  POSE.  The model is placed by the spawn command (-x -y -z -Y), NOT here.
+  The <pose> below is the sensor's orientation INSIDE the model, and pitch
+  +1.5708 is what aims the lens straight down:
+
+      pitch +1.5708  ->  view direction (0, 0, -1)   straight down    CORRECT
+      pitch -1.5708  ->  view direction (0, 0, +1)   straight up      WRONG
+
+  Gazebo renders along the sensor's +X axis. Do NOT add the ROS optical-frame
+  rotation (-1.5708 0 -1.5708) here: that only belongs on a frame_id / TF
+  frame, never on the sensor pose.
+
+  Spawning with -Y <yaw> rotates the overhead view. The top of the image points
+  along world direction (cos yaw, sin yaw):
+
+      -Y 0        top of image = world +X
+      -Y 1.5708   top of image = world +Y
+      -Y 3.1416   top of image = world -X
+      -Y -1.5708  top of image = world -Y
+
+  HEIGHT AND FIELD OF VIEW.  Ground coverage is
+      width  = 2 * h * tan(horizontal_fov / 2)      h = height ABOVE THE FLOOR
+      height = width * image_height / image_width
+
+  With the 60 deg (1.0472 rad) default below:
+      h =  8 m ->  9.2 x 5.2 m        h = 13 m -> 15.0 x 8.4 m
+      h = 10 m -> 11.5 x 6.5 m        h = 16 m -> 18.5 x 10.4 m
+
+  Go HIGH with a NARROW lens. Tall walls near a low, wide-angle camera show up
+  as big slanted faces and the image reads like a front view even though the
+  lens points straight down. The university_corridor world has 3 m walls and
+  no ceiling, so spawn well above the walls (z >= 10). Never spawn below the
+  wall tops or inside a wall's plane.
+
+  If a world DOES have a roof, a camera above it sees only the roof: stay
+  below the ceiling and widen the FOV, cut a hole, or use an oblique view.
+
+  UPDATE RATE.  Every rendered frame costs simulation speed, and raw frames are
+  enormous to record: 1280x720 bgr8 at 30 Hz is 83 MB/s, about 5 GB per minute.
+  15 Hz at 960x540 is plenty for a presentation and is a quarter of the cost.
+  Record the /compressed topic (see record_run.sh) and it drops by roughly 40x.
+-->
+<sdf version="1.6">
+  <model name="birdseye">
+    <!-- Static: never falls, never collides, does not perturb the robot. -->
+    <static>true</static>
+
+    <!-- No <visual> and no <collision> on purpose: the camera must be
+         invisible in its own view and must not obstruct the robot. -->
+    <link name="birdseye_link">
+      <sensor name="birdseye_cam" type="camera">
+        <pose>0 0 0 0 1.5708 0</pose>
+        <update_rate>15</update_rate>
+        <always_on>1</always_on>
+        <visualize>false</visualize>
+
+        <camera>
+          <!-- 60 deg. Other values: 45=0.7854, 80=1.3963, 100=1.7453 -->
+          <horizontal_fov>1.0472</horizontal_fov>
+          <image>
+            <width>960</width>
+            <height>540</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <!-- far must exceed the camera height or the floor is clipped away -->
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+        </camera>
+
+        <plugin name="birdseye_controller" filename="libgazebo_ros_camera.so">
+          <alwaysOn>true</alwaysOn>
+          <!-- 0.0 means "use the sensor's own update_rate above" -->
+          <updateRate>0.0</updateRate>
+          <cameraName>birdseye</cameraName>
+          <imageTopicName>image_raw</imageTopicName>
+          <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+          <frameName>birdseye_link</frameName>
+        </plugin>
+      </sensor>
+    </link>
+  </model>
+</sdf>

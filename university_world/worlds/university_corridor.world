@@ -1,0 +1,631 @@
+<sdf version="1.6">
+  <!-- Long parallel walls create repeated vertical edges on purpose; the scene
+       exercises the detector's plane-range and frame-pair rejection logic. -->
+  <world name="university_corridor">
+
+    <include><uri>model://sun</uri></include>
+    <include><uri>model://ground_plane</uri></include>
+
+    <!-- FLOOR -->
+    <model name="floor">
+      <static>true</static>
+      <link name="floor">
+        <pose>0 0 -0.05 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box><size>60 4.2 0.1</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>60 4 0.1</size></box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- LEFT WALL -->
+    <model name="left_main_wall">
+      <static>true</static>
+      <link name="wall">
+        <pose>0 2.05 1.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box><size>60 0.1 3</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>60 0.1 3</size></box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- RIGHT WALL -->
+    <model name="right_main_wall">
+      <static>true</static>
+      <link name="wall">
+        <pose>0 -2.05 1.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box><size>60 0.1 3</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>60 0.1 3</size></box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Doors at several X positions provide successive traversal scenarios in
+         the same corridor without rebuilding the world. -->
+    <!-- WALL WITH HINGED FRAMED DOOR -->
+    <model name="wall_with_door">
+      <static>false</static>
+
+      <!-- Wall location in world -->
+      <pose>10 0 0 0 0 0</pose>
+
+      <!-- ================= SOLID WALL PARTS ================= -->
+
+      <link name="wall_left">
+        <pose>0 1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="wall_right">
+        <pose>0 -1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- ================= DOOR REFERENCE LINK ================= -->
+      <!-- Physical anchor of the door assembly -->
+      <link name="door_ref"/>
+
+      <!-- ================= FIXED DOOR FRAME ================= -->
+
+      <link name="fixed_vertical_hinge">
+        <pose>0 0.95 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_vertical_free">
+        <pose>0 0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_bottom">
+        <pose>0 0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_top">
+        <pose>0 0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld fixed frame to door_ref -->
+      <joint name="door_ref_to_fixed" type="fixed">
+        <parent>door_ref</parent>
+        <child>fixed_vertical_hinge</child>
+      </joint>
+
+      <joint name="fixed_free_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_vertical_free</child>
+      </joint>
+
+      <joint name="fixed_top_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_top</child>
+      </joint>
+
+      <joint name="fixed_bottom_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_bottom</child>
+      </joint>
+
+      <!-- ================= MOVABLE DOOR FRAME ================= -->
+
+      <link name="moving_vertical_hinge">
+        <pose>0 -0.95 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_vertical_free">
+        <pose>0 -0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_bottom">
+        <pose>0 -0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_top">
+        <pose>0 -0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld movable frame -->
+      <joint name="moving_free_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_vertical_free</child>
+      </joint>
+
+      <joint name="moving_top_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_top</child>
+      </joint>
+
+      <joint name="moving_bottom_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_bottom</child>
+      </joint>
+
+      <!-- ================= wall to door structure ================= -->
+      <joint name="wall_right_weld" type="fixed">
+        <parent>wall_left</parent>
+        <child>wall_right</child>
+      </joint>
+
+      <joint name="wall_to_door_ref" type="fixed">
+        <parent>wall_left</parent>
+        <child>door_ref</child>
+      </joint>
+
+
+
+      <!-- Fixed joints assemble each frame; only this revolute joint is allowed
+           to move, with damping to prevent an unrealistic free swing. -->
+      <!-- ================= HINGE ================= -->
+
+      <joint name="door_hinge" type="revolute">
+        <parent>fixed_vertical_hinge</parent>
+        <child>moving_vertical_hinge</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>0</lower>
+            <upper>1.57</upper>
+          </limit>
+          <dynamics>
+            <damping>0.5</damping>
+          </dynamics>
+        </axis>
+      </joint>
+
+    </model>
+    
+    <!-- SECOND WALL WITH HINGED FRAMED DOOR -->
+    <model name="second_wall_with_door">
+      <static>false</static>
+
+      <!-- Wall location in world -->
+      <pose>6 0 0 0 0 0</pose>
+
+      <!-- ================= SOLID WALL PARTS ================= -->
+
+      <link name="wall_left">
+        <pose>0 1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="wall_right">
+        <pose>0 -1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- ================= DOOR REFERENCE LINK ================= -->
+      <!-- Physical anchor of the door assembly -->
+      <link name="door_ref"/>
+
+      <!-- ================= FIXED DOOR FRAME ================= -->
+
+      <link name="fixed_vertical_hinge">
+        <pose>0 0.8 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_vertical_free">
+        <pose>0 0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_bottom">
+        <pose>0 0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_top">
+        <pose>0 0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld fixed frame to door_ref -->
+      <joint name="door_ref_to_fixed" type="fixed">
+        <parent>door_ref</parent>
+        <child>fixed_vertical_hinge</child>
+      </joint>
+
+      <joint name="fixed_free_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_vertical_free</child>
+      </joint>
+
+      <joint name="fixed_top_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_top</child>
+      </joint>
+
+      <joint name="fixed_bottom_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_bottom</child>
+      </joint>
+
+      <!-- ================= MOVABLE DOOR FRAME ================= -->
+
+      <link name="moving_vertical_hinge">
+        <pose>0 -0.8 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_vertical_free">
+        <pose>0 -0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_bottom">
+        <pose>0 -0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_top">
+        <pose>0 -0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld movable frame -->
+      <joint name="moving_free_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_vertical_free</child>
+      </joint>
+
+      <joint name="moving_top_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_top</child>
+      </joint>
+
+      <joint name="moving_bottom_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_bottom</child>
+      </joint>
+
+      <!-- ================= wall to door structure ================= -->
+      <joint name="wall_right_weld" type="fixed">
+        <parent>wall_left</parent>
+        <child>wall_right</child>
+      </joint>
+
+      <joint name="wall_to_door_ref" type="fixed">
+        <parent>wall_left</parent>
+        <child>door_ref</child>
+      </joint>
+
+
+
+      <!-- ================= HINGE ================= -->
+
+      <joint name="door_hinge" type="revolute">
+        <parent>fixed_vertical_hinge</parent>
+        <child>moving_vertical_hinge</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>0</lower>
+            <upper>1.57</upper>
+          </limit>
+          <dynamics>
+            <damping>0.5</damping>
+          </dynamics>
+        </axis>
+      </joint>
+
+    </model>
+
+       
+    <!-- THIRD WALL WITH HINGED FRAMED DOOR -->
+    <model name="third_wall_with_door">
+      <static>false</static>
+
+      <!-- Wall location in world -->
+      <pose>2 0 0 0 0 0</pose>
+
+      <!-- ================= SOLID WALL PARTS ================= -->
+
+      <link name="wall_left">
+        <pose>0 1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="wall_right">
+        <pose>0 -1.5 1.5 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 1.0 3.0</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- ================= DOOR REFERENCE LINK ================= -->
+      <!-- Physical anchor of the door assembly -->
+      <link name="door_ref"/>
+
+      <!-- ================= FIXED DOOR FRAME ================= -->
+
+      <link name="fixed_vertical_hinge">
+        <pose>0 0.55 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.9 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.9 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_vertical_free">
+        <pose>0 0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_bottom">
+        <pose>0 0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="fixed_top">
+        <pose>0 0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld fixed frame to door_ref -->
+      <joint name="door_ref_to_fixed" type="fixed">
+        <parent>door_ref</parent>
+        <child>fixed_vertical_hinge</child>
+      </joint>
+
+      <joint name="fixed_free_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_vertical_free</child>
+      </joint>
+
+      <joint name="fixed_top_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_top</child>
+      </joint>
+
+      <joint name="fixed_bottom_weld" type="fixed">
+        <parent>fixed_vertical_hinge</parent>
+        <child>fixed_bottom</child>
+      </joint>
+
+      <!-- ================= MOVABLE DOOR FRAME ================= -->
+
+      <link name="moving_vertical_hinge">
+        <pose>0 -0.8 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.4 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_vertical_free">
+        <pose>0 -0.05 1.1 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.1 2.2</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_bottom">
+        <pose>0 -0.5 0.05 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <link name="moving_top">
+        <pose>0 -0.5 2.15 0 0 0</pose>
+        <collision name="c">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>0.1 0.8 0.1</size></box></geometry>
+        </visual>
+      </link>
+
+      <!-- weld movable frame -->
+      <joint name="moving_free_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_vertical_free</child>
+      </joint>
+
+      <joint name="moving_top_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_top</child>
+      </joint>
+
+      <joint name="moving_bottom_weld" type="fixed">
+        <parent>moving_vertical_hinge</parent>
+        <child>moving_bottom</child>
+      </joint>
+
+      <!-- ================= wall to door structure ================= -->
+      <joint name="wall_right_weld" type="fixed">
+        <parent>wall_left</parent>
+        <child>wall_right</child>
+      </joint>
+
+      <joint name="wall_to_door_ref" type="fixed">
+        <parent>wall_left</parent>
+        <child>door_ref</child>
+      </joint>
+
+
+
+      <!-- ================= HINGE ================= -->
+
+      <joint name="door_hinge" type="revolute">
+        <parent>fixed_vertical_hinge</parent>
+        <child>moving_vertical_hinge</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>0</lower>
+            <upper>1.57</upper>
+          </limit>
+          <dynamics>
+            <damping>0.5</damping>
+          </dynamics>
+        </axis>
+      </joint>
+
+    </model>
+
+
+  </world>
+</sdf>

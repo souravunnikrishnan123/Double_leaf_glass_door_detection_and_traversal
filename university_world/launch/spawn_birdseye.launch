@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  Spawn the overhead camera into an ALREADY-RUNNING Gazebo.
+
+  This deliberately does not touch your university .world file: nothing in the
+  shared world changes, and you can move the camera between runs by editing one
+  launch argument instead of re-editing (and re-breaking) the world.
+
+      roslaunch university_world spawn_birdseye.launch robot_x:=0.0
+
+  The defaults frame the robot start: the camera sits x_offset (1.2 m) ahead
+  of robot_x on the corridor centreline, so with the 60 deg lens in model.sdf,
+  z=7.3 covers robot_x-1.2 .. robot_x+3.6 (bottom to top) and y = -4.2..4.2,
+  with world +X at the top. The robot sits about 3/4 of the way down with
+  ~3.6 m of corridor ahead of it (at robot_x=0, the door wall at x=2 runs
+  across the top). unitree_gazebo/launch/normal.launch passes its robot x in
+  as robot_x. Set x directly to ignore robot_x and place the camera yourself.
+
+  To see the whole corridor run instead (all three doors at x=2, 6 and 10,
+  corridor running left to right):
+
+      roslaunch university_world spawn_birdseye.launch x:=5.0 z:=13.0 yaw:=1.5708
+
+  z is measured in WORLD coordinates, so if your floor is at z=0 then z is the
+  height above the floor. Keep it well above the 3 m walls (this world has no
+  ceiling): a camera below the wall tops sees mostly wall faces. The lower the
+  camera, the larger the wall faces look.
+
+  yaw rotates the overhead view: the top of the image points along the world
+  direction (cos yaw, sin yaw). yaw=0 puts world +X at the top of the image;
+  yaw=1.5708 puts +Y at the top, so the corridor (+X) runs left to right.
+
+  Point `model` at wherever you put the model.sdf. The default assumes you
+  copied the models/ folder into a ROS package; the commented alternative uses
+  the plain ~/.gazebo/models path if you installed it there instead.
+-->
+<launch>
+  <arg name="robot_x"  default="0.0"/>
+  <arg name="x_offset" default="1.2"/>
+  <arg name="x"     default="$(eval float(arg('robot_x')) + float(arg('x_offset')))"/>
+  <arg name="y"     default="0.0"/>
+  <arg name="z"     default="7.3"/>
+  <arg name="yaw"   default="0.0"/>
+  <arg name="name"  default="birdseye"/>
+
+  
+  <arg name="model" default="$(find university_world)/models/birdseye/model.sdf"/>
+  <!-- <arg name="model" default="$(env HOME)/.gazebo/models/birdseye/model.sdf"/> -->
+
+  <node name="spawn_$(arg name)" pkg="gazebo_ros" type="spawn_model"
+        output="screen"
+        args="-sdf -file $(arg model) -model $(arg name)
+              -x $(arg x) -y $(arg y) -z $(arg z) -Y $(arg yaw)"/>
+</launch>

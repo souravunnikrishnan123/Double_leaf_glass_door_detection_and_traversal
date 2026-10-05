@@ -193,7 +193,7 @@ class ColorDoorDetector:
             self.timer.stop("color_image_based_frame_detection line processing")
 
 
-        # No lines detected; return consistent 4-tuple and preserve edges
+        # No lines detected
         else:
             valid_lines = None
             depth_of_valid_lines = None

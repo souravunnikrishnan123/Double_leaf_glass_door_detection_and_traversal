@@ -217,7 +217,7 @@ class DepthDoorDetector:
         depth_edges = cv2.bitwise_and(depth_edges, physical_mask)
 
         # The Sobel preview feeds only the diagnostic window. Building it costs a
-        # normalize, an 8-bit cast, a grey-to-colour expansion, a masked write and
+        # normalize, an 8-bit cast, a grey-to-color expansion, a masked write and
         # a full-resolution upscale, none of which the cv2 no-op patching removes,
         # so it is built only when the diagnostics are actually shown.
         if self.enable_visualization:

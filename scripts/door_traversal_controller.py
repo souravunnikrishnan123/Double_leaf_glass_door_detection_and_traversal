@@ -103,7 +103,9 @@ class DoorTraversalController:
 
         set_model_state:
             ROS service proxy used to apply Gazebo model velocities, or
-            ``None`` when the service was not available at startup.
+            ``None`` until the service is available. If it was missing at
+            startup, :meth:`publish_cmd_vel` connects once a Gazebo pose has
+            arrived.
     """
 
     def __init__(self):
@@ -126,7 +128,8 @@ class DoorTraversalController:
             Constructing this object initializes the ROS node. It waits at most
             ``~door_traversal_controller/gazebo_service_timeout`` seconds
             (default 5) for the model-state service; if the service does not
-            appear, a warning is logged and motion commands are discarded.
+            appear, a warning is logged and :meth:`publish_cmd_vel` retries the
+            connection once Gazebo publishes a pose.
         """
         rospy.init_node("door_traversal")
         # =========================================================
@@ -289,9 +292,9 @@ class DoorTraversalController:
             rospy.loginfo("Connected to /gazebo/set_model_state service")
         except rospy.ROSException:
             self.set_model_state = None
-            rospy.logwarn(
-                "/gazebo/set_model_state unavailable after %.1fs. The controller will "
-                "run its state machine but cannot command motion.",
+            rospy.loginfo(
+                "/gazebo/set_model_state not available yet after %.1fs. Will connect "
+                "on the first motion command once Gazebo is up (never in bag mode).",
                 self.gazebo_service_timeout,
             )
 
@@ -610,8 +613,8 @@ class DoorTraversalController:
 
         Notes:
             The command is skipped, with a throttled warning, when no Gazebo
-            pose has been received or when no model-state service is
-            available. The world-frame conversion uses the latest odometry yaw.
+            pose has been received or when the model-state service is still
+            unavailable after a late connection attempt. The world-frame conversion uses the latest odometry yaw.
         """
 
         if self.gazebo_pose is None:
@@ -648,8 +651,16 @@ class DoorTraversalController:
         rospy.loginfo("Publishing cmd_vel: v_forward=%.3f m/s, v_lateral=%.3f m/s, omega=%.3f rad/s", v_forward, v_lateral, omega)
 
         if self.set_model_state is None:
-            rospy.logwarn_throttle(10.0, "No actuation backend; motion command discarded.")
-            return
+            # Gazebo can finish loading after the startup wait expired. A pose
+            # has arrived, so the simulator is up; connect now instead of
+            # discarding motion for the rest of the session.
+            try:
+                rospy.wait_for_service("/gazebo/set_model_state", timeout=0.5)
+                self.set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
+                rospy.loginfo("Connected to /gazebo/set_model_state service")
+            except rospy.ROSException:
+                rospy.logwarn_throttle(10.0, "No actuation backend; motion command discarded.")
+                return
 
         response = self.set_model_state(self.modelstate)
         rospy.logdebug(

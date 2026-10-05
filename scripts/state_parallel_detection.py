@@ -158,8 +158,6 @@ class dual_branch_frame_detection_state(BaseState):
             enabled. When result logging is enabled both branch labels are
             appended to the log.
         """
-        # get the latest door geometry and distance from ROS params
-        # these values are changed during runtime. hence need to load the door geometry and plane distance in this state as well to make sure the latest value is used for detection
 
         # Plane search can update these measurements after examining the current
         # doorway, so cached constructor values would quickly become stale. They

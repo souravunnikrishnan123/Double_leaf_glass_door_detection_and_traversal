@@ -128,7 +128,7 @@ class DoorTraversalController:
             (default 5) for the model-state service; if the service does not
             appear, a warning is logged and motion commands are discarded.
         """
-        rospy.init_node("door_traversal_controller")
+        rospy.init_node("door_traversal")
         # =========================================================
         # Parameters (tuned for Unitree Go1)
         # =========================================================
@@ -765,6 +765,10 @@ class DoorTraversalController:
             or when ROS shuts down. The rate sleep runs at the top of every
             iteration so waiting branches cannot spin.
 
+            ``IDLE`` holds the robot stopped until the corridor result settles
+            as passable. A result that settles as not passable is only logged;
+            the robot stays in ``IDLE`` and no new corridor is requested.
+
             Each phase selects the check it needs on
             ``~request_local_passability_check``: none (0) while only rotating,
             local (2) while pre-positioning and after the midpoint, and
@@ -930,7 +934,7 @@ class DoorTraversalController:
                 lateral_error_in_robot_base = self.corridor_center_x_robot_base
                 rospy.loginfo(f"PRE-ALIGN_POSITION_TO_CORRIDOR: lateral_error={lateral_error_in_robot_base:.3f} m")
                 # If we are sufficiently centered, move to ALIGN
-                if abs(lateral_error_in_robot_base) < self.lateral_error_tolerance_pre_align_position_state:  # 5 cm tolerance
+                if abs(lateral_error_in_robot_base) < self.lateral_error_tolerance_pre_align_position_state: 
                     rospy.loginfo("PRE-ALIGN_POSITION_TO_CORRIDOR complete → ALIGN_TO_CORRIDOR")
                     self.stop_robot()
                     self.state = ALIGN_TO_CORRIDOR
@@ -1039,7 +1043,7 @@ class DoorTraversalController:
                 # Crossing the midpoint changes the safety model: from here the
                 # controller watches immediate forward clearance and clears the
                 # trailing body past the swing area.
-                if self.distance_to_corridor_mid_point <= 0.3: # within 5 cm of door plane. now no chance to collide with closed glass door half
+                if self.distance_to_corridor_mid_point <= 0.3: # now no chance to collide with closed glass door half
                     #at this point we also ensured that corridor in front has a clearance requested from passability node
                     rospy.loginfo("Door traversal DONE")
                     self.stop_robot()

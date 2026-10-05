@@ -70,8 +70,9 @@ class ColorDoorDetector:
 
         Notes:
             ``~plane_detector/output/ransac_error`` is required without a
-            fallback value. The latest plane distance itself is read for every
-            frame because the plane state may update it at runtime.
+            fallback value. The plane distance is not cached here: it is taken
+            from ``ctx.ransac_plane_distance`` on every frame because the
+            plane-search state may update it at runtime.
         """
         ns = "~color_image_based_door_detector"
 

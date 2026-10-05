@@ -306,9 +306,15 @@ def main():
         bag mode has no ``bag_file``. A frame timeout ends playback when
         ``loop`` is false and otherwise restarts the pipeline, retrying until
         it succeeds. Frame skipping applies only to bag mode. In bag mode the
-        color frames are assumed to be RGB and swapped to BGR. Exceptions in
-        the main loop are logged and re-raised, and the RealSense pipeline is
-        stopped in a ``finally`` block.
+        color frames are assumed to be RGB and swapped to BGR.
+
+        Timestamps differ by mode. In Gazebo mode each output keeps the stamp
+        of its source message, and camera info takes the color stamp. In bag
+        mode only camera info is stamped, with the SDK frame-set time; the
+        color and depth images are published with a zero stamp.
+
+        Exceptions in the main loop are logged and re-raised, and the
+        RealSense pipeline is stopped in a ``finally`` block.
     """
     rospy.init_node('realsense_bag_bridge', anonymous=False)
     rospy.loginfo("realsense_bag_bridge node started.")

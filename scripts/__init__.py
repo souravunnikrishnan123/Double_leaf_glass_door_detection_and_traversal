@@ -22,10 +22,9 @@ if _scripts_directory not in _sys.path:
 
 # Keep this list explicit: importing every file blindly can start hardware or
 # a long-running processing loop as a side effect.
-# pdoc respects a package's __all__ when discovering submodules. The legacy
-# door_frame_detection script is intentionally omitted because importing it
-# starts the RealSense processing loop. draft.py is an incomplete code fragment
-# rather than an importable module, so it is omitted as well.
+# pdoc respects a package's __all__ when discovering submodules. Every module
+# currently in this directory is safe to import and is listed; a new script
+# should be added here only if importing it has no such side effect.
 __all__ = [
     "Frame_data",
     "check_if_passable",

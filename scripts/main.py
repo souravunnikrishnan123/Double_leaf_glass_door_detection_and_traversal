@@ -224,7 +224,7 @@ class DoorDetectionNode:
         
         # camera intrinsics will be cached on first receipt
         rospy.Subscriber(info_topic, CameraInfo, self._info_cb, queue_size=10)
-        rospy.Subscriber("/check_if_corridor_is_passable/retrigger_door_detection_node", Bool, self._retrigger_door_detection_node_cb, queue_size=1)
+        rospy.Subscriber("/check_if_passable/retrigger_door_detection_node", Bool, self._retrigger_door_detection_node_cb, queue_size=1)
         
         # published by top level path planning and navigation algorithm to trigger start of door frame detection and subsequent steps. Published once per door traversal attempt.
         rospy.Subscriber("/trigger_start_door_frame_detection", Bool, self._trigger_start_door_frame_detection, queue_size=1)
@@ -427,12 +427,15 @@ class DoorDetectionNode:
         """
         ctx.door_geometry = {
             # Widths are physical measurements in centimetres and do not depend
-            # on image size; roi_width is a pixel width and does.
+            # on image size; roi_width is a pixel width and does. roi_width is
+            # the side-ROI width for a door at roi_width_reference_distance_m;
+            # the frame processor rescales it to each frame line's depth.
             "glass_width_cm": rospy.get_param("~door_geometry/glass_width_cm", 40),
             "center_frame_width_cm": rospy.get_param("~door_geometry/center_frame_width_cm", 30),
             "roi_width": ResolutionScaler().length(
                 rospy.get_param("~door_geometry/roi_width", 240)
             ),
+            "roi_width_reference_distance_m": rospy.get_param("~reference_door_distance_m", 2.0),
             "correction_factor": rospy.get_param("~door_geometry/correction_factor", 1.1),
         }
         ctx.ransac_plane_distance = rospy.get_param(

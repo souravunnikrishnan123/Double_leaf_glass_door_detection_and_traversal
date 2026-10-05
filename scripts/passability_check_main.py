@@ -651,8 +651,10 @@ class PassabilityCheckerNode:
 
         Notes:
             The callback unregisters conditional subscribers, clears
-            cycle-specific geometry, and asks the door detector to start its
-            next detection cycle.
+            cycle-specific geometry, and publishes
+            ``~retrigger_door_detection_node`` so the door detector leaves its
+            final state for idle. The next detection cycle still needs its own
+            start trigger.
         """
         if msg.data:  # only deactivate on True
             if self.active:
@@ -983,8 +985,10 @@ class PassabilityCheckerNode:
             midpoint; local mode keeps points in a robot-width strip straight
             ahead of the robot, measured in its current frame. Both drop
             points more than ``robot_height_above_camera_level`` above the
-            camera. A ``Robot_passability`` message is published every
-            iteration, with NaN for values that are not available.
+            camera. Once a corridor is defined, a ``Robot_passability`` message
+            is published every iteration, with NaN for values that are not
+            available; nothing is published while the node waits for its
+            first data or for a corridor definition to succeed.
         """
         # Each iteration runs these stages in order:
         #   1. wait for activation and for the first sensor data
@@ -1075,6 +1079,11 @@ class PassabilityCheckerNode:
 
             if type_of_passability_check == PassabilityCheckType.CORRIDOR or type_of_passability_check == PassabilityCheckType.LOCAL: # default value, do nothing. this can happen when corridor is defined for the first time and we have not yet set type_of_passability_check to 1 for corridor passability check. in this case we can skip passability check and wait for next iteration when type_of_passability_check is set to 1. because at first time corridor definition, we may not have the data needed for passability check, so we can skip passability check at that iteration and wait for next iteration when we have the data needed for passability check.
                 front_clearance, passability_view, corridor_boundary_lines = self._check_passability(type_of_passability_check, corridor_now)
+            elif self.enable_visualization:
+                # Checking is disabled while the traversal node rotates in place,
+                # but the views should keep following the robot as it turns:
+                # outline the corridor on the latest frame without measuring anything.
+                passability_view, corridor_boundary_lines = self._corridor_view_without_check(corridor_now)
 
             self._latch_traversal_trigger(type_of_passability_check, front_clearance)
 
@@ -1542,7 +1551,7 @@ class PassabilityCheckerNode:
 
 
                 x_virtual_corridor_center_corridor_frame = self.find_best_corridor_center_based_on_final_points(final_points_2d_for_virtual_corridor_definition_robot_frame, z_max, min_clearance)
-                #x_virtual_corridor_center_corridor_frame value can be None or a float value. if it is None, it means no valid corridor is found. if it is a float value, it means the x center of the virtual corridor in the corridor frame is at that value. positive value means right side of the robot and negative value means left side of the robot. and 0 means directly in front of the robot.
+                #x_virtual_corridor_center_corridor_frame value can be None or a float value. if it is None, it means no valid corridor is found. if it is a float value, it means the x center of the virtual corridor in the corridor frame is at that value. positive value means left side of the robot and negative value means right side of the robot. and 0 means directly in front of the robot.
             else: # in this case, consider image center as virtual corridor center
                 rospy.logwarn("Cannot find any valid points after filtering for virtual corridor definition. This is possible that there is no points left after filtering, means entire region in front is free. consider virtual corridor is directly in front of robot.")
                 x_virtual_corridor_center_corridor_frame = 0.0
@@ -1555,8 +1564,9 @@ class PassabilityCheckerNode:
 
         Candidate centers span the camera field of view in corridor
         coordinates. A candidate is valid when its nearest obstacle is beyond
-        ``min_clearance``. Among valid candidates, the center closest to the
-        robot's current forward axis is preferred.
+        ``min_clearance``. Among valid candidates, the center with the
+        smallest lateral offset from the robot, measured along the corridor
+        lateral axis, is preferred.
 
         Args:
             final_points_robot_frame:
@@ -1885,6 +1895,34 @@ class PassabilityCheckerNode:
 
         front_clearance, passability_view = self._measure_front_clearance(type_of_passability_check, z_min, z_max, corridor_now)
         return front_clearance, passability_view, corridor_boundary_lines
+
+    def _corridor_view_without_check(self, corridor_now):
+        """
+        Outline the stored corridor on the latest color frame without measuring clearance.
+
+        Used while the traversal node has disabled checking, which it does in
+        its pure-rotation states, so that both passability views keep updating
+        as the robot turns.
+
+        Args:
+            corridor_now:
+                The stored corridor in the current robot frame.
+
+        Returns:
+            A tuple ``(passability_view, corridor_boundary_lines)``: a copy of
+            the latest color frame, and the corridor outline with the same
+            length as in a corridor check.
+
+        Notes:
+            No depth is back-projected and no clearance is computed; the
+            outline is only the stored corridor geometry projected into the
+            image.
+        """
+        color_image, self.passability_view_stamp = self.color_frame
+        z_max = self.corridor_middle_point_depth_dynamic_along_corridor_axis + self.maximum_depth_beyond_corridor_center_point_for_back_projection
+        # Copied because the outline is drawn in place, and the cached frame is
+        # used again next iteration if no new frame has arrived by then.
+        return color_image.copy(), self._corridor_check_boundary_lines(corridor_now, z_max)
 
     def _corridor_check_boundary_lines(self, corridor_now, z_max):
         """
@@ -2217,8 +2255,9 @@ class PassabilityCheckerNode:
 
         Args:
             passability_view:
-                View returned by the passability check, or ``None`` when no
-                check ran in this iteration.
+                View returned by the passability check, or by
+                :meth:`_corridor_view_without_check` while checking is
+                disabled; ``None`` when there is nothing to show.
 
             corridor_boundary_lines:
                 Region outline computed alongside ``passability_view``.
@@ -2234,16 +2273,19 @@ class PassabilityCheckerNode:
                 #x_right_boundary_uv = int((x_right_limit * self.fx) / reference_depth_for_visualization + self.cx)
                 #cv2.line(passability_view, (x_left_boundary_uv, 0), (x_left_boundary_uv, passability_view.shape[0]), (0, 165, 255), 4)  # orange
                 #cv2.line(passability_view, (x_right_boundary_uv, 0), (x_right_boundary_uv, passability_view.shape[0]), (0, 0, 255), 4)  # red
-                p1 = self.project_to_pixel(corridor_boundary_lines.left_line_start_camera_frame)
-                p2 = self.project_to_pixel(corridor_boundary_lines.left_line_end_camera_frame)
-                p3 = self.project_to_pixel(corridor_boundary_lines.right_line_start_camera_frame)
-                p4 = self.project_to_pixel(corridor_boundary_lines.right_line_end_camera_frame)
-
                 # Draw lines on the passability view
-                cv2.line(passability_view, p1, p2, (0, 255, 0), 2)  # green
-                cv2.line(passability_view, p3, p4, (0, 0, 255), 2)  # red
+                self._draw_camera_frame_segment(passability_view,
+                                                corridor_boundary_lines.left_line_start_camera_frame,
+                                                corridor_boundary_lines.left_line_end_camera_frame,
+                                                (0, 255, 0))  # green
+                self._draw_camera_frame_segment(passability_view,
+                                                corridor_boundary_lines.right_line_start_camera_frame,
+                                                corridor_boundary_lines.right_line_end_camera_frame,
+                                                (0, 0, 255))  # red
 
-                # The corridor lines above are always drawn on this path.
+                # Always annotated: the corridor outline is drawn whenever it is
+                # in view, and the recorded frames must stay continuous even
+                # when the robot has turned away from it.
                 self.publish_passability_view(passability_view, drawn=True)
 
         except Exception as e:
@@ -2267,6 +2309,40 @@ class PassabilityCheckerNode:
         u = int(self.fx * X / Z + self.cx)
         v = int(self.fy * Y / Z + self.cy)
         return (u, v)
+
+    def _draw_camera_frame_segment(self, image, start, end, color, z_near=0.05):
+        """
+        Draw the part of a camera-frame segment that lies in front of the camera.
+
+        Args:
+            image:
+                BGR image, drawn on in place.
+
+            start:
+                Segment start ``(X, Y, Z)`` in the camera frame, in meters.
+
+            end:
+                Segment end ``(X, Y, Z)`` in the camera frame, in meters.
+
+            color:
+                BGR line color.
+
+            z_near:
+                Depth in meters at which a segment is cut.
+
+        Notes:
+            A point on or behind the camera plane has no pixel, which happens
+            when the robot has turned far from the corridor. The segment is
+            cut at ``z_near`` instead, and a segment entirely behind that
+            depth is not drawn. OpenCV clips the rest to the image.
+        """
+        if start[2] < z_near and end[2] < z_near:
+            return
+        if start[2] < z_near:
+            start = start + (end - start) * (z_near - start[2]) / (end[2] - start[2])
+        elif end[2] < z_near:
+            end = end + (start - end) * (z_near - end[2]) / (start[2] - end[2])
+        cv2.line(image, self.project_to_pixel(start), self.project_to_pixel(end), color, 2)
 
     # -----------------------------
     # Odometry helpers not used by run()
@@ -2363,7 +2439,7 @@ def main():
         rospy.ROSInterruptException:
             If ROS interrupts the node while it is running.
     """
-    rospy.init_node("check_if_corridor_is_passable")
+    rospy.init_node("check_if_passable")
     node = PassabilityCheckerNode()
     rospy.loginfo("Check if corridor is passable node started.")
     node.run()

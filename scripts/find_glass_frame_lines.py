@@ -268,6 +268,30 @@ class GlassFrameLineProcessor:
         # Sort points by y-coordinate (ascending)
         return sorted(line_points, key=lambda pt: pt[1])
 
+    def roi_width_at_depth(self, depth_m):
+        """
+        Scale the configured side-ROI width to a frame line's depth.
+
+        Args:
+            depth_m:
+                Metric depth of the frame line the ROI is built beside.
+
+        Returns:
+            ROI width in pixels, at least one. A depth that is missing,
+            non-finite, or non-positive returns the configured width unchanged.
+
+        Notes:
+            ``roi_width`` is the pixel width for a door at
+            ``roi_width_reference_distance_m``. Apparent width is inversely
+            proportional to depth, so scaling by ``reference / depth`` keeps
+            the strip covering the same physical width at any door distance.
+        """
+        roi_width = self.door_geometry["roi_width"]
+        if depth_m is None or not np.isfinite(depth_m) or depth_m <= 0:
+            return roi_width
+        reference_distance_m = self.door_geometry["roi_width_reference_distance_m"]
+        return max(1, int(round(roi_width * reference_distance_m / depth_m)))
+
     def get_strip_avg_z(self, depth_image_in_meters, line_points, side="left", roi_width=20, min_depth=1.7):
         """
         Measure average depth in a strip beside a sampled line.
@@ -426,15 +450,22 @@ class GlassFrameLineProcessor:
             extrapolated_right_line_points = self.extrapolate_line_to_y_range(right_line_points, y_top, y_bottom)
 
 
+            # The configured ROI width holds only at the reference door distance.
+            # Scale it by each line's own depth, as the pairing test does for
+            # the glass and frame widths, so the strip covers the same physical
+            # width whether the door is nearer or farther than the reference.
+            roi_width_left = self.roi_width_at_depth(left_depth)
+            roi_width_right = self.roi_width_at_depth(right_depth)
+
             # Compute average Z for left ROI
             avg_z_left_roi, roi_polygon_left = self.get_strip_avg_z(
-                self.depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
+                self.depth_image_in_meters, extrapolated_left_line_points, side="left", roi_width=roi_width_left, min_depth=self.DEPTH_RANGE[0]
             )
 
 
             # Compute average Z for right ROI
             avg_z_right_roi, roi_polygon_right = self.get_strip_avg_z(
-                self.depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=self.door_geometry["roi_width"], min_depth=self.DEPTH_RANGE[0]
+                self.depth_image_in_meters, extrapolated_right_line_points, side="right", roi_width=roi_width_right, min_depth=self.DEPTH_RANGE[0]
             ) # minimum depth used to ignore the depth info from human who is between the door and robodog
 
 
@@ -558,8 +589,10 @@ class GlassFrameLineProcessor:
 
             door_geometry:
                 Mapping containing ``glass_width_cm``,
-                ``center_frame_width_cm``, ``roi_width``, and
-                ``correction_factor``.
+                ``center_frame_width_cm``, ``roi_width``,
+                ``roi_width_reference_distance_m``, and ``correction_factor``.
+                ``roi_width`` is the side-ROI pixel width at the reference
+                distance and is rescaled to each frame line's depth.
 
             DEPTH_RANGE:
                 Accepted door-depth interval in meters.
@@ -619,11 +652,6 @@ class GlassFrameLineProcessor:
                 cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
 
 
-
-        # Example: Extract full coordinates of each stable line
-        #for avg_x, line_pts, confidence in stable_lines:
-            # Print the number of points instead of shape
-            #print(f"Stable Line X={avg_x}, Confidence={confidence:.2f}, NumPoints={len(line_pts)}")
 
         roi_polygon_left, roi_polygon_right , mean_z_depth_along_frame_lines = self.process_filtered_lines(paired_lines_sorted)
 

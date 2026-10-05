@@ -70,7 +70,7 @@
       <static>false</static>
 
       <!-- Wall location in world -->
-      <pose>10 0 0 0 0 0</pose>
+      <pose>2 0 0 0 0 0</pose>
 
       <!-- ================= SOLID WALL PARTS ================= -->
 
@@ -242,7 +242,7 @@
         <axis>
           <xyz>0 0 1</xyz>
           <limit>
-            <lower>0</lower>
+            <lower>-1.57</lower>  <!-- negative opens inward (away from a robot coming from -x), positive outward -->
             <upper>1.57</upper>
           </limit>
           <dynamics>
@@ -428,7 +428,7 @@
         <axis>
           <xyz>0 0 1</xyz>
           <limit>
-            <lower>0</lower>
+            <lower>-1.57</lower>  <!-- negative opens inward (away from a robot coming from -x), positive outward -->
             <upper>1.57</upper>
           </limit>
           <dynamics>
@@ -445,7 +445,7 @@
       <static>false</static>
 
       <!-- Wall location in world -->
-      <pose>2 0 0 0 0 0</pose>
+      <pose>10 0 0 0 0 0</pose>
 
       <!-- ================= SOLID WALL PARTS ================= -->
 
@@ -615,7 +615,7 @@
         <axis>
           <xyz>0 0 1</xyz>
           <limit>
-            <lower>0</lower>
+            <lower>-1.57</lower>  <!-- negative opens inward (away from a robot coming from -x), positive outward -->
             <upper>1.57</upper>
           </limit>
           <dynamics>

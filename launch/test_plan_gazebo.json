@@ -1,0 +1,773 @@
+{
+  "source": "test_plan_gazebo.txt",
+  "fields": {
+    "run": "Run number",
+    "door": "Door id (see 'doors')",
+    "yaw_offset_rad": "Offset angle between door plane normal and robot's orientation, in rad",
+    "distance_m": "Distance from robot's depth camera to door plane, in m",
+    "lateral_offset_m": "Lateral offset between door center and robot, in m",
+    "door_opening": "Direction the door opens: outward or inward"
+  },
+  "doors": {
+    "1": {
+      "description": "Door with double glass leaf with standard glass area",
+      "expected_result": "correct door open status"
+    },
+    "2": {
+      "description": "Door with double glass leaf with small glass area",
+      "expected_result": "correct door open status"
+    },
+    "3": {
+      "description": "Door where no_frame_detected is expected to be the door detection result",
+      "expected_result": "no_frame_detected"
+    }
+  },
+  "blocks": [
+    {
+      "runs": [
+        1,
+        6
+      ],
+      "door": 3,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "yaw_offsets_rad": [
+        0.0,
+        0.15,
+        -0.15
+      ]
+    },
+    {
+      "runs": [
+        7,
+        12
+      ],
+      "door": 2,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "yaw_offsets_rad": [
+        0.0,
+        0.15,
+        -0.15
+      ]
+    },
+    {
+      "runs": [
+        13,
+        18
+      ],
+      "door": 1,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "yaw_offsets_rad": [
+        0.0,
+        0.15,
+        -0.15
+      ]
+    },
+    {
+      "runs": [
+        19,
+        24
+      ],
+      "door": 1,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "yaw_offsets_rad": [
+        0.0,
+        0.15,
+        -0.15
+      ]
+    },
+    {
+      "runs": [
+        25,
+        30
+      ],
+      "door": 3,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.05,
+        -0.05
+      ]
+    },
+    {
+      "runs": [
+        31,
+        36
+      ],
+      "door": 3,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.1,
+        -0.1
+      ]
+    },
+    {
+      "runs": [
+        37,
+        42
+      ],
+      "door": 2,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.1,
+        -0.1
+      ]
+    },
+    {
+      "runs": [
+        43,
+        48
+      ],
+      "door": 2,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.05,
+        -0.05
+      ]
+    },
+    {
+      "runs": [
+        49,
+        54
+      ],
+      "door": 1,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.1,
+        -0.1
+      ]
+    },
+    {
+      "runs": [
+        55,
+        60
+      ],
+      "door": 1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.05,
+        -0.05
+      ]
+    },
+    {
+      "runs": [
+        61,
+        66
+      ],
+      "door": 2,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.1,
+        -0.1
+      ]
+    },
+    {
+      "runs": [
+        67,
+        72
+      ],
+      "door": 3,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "yaw_offsets_rad": [
+        0.0,
+        0.05,
+        -0.05
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 2,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 3,
+      "door": 3,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 4,
+      "door": 3,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 5,
+      "door": 3,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 6,
+      "door": 3,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 7,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 8,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 9,
+      "door": 2,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 10,
+      "door": 2,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 11,
+      "door": 2,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 12,
+      "door": 2,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 13,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 14,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 15,
+      "door": 1,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 16,
+      "door": 1,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 17,
+      "door": 1,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 18,
+      "door": 1,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 19,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 20,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 21,
+      "door": 1,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 22,
+      "door": 1,
+      "yaw_offset_rad": 0.15,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 23,
+      "door": 1,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "outward"
+    },
+    {
+      "run": 24,
+      "door": 1,
+      "yaw_offset_rad": -0.15,
+      "distance_m": 2.0,
+      "lateral_offset_m": -0.4,
+      "door_opening": "inward"
+    },
+    {
+      "run": 25,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 26,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 27,
+      "door": 3,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 28,
+      "door": 3,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 29,
+      "door": 3,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 30,
+      "door": 3,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 31,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 32,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 33,
+      "door": 3,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 34,
+      "door": 3,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 35,
+      "door": 3,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 36,
+      "door": 3,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 37,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 38,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 39,
+      "door": 2,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 40,
+      "door": 2,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 41,
+      "door": 2,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 42,
+      "door": 2,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 43,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 44,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 45,
+      "door": 2,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 46,
+      "door": 2,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 47,
+      "door": 2,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 48,
+      "door": 2,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 1.7,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 49,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 50,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 51,
+      "door": 1,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 52,
+      "door": 1,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 53,
+      "door": 1,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 54,
+      "door": 1,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 55,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 56,
+      "door": 1,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 57,
+      "door": 1,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 58,
+      "door": 1,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 59,
+      "door": 1,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 60,
+      "door": 1,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.0,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 61,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 62,
+      "door": 2,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 63,
+      "door": 2,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 64,
+      "door": 2,
+      "yaw_offset_rad": 0.1,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 65,
+      "door": 2,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 66,
+      "door": 2,
+      "yaw_offset_rad": -0.1,
+      "distance_m": 1.7,
+      "lateral_offset_m": -0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 67,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 68,
+      "door": 3,
+      "yaw_offset_rad": 0.0,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 69,
+      "door": 3,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 70,
+      "door": 3,
+      "yaw_offset_rad": 0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    },
+    {
+      "run": 71,
+      "door": 3,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "outward"
+    },
+    {
+      "run": 72,
+      "door": 3,
+      "yaw_offset_rad": -0.05,
+      "distance_m": 2.3,
+      "lateral_offset_m": 0.3,
+      "door_opening": "inward"
+    }
+  ]
+}

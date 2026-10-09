@@ -726,7 +726,7 @@ class Passability_checker:
         self.timer.start(f"check_if_passable--> visualization of final points")
         # These overlays are plain NumPy scatter writes, so they are not disabled
         # by the no-op cv2 patching and must be skipped explicitly. They also write
-        # into the caller's cached colour frame in place, which would otherwise
+        # into the caller's cached color frame in place, which would otherwise
         # accumulate debug pixels on a frame that is reused.
         if self.enable_visualization:
             color_image = self.visualize_points(

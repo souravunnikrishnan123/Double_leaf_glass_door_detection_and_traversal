@@ -225,10 +225,10 @@ class DoorTraversalController:
         # Passability hysteresis (to avoid glitch-induced stops)
         ph = "passability_hysteresis"
         self.passability_true_hysteresis = rospy.get_param(
-            f"{ns}/{ph}/consecutive_passable_to_true", 5
+            f"{ns}/{ph}/consecutive_passable_to_true", 10
         )
         self.passability_false_hysteresis = rospy.get_param(
-            f"{ns}/{ph}/consecutive_unpassable_to_false", 4
+            f"{ns}/{ph}/consecutive_unpassable_to_false", 8
         )
         # Hysteresis counters
         self.safe_seq_corridor = 0

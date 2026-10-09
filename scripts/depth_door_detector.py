@@ -200,8 +200,7 @@ class DepthDoorDetector:
         filtered_depth_image = self.preprocessor.bilateral_filter(depth_scaled, self.bilateral)        
         depth_grad_x = self.edge_detector.sobel_edge_detection(filtered_depth_image, self.sobel) # Gradient along X (detect vertical edges in depth)
         
-        # Apply mask (keep only valid + relevant regions)
-        # After computing depth_scaled
+        # Apply mask (keep only valid + relevant regions) only after sobel. because sobel need to compute gradient for all pixels, if we mask before sobel, the sobel will not be able to compute gradient for masked pixels and will return 0 for those pixels, which is not correct.
         # Learn the adaptive threshold from the door band only. Background
         # discontinuities can otherwise dominate its mean and standard deviation.
         mask_ds = (depth_scaled > DEPTH_RANGE[0]) & (depth_scaled < DEPTH_RANGE[1])
@@ -247,7 +246,7 @@ class DepthDoorDetector:
 
             for line in depth_lines:
                 x1, y1, x2, y2 = line[0]
-                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (203, 192, 255), 2)  #pink
+                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (0, 165, 255), 2)  # All vertical lines: orange
                 # Estimate Z-depth of the line robustly
                 # Sample both sides rather than the edge itself, where depth is
                 # often missing or mixed between foreground and background.
@@ -259,7 +258,7 @@ class DepthDoorDetector:
                 valid_lines.append(((x1, y1), (x2, y2)))
                 depth_of_valid_lines.append(line_depth)
                 # show the midpoint used for normals
-                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 0, 0), 2)  # blue for valid lines
+                cv2.line(ctx.color_image_depth_based, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan for valid lines
                 #cv2.circle(color_image, (x_m, y_m), 3, (255, 0, 0), -1)
                 # optional annotate depth
                 #cv2.putText(color_image, f"{d:.2f}m", (x_m+6, y_m-6),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)

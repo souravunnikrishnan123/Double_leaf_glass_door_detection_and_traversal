@@ -188,7 +188,7 @@ class ColorDoorDetector:
                 valid_lines.append(((x1, y1), (x2, y2)))
                 depth_of_valid_lines.append(line_depth)
                  
-                cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan
+                cv2.line(ctx.color_image_color_based, (x1, y1), (x2, y2), (255, 255, 0), 2)  # cyan for lines that are still in door depth range
 
             self.timer.stop("color_image_based_frame_detection line processing")
 

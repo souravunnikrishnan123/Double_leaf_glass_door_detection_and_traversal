@@ -498,18 +498,29 @@ class GlassFrameLineProcessor:
 
 
                 # Draw ROIs if available
+                """
                 if roi_polygon_left is not None:
                     cv2.polylines(self.color_image, [roi_polygon_left.astype(np.int32)], isClosed=True, color=(255, 0, 255), thickness=2)
                 if roi_polygon_right is not None:
                     cv2.polylines(self.color_image, [roi_polygon_right.astype(np.int32)], isClosed=True, color=(0, 255, 255), thickness=2)
-
+                """
+                # Highlight the accepted pair's detected (not extrapolated) lines:
+                # left frame in red, right frame in yellow.
+                if len(left_line_points) >= 2:
+                    pt1 = tuple(map(int, left_line_points[0][:2]))
+                    pt2 = tuple(map(int, left_line_points[-1][:2]))
+                    cv2.line(self.color_image, pt1, pt2, (0, 0, 255), 3)
+                if len(right_line_points) >= 2:
+                    pt1 = tuple(map(int, right_line_points[0][:2]))
+                    pt2 = tuple(map(int, right_line_points[-1][:2]))
+                    cv2.line(self.color_image, pt1, pt2, (0, 255, 255), 3)
                 # Report average Z values in the banner strip
                 self.banner.add(
                     f"Pair {i+1} Avg Depth",
                     (f"L ROI {avg_z_left_roi:.2f} m", (255, 0, 255)),
                     (f"L line {mean_z_left_line:.2f} m", (255, 0, 255)),
-                    (f"R ROI {avg_z_right_roi:.2f} m", (0, 0, 255)),
-                    (f"R line {mean_z_right_line:.2f} m", (0, 0, 255)),
+                    (f"R ROI {avg_z_right_roi:.2f} m", (0, 255, 255)),
+                    (f"R line {mean_z_right_line:.2f} m", (0, 255, 255)),
                 )
 
         if filtered_pairs:
@@ -640,16 +651,16 @@ class GlassFrameLineProcessor:
 
         # Visualize paired lines (glass frame candidates)
         for left_line, right_line, left_depth, right_depth in paired_lines_sorted:
-            # Draw left line in red
+            # Draw left line in blue
             if len(left_line) >= 2:
                 pt1 = tuple(map(int, left_line[0][:2]))
                 pt2 = tuple(map(int, left_line[-1][:2]))
-                cv2.line(color_image, pt1, pt2, (0, 0, 255), 2)
-            # Draw right line in cyan
+                cv2.line(color_image, pt1, pt2, (255, 0, 0), 2)
+            # Draw right line in pink
             if len(right_line) >= 2:
                 pt1 = tuple(map(int, right_line[0][:2]))
                 pt2 = tuple(map(int, right_line[-1][:2]))
-                cv2.line(color_image, pt1, pt2, (0, 255, 255), 2)
+                cv2.line(color_image, pt1, pt2, (255, 0, 255), 2)
 
 
 

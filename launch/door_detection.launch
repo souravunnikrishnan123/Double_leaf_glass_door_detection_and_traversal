@@ -3,7 +3,7 @@
        bridging, door detection, corridor clearance, and finally the traversal
        controller, plus optional saving of the debug images. -->
   <!-- RealSense recording played by the bridge when input_mode is 'bag' -->
-  <arg name="bag_file" default="/app/realsense_camera_feed/grey_door/grey_door_always_open_night_from_IAS_lab_side.bag"/>
+  <arg name="bag_file" default="/app/realsense_camera_feed/new/grey_door_opening_but_corridor_is_not_passable_due_to_an_obstacle_in_the_corridor.bag"/>
 
   <!-- Debug toggle: run with debug:=true to enable VS Code attach -->
   <arg name="debug" default="false"/>
@@ -160,7 +160,7 @@
           drop_k: 2
         output:
           ransac_plane_distance : 2.0  # meters. initial value only; plane search refines it at runtime
-          ransac_error : 0.1  # fractional depth band around the plane distance used to accept frame lines
+          ransac_error : 0.1  # fractional depth band around the plane distance used to accept frame lines. it also helps to make algorithm more robust to small movements between plane detection and door state detection.
     </rosparam>
     <rosparam>
       door_type_detector:
@@ -226,7 +226,7 @@
     <rosparam>
       door_status_detector:
         margin: 10
-        threshold: 0.02
+        threshold: 0.01
         roi_subsample: 4
       maximum_allowed_number_of_times_no_frame_detected_as_smoothed_door_state: 20
     </rosparam>
@@ -247,6 +247,7 @@
     <rosparam>
       <!-- This spelling is historical and must match the namespace used in the Python node. -->
       passabilility_check:
+        control_rate_hz: 5.0
         back_proj_params:
           minimum_depth : 0.1  # meters
           maximum_depth_beyond_corridor_center_point : 1.5  # meters
@@ -300,8 +301,8 @@
         <!-- heading_error_estimation is read by the node, but the heading
              estimator itself is not called by the control loop. -->
         passability_hysteresis:
-          consecutive_passable_to_true: 5
-          consecutive_unpassable_to_false: 4
+          consecutive_passable_to_true: 10
+          consecutive_unpassable_to_false: 8
         heading_error_estimation:
           heading_filter_alpha: 0.3
           heading_error_tolerance: 0.03

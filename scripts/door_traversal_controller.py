@@ -117,7 +117,8 @@ class DoorTraversalController:
         ``~door_traversal_controller``. The constructor then waits for Gazebo's
         ``/gazebo/set_model_state`` service, creates publishers, and subscribes
         to traversal triggers, virtual-corridor acknowledgements, passability
-        results, odometry, and model poses.
+        results, and model poses. Odometry is subscribed only when a traversal
+        is triggered.
 
         Raises:
             rospy.ROSInterruptException:
@@ -251,6 +252,9 @@ class DoorTraversalController:
         self.current_pose = None
         self.current_yaw = None
         self.gazebo_pose = None
+        # Conditional subscriber handle; created by activate_odom. It exists
+        # before the trigger subscriber so the trigger callback can test it.
+        self.odom_sub = None
 
         # Passability 
         self.corridor_passable = False
@@ -305,8 +309,8 @@ class DoorTraversalController:
             "~door_traversal_done", Bool, queue_size=1
         )
 
-        self.request_local_passability_check_pub = rospy.Publisher(
-            "~request_local_passability_check", UInt8, queue_size=1
+        self.type_of_passability_check_requested_pub = rospy.Publisher(
+            "~type_of_passability_check_requested", UInt8, queue_size=1
         )
 
         self.request_new_corridor_definition_pub = rospy.Publisher(
@@ -330,10 +334,8 @@ class DoorTraversalController:
             "/check_if_passable/door_passability", Robot_passability, self.passability_callback
         )
 
-        # odometry
-        # Only the newest pose matters; an unbounded queue would let a backlog of
-        # stale poses build up and be acted on after the fact.
-        rospy.Subscriber("/odom_bridge_output", Odometry, self.odom_callback, queue_size=1)
+        # odometry is subscribed only once a traversal is triggered (see
+        # activate_odom); every use of the pose comes after that trigger.
 
         # pose from gazebo just for sending current pose info to /gazebo/set_model_state service
         rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_callback, queue_size=1)
@@ -367,11 +369,16 @@ class DoorTraversalController:
             msg:
                 ROS ``Bool`` message. A true value enables processing; false
                 messages do not cancel an already latched request.
+
+        Notes:
+            The first true message also subscribes to odometry, so the node
+            does not read poses while it waits for a door to open.
         """
         # This is a latch, not a joystick command; false messages do not cancel
         # a traversal already handed over to the controller.
         if msg.data:
             if not self.start_movement:
+                self.activate_odom()
                 self.start_movement = True
 
     def virtual_corridor_definition_finished_callback(self, msg):
@@ -533,6 +540,43 @@ class DoorTraversalController:
             and self.current_yaw is not None
             and self.front_clearance is not None
         )
+
+    # =========================================================
+    # Conditional subscriptions
+    # =========================================================
+
+    def activate_odom(self):
+        """
+        Subscribe to robot odometry when it is not already active.
+
+        Notes:
+            Until the first message arrives, :meth:`data_ready` keeps the
+            control loop waiting, exactly as before any odometry was received.
+        """
+        if self.odom_sub is None:
+            # Only the newest pose matters; an unbounded queue would let a backlog of
+            # stale poses build up and be acted on after the fact.
+            self.odom_sub = rospy.Subscriber(
+                "/odom_bridge_output",
+                Odometry,
+                self.odom_callback,
+                queue_size=1
+            )
+
+    def deactivate_odom(self):
+        """
+        Unregister odometry and clear the cached planar pose.
+
+        Notes:
+            Called when the control loop ends in ``ABORT`` or ``DONE``, after
+            the final stop command, which still needs the latest yaw.
+        """
+        if self.odom_sub is not None:
+            self.odom_sub.unregister()
+            self.odom_sub = None
+        self.current_pose = None
+        self.current_yaw = None
+
     # =========================================================
     # Utility functions
     # =========================================================
@@ -571,7 +615,7 @@ class DoorTraversalController:
         self.unsafe_seq_corridor = 0
         self.safe_seq_local = 0
         self.unsafe_seq_local = 0
-        self.request_local_passability_check_pub.publish(UInt8(data=check_type))
+        self.type_of_passability_check_requested_pub.publish(UInt8(data=check_type))
 
     def wrap_angle(self, angle):
         """
@@ -781,7 +825,7 @@ class DoorTraversalController:
             the robot stays in ``IDLE`` and no new corridor is requested.
 
             Each phase selects the check it needs on
-            ``~request_local_passability_check``: none (0) while only rotating,
+            ``~type_of_passability_check_requested``: none (0) while only rotating,
             local (2) while pre-positioning and after the midpoint, and
             corridor (1) while traversing or after a new corridor is defined.
             Traversal hands over to the post-midpoint phase within 0.3 m of the
@@ -1241,6 +1285,7 @@ class DoorTraversalController:
 
                 self.stop_robot()
                 rospy.logwarn("Abort completed")
+                self.deactivate_odom()
                 return
 
             # =================================================
@@ -1251,6 +1296,7 @@ class DoorTraversalController:
                 self.done_pub.publish(Bool(data=True))
                 self.corridor_mid_point_was_reached_for_previous_corridor_in_the_same_traversal_cycle = False
                 # publish done signal in the DONE state
+                self.deactivate_odom()
                 return
 
 

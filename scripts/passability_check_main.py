@@ -253,7 +253,7 @@ class PassabilityCheckerNode:
 
         # Passability checker instance
         self.passability_checker = Passability_checker()
-        self.rate = rospy.Rate(5)  # 5 Hz decision loop
+        self.rate = rospy.Rate(self.control_rate_hz)  # 5 Hz decision loop
 
         self._load_camera_extrinsics()
 
@@ -281,7 +281,7 @@ class PassabilityCheckerNode:
         self.camera_info_topic = rospy.get_param("~camera_info_topic", "/camera/color/camera_info")
         self.profile_enabled = rospy.get_param("~profiling_enabled", False)
         ns = "~passabilility_check"
-
+        self.control_rate_hz = rospy.get_param(f"{ns}/control_rate_hz", 5.0)
         # -----------------------------
         # Backprojection parameters
         # -----------------------------
@@ -404,9 +404,9 @@ class PassabilityCheckerNode:
         )
 
         rospy.Subscriber(
-            "/door_traversal/request_local_passability_check",
+            "/door_traversal/type_of_passability_check_requested",
             UInt8,
-            self._request_local_passability_check_cb,
+            self._type_of_passability_check_requested_cb,
             queue_size=1
         )
 
@@ -687,7 +687,7 @@ class PassabilityCheckerNode:
         self.virtual_corridor_definition_finished = False
         self.corridor_middle_point_depth_from_traversal = None
 
-    def _request_local_passability_check_cb(self, msg):
+    def _type_of_passability_check_requested_cb(self, msg):
         """
         Store the passability mode requested by the traversal controller.
 
